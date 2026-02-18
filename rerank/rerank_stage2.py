@@ -11,10 +11,10 @@ from typing import Dict, Iterable, List, Sequence, Tuple
 import numpy as np
 import pandas as pd
 
-# Allow importing from scripts/public when running as a module or script.
+# Allow importing retrieval_eval from scripts/public/shared_scripts.
 import sys
-_ROOT = Path(__file__).resolve().parents[3]
-sys.path.insert(0, str(_ROOT / "scripts" / "public"))
+_SHARED_SCRIPTS = Path(__file__).resolve().parents[2]  # shared_scripts/
+sys.path.insert(0, str(_SHARED_SCRIPTS))
 
 try:
     import torch
