@@ -7,7 +7,7 @@
 #   ./run_retrieval_rerank_pipeline.sh -c <path/to/config.env>
 #   ./run_retrieval_rerank_pipeline.sh -c config.env --no-rerank   # stop at hybrid
 #
-# Or: source my.env && ./run_retrieval_rerank_pipeline.sh  (env already set)
+# Or: source my.env && ./run_retrieval_rerank_pipeline.sh 
 #
 # Config file sets: WORKFLOW_OUTPUT_DIR, TRAIN_JSON, TEST_BATCH_JSONS, TOP_K,
 # RECALL_KS, BM25_INDEX_PATH, DENSE_INDEX_DIR, DOCS_JSONL (optional), and
