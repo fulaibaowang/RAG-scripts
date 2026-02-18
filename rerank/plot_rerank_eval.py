@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 import numpy as np
 import pandas as pd
@@ -33,10 +34,10 @@ from retrieval_eval.common import (
     run_df_to_run_map,
 )
 
-FIG_NAMES = (
-    "hybrid_reranker_recall_map10_train.png",
-    "hybrid_reranker_recall_map10_test.png",
-)
+def _safe_figure_basename(label: str) -> str:
+    """Sanitize label for use in figure filename (no path separators, no empty)."""
+    base = str(label).strip().replace("/", "_").replace("\\", "_") or "dataset"
+    return base
 
 
 def _load_run_tsv(path: Path) -> pd.DataFrame:
@@ -67,19 +68,18 @@ def _meanr_columns_to_k_list(df: pd.DataFrame) -> List[int]:
     return sorted(k_list)
 
 
-def _is_train_split(split_name: str) -> bool:
-    return "train" in split_name.lower()
-
-
 def build_and_save_hybrid_reranker_plots(
     reranker_metrics_df: pd.DataFrame,
     run_maps: Dict[str, Dict[str, List[str]]],
     gold_map_all: Dict[str, List[str]],
     output_dir: Path,
     candidate_limit: Optional[int] = None,
+    config: Optional[Dict] = None,
 ) -> None:
-    """Build Hybrid + Reranker combined table, aggregate train/test, save two figures.
-    Recall curve is plotted only up to candidate_limit (reranker cap) when provided.
+    """Build Hybrid + Reranker combined table by label, save one figure per label.
+    Uses metrics columns 'run', 'label', 'role' when present; else infers from config
+    (split_to_role, split_to_label) by parsing run stem. Recall curve is plotted only
+    up to candidate_limit (reranker cap) when provided.
     """
     if plt is None:
         print("warning: matplotlib not available; skipping eval plots")
@@ -93,22 +93,42 @@ def build_and_save_hybrid_reranker_plots(
         return
 
     metric_cols = [f"MeanR@{k}" for k in k_list] + ["MAP@10"]
-    rows = []
+    run_col = "run" if "run" in reranker_metrics_df.columns else "split"
+    split_to_role = (config or {}).get("split_to_role") or {}
+    split_to_label = (config or {}).get("split_to_label") or {}
 
+    def _parse_split_from_run_stem(stem: str) -> Optional[str]:
+        m = re.fullmatch(r"best_rrf_(.+)_top\d+", str(stem))
+        return m.group(1) if m else None
+
+    # One row per run: run_id, label, role, then hybrid/reranker metrics
+    rows = []
     for _, row in reranker_metrics_df.iterrows():
-        split = row["split"]
-        if split not in run_maps:
+        run_id = row.get(run_col, row.get("split"))
+        if run_id not in run_maps:
             continue
-        run_map = run_maps[split]
+        run_map = run_maps[run_id]
         gold_for_run = {qid: gold_map_all[qid] for qid in run_map if qid in gold_map_all}
         if not gold_for_run:
             continue
 
+        if "label" in row and "role" in row:
+            label = row["label"]
+            role = row["role"]
+        else:
+            split = _parse_split_from_run_stem(run_id)
+            if split and split in split_to_label and split in split_to_role:
+                label = split_to_label[split]
+                role = split_to_role[split]
+            else:
+                label = str(run_id)
+                role = "unknown"
+
         hybrid_metrics, _ = evaluate_run(gold_for_run, run_map, ks_recall=tuple(k_list))
         reranker_vals = {c: row.get(c, np.nan) for c in metric_cols}
 
-        rows.append({"method": "Hybrid", "split": split, **hybrid_metrics})
-        rows.append({"method": "Reranker", "split": split, **reranker_vals})
+        rows.append({"method": "Hybrid", "run": run_id, "label": label, "role": role, **hybrid_metrics})
+        rows.append({"method": "Reranker", "run": run_id, "label": label, "role": role, **reranker_vals})
 
     if not rows:
         print("warning: no overlapping splits with gold; skipping eval plots")
@@ -116,25 +136,31 @@ def build_and_save_hybrid_reranker_plots(
 
     combined = pd.DataFrame(rows)
 
-    def _aggregate(splits: List[str]) -> pd.DataFrame:
-        sub = combined[combined["split"].isin(splits)]
+    def _aggregate_for_label(lbl: str) -> pd.DataFrame:
+        sub = combined[combined["label"] == lbl]
         if sub.empty:
             return pd.DataFrame()
         return sub.groupby("method", as_index=True)[metric_cols].mean()
 
-    train_splits = [s for s in reranker_metrics_df["split"].unique() if _is_train_split(s)]
-    test_splits = [s for s in reranker_metrics_df["split"].unique() if not _is_train_split(s)]
+    if "label" in reranker_metrics_df.columns:
+        labels = list(reranker_metrics_df["label"].unique())
+    else:
+        seen: Set[str] = set()
+        labels = []
+        for _, row in reranker_metrics_df.iterrows():
+            run_id = row.get(run_col, row.get("split"))
+            split = _parse_split_from_run_stem(run_id)
+            lbl = split_to_label.get(split, str(run_id)) if split else str(run_id)
+            if lbl not in seen:
+                seen.add(lbl)
+                labels.append(lbl)
 
     colors = {"Hybrid": "#444444", "Reranker": "#1f77b4"}
-
     figures_dir = output_dir / "figures"
     figures_dir.mkdir(parents=True, exist_ok=True)
 
-    for title_suffix, splits, fname in [
-        ("Train", train_splits, FIG_NAMES[0]),
-        ("Test (avg)", test_splits, FIG_NAMES[1]),
-    ]:
-        avg_df = _aggregate(splits)
+    for label in labels:
+        avg_df = _aggregate_for_label(label)
         if avg_df.empty or "Hybrid" not in avg_df.index or "Reranker" not in avg_df.index:
             continue
 
@@ -147,7 +173,7 @@ def build_and_save_hybrid_reranker_plots(
             ax_recall.plot(k_list, vals, marker="o", label=method, color=colors.get(method))
         ax_recall.set_xlabel("K (Recall Cutoff)")
         ax_recall.set_ylabel("Mean Recall")
-        ax_recall.set_title(f"Hybrid vs Reranker ({title_suffix}) Recall")
+        ax_recall.set_title(f"Hybrid vs Reranker ({label}) Recall")
         ax_recall.set_xscale("log")
         ax_recall.legend(fontsize=9, loc="lower right")
 
@@ -155,10 +181,11 @@ def build_and_save_hybrid_reranker_plots(
         map_vals = [avg_df.loc[m, "MAP@10"] for m in compare]
         ax_map.bar(compare, map_vals, color=[colors.get(m) for m in compare])
         ax_map.set_ylabel("MAP@10")
-        ax_map.set_title(f"Hybrid vs Reranker ({title_suffix}) MAP@10")
+        ax_map.set_title(f"Hybrid vs Reranker ({label}) MAP@10")
         ax_map.tick_params(axis="x", rotation=25)
 
         plt.tight_layout()
+        fname = f"hybrid_reranker_recall_map10_{_safe_figure_basename(label)}.png"
         out_path = figures_dir / fname
         plt.savefig(out_path, dpi=150, bbox_inches="tight")
         plt.close()
@@ -178,8 +205,8 @@ def main() -> None:
         raise FileNotFoundError(f"Rerank metrics not found: {metrics_path}")
 
     reranker_metrics_df = pd.read_csv(metrics_path)
-    if "split" not in reranker_metrics_df.columns:
-        raise ValueError("metrics.csv must have a 'split' column")
+    if "split" not in reranker_metrics_df.columns and "run" not in reranker_metrics_df.columns:
+        raise ValueError("metrics.csv must have a 'run' or 'split' column")
 
     run_files = sorted(args.runs_dir.glob("*.tsv"))
     if not run_files:
@@ -210,11 +237,28 @@ def main() -> None:
         raise ValueError("No gold loaded; provide --train_subset_json and/or --test_batch_jsons")
 
     candidate_limit = None
+    plot_config = None
     config_path = args.output_dir / "config.json"
     if config_path.exists():
         try:
             config = json.loads(config_path.read_text(encoding="utf-8"))
             candidate_limit = config.get("candidate_limit")
+            plot_config = dict(config)
+            # Backward compat: build split_to_role / split_to_label from paths if missing
+            if "split_to_role" not in plot_config and ("train_subset_json" in config or "test_batch_jsons" in config):
+                s2r: Dict[str, str] = {}
+                s2l: Dict[str, str] = {}
+                if config.get("train_subset_json"):
+                    train_stem = Path(config["train_subset_json"]).stem
+                    s2r[train_stem] = "train"
+                    s2l[train_stem] = train_stem
+                for p in config.get("test_batch_jsons") or []:
+                    stem = Path(p).stem
+                    s2r[stem] = "test"
+                    s2l[stem] = stem
+                if s2r:
+                    plot_config["split_to_role"] = s2r
+                    plot_config["split_to_label"] = s2l
         except Exception:
             pass
 
@@ -224,6 +268,7 @@ def main() -> None:
         gold_map_all,
         args.output_dir,
         candidate_limit=candidate_limit,
+        config=plot_config,
     )
 
 

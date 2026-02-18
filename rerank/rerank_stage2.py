@@ -3,10 +3,11 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from time import time
-from typing import Dict, Iterable, List, Sequence, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -47,6 +48,37 @@ class OutputConfig:
 
 def _resolve_repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
+
+
+# Hybrid stage writes best_rrf_{split}_top{k}.tsv; extract logical split for role/label mapping.
+def _parse_split_from_run_stem(run_stem: str) -> Optional[str]:
+    m = re.fullmatch(r"best_rrf_(.+)_top\d+", run_stem)
+    return m.group(1) if m else None
+
+
+def _build_split_to_role_and_label(
+    train_subset_json: Optional[Path],
+    test_batch_jsons: List[Path],
+) -> Tuple[Dict[str, str], Dict[str, str]]:
+    """Build split -> role (train/test) and split -> label (file stem for display)."""
+    split_to_role: Dict[str, str] = {}
+    split_to_label: Dict[str, str] = {}
+    if train_subset_json and train_subset_json.exists():
+        train_stem = train_subset_json.stem
+        split_to_role[train_stem] = "train"
+        split_to_label[train_stem] = train_stem
+    for p in test_batch_jsons:
+        path = Path(p)
+        stem = path.stem
+        split_to_role[stem] = "test"
+        split_to_label[stem] = stem
+    labels = list(split_to_label.values())
+    if len(labels) != len(set(labels)):
+        raise ValueError(
+            "Duplicate dataset labels; train and test file names (stems) must be distinct. "
+            f"Labels: {labels}"
+        )
+    return split_to_role, split_to_label
 
 
 def parse_args() -> argparse.Namespace:
@@ -441,6 +473,9 @@ def main() -> None:
     summary_rows = []
 
     if not args.disable_metrics and gold_map_all:
+        split_to_role, split_to_label = _build_split_to_role_and_label(
+            train_subset_json, [Path(p) for p in test_batch_jsons]
+        )
         for name, reranked in reranked_runs.items():
             reranked_map = {qid: [doc for doc, _ in docs] for qid, docs in reranked.items()}
             gold_for_run = {qid: gold_map_all[qid] for qid in reranked_map if qid in gold_map_all}
@@ -451,7 +486,15 @@ def main() -> None:
             metrics, perq = evaluate_run(gold_for_run, reranked_map, ks_recall=ks_recall)
             perq.to_csv(output_cfg.per_query_dir / f"{name}.csv", index=False)
 
-            row = {"split": name}
+            split = _parse_split_from_run_stem(name)
+            if split is not None and split in split_to_role:
+                role = split_to_role[split]
+                label = split_to_label[split]
+            else:
+                role = "unknown"
+                label = name
+
+            row = {"run": name, "label": label, "role": role}
             row.update(metrics)
             summary_rows.append(row)
 
@@ -462,9 +505,11 @@ def main() -> None:
             try:
                 from rerank.plot_rerank_eval import build_and_save_hybrid_reranker_plots
                 cap = int(args.candidate_limit) if args.candidate_limit else None
+                plot_config = {"split_to_role": split_to_role, "split_to_label": split_to_label}
                 build_and_save_hybrid_reranker_plots(
                     summary_df, run_maps, gold_map_all, output_cfg.output_dir,
                     candidate_limit=cap,
+                    config=plot_config,
                 )
             except Exception as e:
                 print("warning: could not generate eval plots:", e)
@@ -472,6 +517,16 @@ def main() -> None:
         print("metrics disabled")
     else:
         print("no gold provided; skipping metrics")
+
+    split_to_role_cfg: Dict[str, str] = {}
+    split_to_label_cfg: Dict[str, str] = {}
+    if train_subset_json or test_batch_jsons:
+        try:
+            split_to_role_cfg, split_to_label_cfg = _build_split_to_role_and_label(
+                train_subset_json, [Path(p) for p in test_batch_jsons]
+            )
+        except ValueError:
+            pass
 
     config = {
         "model": args.model,
@@ -488,6 +543,8 @@ def main() -> None:
         "train_subset_json": str(train_subset_json) if train_subset_json else "",
         "test_batch_jsons": [str(p) for p in test_batch_jsons],
         "ks_recall": list(ks_recall),
+        "split_to_role": split_to_role_cfg,
+        "split_to_label": split_to_label_cfg,
     }
     output_cfg.config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
 

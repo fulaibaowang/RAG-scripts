@@ -197,16 +197,17 @@ else
 fi
 
 # ----- Reranker (optional: only if DOCS_JSONL set and not --no-rerank) -----
-RERANK_FIG_TRAIN="$RERANK_OUT/figures/hybrid_reranker_recall_map10_train.png"
-RERANK_FIG_TEST="$RERANK_OUT/figures/hybrid_reranker_recall_map10_test.png"
-
+# Figures are named hybrid_reranker_recall_map10_{label}.png (one per dataset label)
 if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
   RERANK_RESULTS_EXIST=0
   [ -f "$RERANK_OUT/metrics.csv" ] && RERANK_RESULTS_EXIST=1
   [ "$RERANK_RESULTS_EXIST" = "0" ] && [ -n "$(find "$RERANK_OUT" -maxdepth 2 -name '*.tsv' 2>/dev/null | head -1)" ] && RERANK_RESULTS_EXIST=1
 
+  RERANK_FIGS_EXIST=0
+  [ -n "$(find "$RERANK_OUT/figures" -maxdepth 1 -name 'hybrid_reranker_recall_map10_*.png' 2>/dev/null | head -1)" ] && RERANK_FIGS_EXIST=1
+
   if [ "$RERANK_RESULTS_EXIST" = "1" ]; then
-    if [ -f "$RERANK_FIG_TRAIN" ] && [ -f "$RERANK_FIG_TEST" ]; then
+    if [ "$RERANK_FIGS_EXIST" = "1" ]; then
       echo "[4/$TOTAL_STEPS] Reranker... (skip: output exists)"
     else
       echo "[4/$TOTAL_STEPS] Reranker... (generating eval plots from existing results)"

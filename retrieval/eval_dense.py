@@ -391,6 +391,8 @@ def main():
         "effective": int(ef_effective),
     }
 
+    train_stem = Path(args.train_subset_json).stem
+
     if args.no_eval:
         train_data = json.loads(Path(args.train_subset_json).read_text(encoding="utf-8"))
         topics_df, _ = build_topics_and_gold(train_data["questions"])
@@ -405,7 +407,7 @@ def main():
             space=space,
             ef=ef_effective,
         )
-        save_dense_run_tsv(out_dir, "train_subset", res_df)
+        save_dense_run_tsv(out_dir, train_stem, res_df)
         for fp in args.test_batch_jsons:
             p = Path(fp)
             data = json.loads(p.read_text(encoding="utf-8"))
@@ -435,7 +437,7 @@ def main():
     all_rows.append(
         evaluate_and_save_dense_on_questions(
             train_data["questions"],
-            split="train_subset",
+            split=train_stem,
             out_dir=out_dir,
             model=model,
             index=index,

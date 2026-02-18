@@ -282,6 +282,8 @@ def main():
         keep = set(train_topics["qid"].astype(str).tolist())
         train_gold = {qid: pmids for qid, pmids in train_gold.items() if qid in keep}
 
+    train_batch = Path(args.train_json).stem
+
     # Evaluate
     all_rows = []
     config = vars(args)
@@ -321,7 +323,7 @@ def main():
     if args.no_eval:
         for method, pipe in methods_to_run:
             run_map, res_df = run_retrieval_only(train_topics, pipe, args.k_eval)
-            save_run_tsv(method, "train_subset", res_df)
+            save_run_tsv(method, train_batch, res_df)
         for batch_name, questions in test_batches:
             topics, _ = build_topics_and_gold(questions)
             for method, pipe in methods_to_run:
@@ -332,9 +334,9 @@ def main():
 
     # Train subset
     for method, pipe in methods_to_run:
-        br, perq, run_map, res_df = eval_one(method, "train_subset", train_topics, train_gold, pipe, args.k_eval, ks_recall=ks_recall)
+        br, perq, run_map, res_df = eval_one(method, train_batch, train_topics, train_gold, pipe, args.k_eval, ks_recall=ks_recall)
         all_rows.append(br.to_row())
-        maybe_save(method, "train_subset", run_map, res_df, perq, train_gold)
+        maybe_save(method, train_batch, run_map, res_df, perq, train_gold)
 
     # Test batches
     for batch_name, questions in test_batches:

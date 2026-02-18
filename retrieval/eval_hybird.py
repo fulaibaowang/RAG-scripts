@@ -568,15 +568,17 @@ def main() -> None:
             if str(q.get("id") or q.get("qid") or i) not in test_qids
         ]
 
+    train_stem = Path(args.train_subset_json).stem
+
     gold_maps: Dict[str, Dict[str, List[str]]] = {}
-    _, gold_maps["train_subset"] = build_topics_and_gold(train_questions)
+    _, gold_maps[train_stem] = build_topics_and_gold(train_questions)
 
     for fp in test_files:
         questions = load_questions(fp)
         _, gold_map = build_topics_and_gold(questions)
         gold_maps[fp.stem] = gold_map
 
-    splits = ["train_subset"] + [fp.stem for fp in test_files]
+    splits = [train_stem] + [fp.stem for fp in test_files]
 
     bm25_runs: Dict[str, pd.DataFrame] = {}
     dense_runs: Dict[str, pd.DataFrame] = {}
@@ -687,8 +689,8 @@ def main() -> None:
 
     test_splits = [fp.stem for fp in test_files]
     if not test_splits:
-        test_splits = ["train_subset"]
-        print("[warn] No test splits provided; using train_subset for ranking.")
+        test_splits = [train_stem]
+        print("[warn] No test splits provided; using train split for ranking.")
 
     ranked = rank_option1(results_df, test_splits, cap_eff=cap_eff, k_max_eval_eff=k_max_eval_eff)
     ranked.to_csv(out_dir / "ranked_test_avg.csv", index=False)
@@ -723,7 +725,7 @@ def main() -> None:
     save_plots = bool((not args.no_plots) or args.save_plots)
     if save_plots:
         best_cfg = ranked.iloc[0]
-        curve_splits_list = ["train_subset"] + test_splits
+        curve_splits_list = [train_stem] + test_splits
         plot_recall_curves(
             results_df=results_df,
             bm25_runs=bm25_runs,
