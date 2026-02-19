@@ -109,6 +109,12 @@ def parse_args() -> argparse.Namespace:
     )
     inputs.add_argument("--candidate-limit", type=int, default=2000, help="Stage-1 candidate cutoff per query.")
     inputs.add_argument("--max-queries", type=int, default=None, help="Max queries per split.")
+    inputs.add_argument(
+        "--query-field",
+        type=str,
+        default="body",
+        help="Question key to use as query text for reranker (e.g. body, original_query, body_expansion_synonyms, body_expansion_long). Default: body.",
+    )
 
     model = parser.add_argument_group("model")
     model.add_argument("--model", type=str, default="cross-encoder/ms-marco-MiniLM-L-12-v2")
@@ -417,20 +423,20 @@ def main() -> None:
     topics_map: Dict[str, str] = {}
     gold_map_all: Dict[str, List[str]] = {}
 
-    def _add_questions(json_path: Path) -> None:
+    def _add_questions(json_path: Path, query_field: Optional[str] = None) -> None:
         if not json_path.exists():
             return
         questions = load_questions(json_path)
-        topics_df, gold_map = build_topics_and_gold(questions)
+        topics_df, gold_map = build_topics_and_gold(questions, query_field=query_field)
         topics_map.update(dict(zip(topics_df["qid"], topics_df["query"])))
         for qid, docs in gold_map.items():
             gold_map_all[qid] = docs
 
     if train_subset_json:
-        _add_questions(train_subset_json)
+        _add_questions(train_subset_json, query_field=args.query_field)
 
     for path in test_batch_jsons:
-        _add_questions(Path(path))
+        _add_questions(Path(path), query_field=args.query_field)
 
     if not topics_map:
         print("warning: no query text loaded; reranking will preserve original order.")

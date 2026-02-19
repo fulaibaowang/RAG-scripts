@@ -250,8 +250,9 @@ def evaluate_and_save_dense_on_questions(
     meta_base: dict[str, Any] | None = None,
     save: bool = True,
     save_per_query: bool = False,
+    query_field: str | None = None,
 ) -> dict[str, Any]:
-    topics_df, gold_map = build_topics_and_gold(questions)
+    topics_df, gold_map = build_topics_and_gold(questions, query_field=query_field)
 
     res_df = dense_retrieve_topics(
         model=model,
@@ -331,6 +332,12 @@ def main():
     ap.add_argument("--notes", type=str, default="")
     ap.add_argument("--save_per_query", action="store_true", help="Save per-query metrics CSVs")
     ap.add_argument("--no_eval", action="store_true", help="Skip evaluation; only run retrieval and write run TSV")
+    ap.add_argument(
+        "--query-field",
+        type=str,
+        default="body",
+        help="Question key to use as query text (e.g. body, original_query, body_expansion_synonyms, body_expansion_long). Default: body.",
+    )
 
     args = ap.parse_args()
 
@@ -395,7 +402,7 @@ def main():
 
     if args.no_eval:
         train_data = json.loads(Path(args.train_subset_json).read_text(encoding="utf-8"))
-        topics_df, _ = build_topics_and_gold(train_data["questions"])
+        topics_df, _ = build_topics_and_gold(train_data["questions"], query_field=args.query_field)
         res_df = dense_retrieve_topics(
             model=model,
             index=index,
@@ -411,7 +418,7 @@ def main():
         for fp in args.test_batch_jsons:
             p = Path(fp)
             data = json.loads(p.read_text(encoding="utf-8"))
-            topics_df, _ = build_topics_and_gold(data["questions"])
+            topics_df, _ = build_topics_and_gold(data["questions"], query_field=args.query_field)
             res_df = dense_retrieve_topics(
                 model=model,
                 index=index,
@@ -451,6 +458,7 @@ def main():
             meta_base=meta_base,
             save=True,
             save_per_query=bool(args.save_per_query),
+            query_field=args.query_field,
         )
     )
 
@@ -475,6 +483,7 @@ def main():
                 meta_base=meta_base,
                 save=True,
                 save_per_query=bool(args.save_per_query),
+                query_field=args.query_field,
             )
         )
 

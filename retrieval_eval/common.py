@@ -44,13 +44,21 @@ def load_questions(json_path: Path) -> List[dict]:
     return data["questions"]
 
 
-def build_topics_and_gold(questions: List[dict]) -> Tuple[pd.DataFrame, Dict[str, List[str]]]:
-    """Return topics_df(qid, query) and gold_map[qid]=[pmids]."""
+def build_topics_and_gold(
+    questions: List[dict],
+    query_field: Optional[str] = None,
+) -> Tuple[pd.DataFrame, Dict[str, List[str]]]:
+    """Return topics_df(qid, query) and gold_map[qid]=[pmids].
+    If query_field is set (e.g. 'body_expansion_long', 'original_query'), use that key for query text first;
+    otherwise fallback to body, query, question."""
     rows = []
     gold: Dict[str, List[str]] = {}
     for i, q in enumerate(questions):
         qid = str(q.get("id") or q.get("qid") or i)
-        query = str(q.get("body") or q.get("query") or q.get("question") or "").strip()
+        if query_field and q.get(query_field) not in (None, ""):
+            query = str(q.get(query_field)).strip()
+        else:
+            query = str(q.get("body") or q.get("query") or q.get("question") or "").strip()
 
         docs = q.get("documents") or []
         pmids = [normalize_pmid(d) for d in docs]
