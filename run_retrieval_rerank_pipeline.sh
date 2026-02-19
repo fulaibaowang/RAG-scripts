@@ -10,8 +10,9 @@
 # Or: source my.env && ./run_retrieval_rerank_pipeline.sh 
 #
 # Config file sets: WORKFLOW_OUTPUT_DIR, TRAIN_JSON, TEST_BATCH_JSONS, TOP_K,
-# RECALL_KS, BM25_INDEX_PATH, DENSE_INDEX_DIR, DOCS_JSONL (optional), and
-# stage overrides (BM25_*, DENSE_*, HYBRID_*, RERANK_*). See workflow_config_full.env.
+# RECALL_KS, BM25_INDEX_PATH, DENSE_INDEX_DIR, DOCS_JSONL (optional),
+# BM25_QUERY_FIELD / DENSE_QUERY_FIELD (body | body_expansion_synonyms | body_expansion_long),
+# and stage overrides (BM25_*, DENSE_*, HYBRID_*, RERANK_*). See workflow_config_full.env.
 #
 set -e
 
@@ -134,6 +135,7 @@ BM25_ARGS=(
 [ "${BM25_SAVE_PER_QUERY:-0}" = "1" ] && BM25_ARGS+=(--save_per_query)
 [ "${BM25_SAVE_ZERO_RECALL:-0}" = "1" ] && BM25_ARGS+=(--save_zero_recall)
 [ "${BM25_NO_EXCLUDE_TEST_QIDS:-0}" = "1" ] && BM25_ARGS+=(--no_exclude_test_qids)
+[ -n "${BM25_QUERY_FIELD:-}" ] && BM25_ARGS+=(--query-field "$BM25_QUERY_FIELD")
 
 if [ -f "$BM25_OUT/metrics.csv" ] || [ -n "$(find "$BM25_OUT/runs" -maxdepth 1 -name '*.tsv' 2>/dev/null | head -1)" ]; then
   echo "[1/$TOTAL_STEPS] BM25... (skip: output exists)"
@@ -158,6 +160,7 @@ DENSE_ARGS=(
 [ -n "${DENSE_MODEL_NAME:-}" ] && DENSE_ARGS+=(--model_name "$DENSE_MODEL_NAME")
 [ "${DENSE_NO_EVAL:-0}" = "1" ] && DENSE_ARGS+=(--no_eval)
 [ "${DENSE_SAVE_PER_QUERY:-0}" = "1" ] && DENSE_ARGS+=(--save_per_query)
+[ -n "${DENSE_QUERY_FIELD:-}" ] && DENSE_ARGS+=(--query-field "$DENSE_QUERY_FIELD")
 
 if [ -f "$DENSE_OUT/metrics.csv" ] || [ -n "$(find "$DENSE_OUT/runs" -maxdepth 1 -name '*.tsv' 2>/dev/null | head -1)" ]; then
   echo "[2/$TOTAL_STEPS] Dense... (skip: output exists)"
