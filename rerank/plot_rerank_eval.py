@@ -174,7 +174,6 @@ def build_and_save_hybrid_reranker_plots(
         ax_recall.set_xlabel("K (Recall Cutoff)")
         ax_recall.set_ylabel("Mean Recall")
         ax_recall.set_title(f"Hybrid vs Reranker ({label}) Recall")
-        ax_recall.set_xscale("log")
         ax_recall.legend(fontsize=9, loc="lower right")
 
         ax_map = axes[1]
