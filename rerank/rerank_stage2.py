@@ -113,7 +113,7 @@ def parse_args() -> argparse.Namespace:
         "--query-field",
         type=str,
         default="body",
-        help="Question key to use as query text for reranker (e.g. body, original_query, body_expansion_synonyms, body_expansion_long). Default: body.",
+        help="Question key to use as query text for reranker (e.g. body, body_expansion_synonyms, body_expansion_long). Default: body.",
     )
 
     model = parser.add_argument_group("model")

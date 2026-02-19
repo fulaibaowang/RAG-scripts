@@ -201,7 +201,7 @@ def main():
         "--query-field",
         type=str,
         default="body_expansion_long",
-        help="Question key to use as query text (e.g. original_query, body_expansion_synonyms, body_expansion_long). Default: body_expansion_long for BM25.",
+        help="Question key to use as query text (e.g. body, body_expansion_synonyms, body_expansion_long). Default: body_expansion_long for BM25.",
     )
     args = ap.parse_args()
 

@@ -336,7 +336,7 @@ def main():
         "--query-field",
         type=str,
         default="body",
-        help="Question key to use as query text (e.g. body, original_query, body_expansion_synonyms, body_expansion_long). Default: body.",
+        help="Question key to use as query text (e.g. body, body_expansion_synonyms, body_expansion_long). Default: body.",
     )
 
     args = ap.parse_args()

@@ -49,7 +49,7 @@ def build_topics_and_gold(
     query_field: Optional[str] = None,
 ) -> Tuple[pd.DataFrame, Dict[str, List[str]]]:
     """Return topics_df(qid, query) and gold_map[qid]=[pmids].
-    If query_field is set (e.g. 'body_expansion_long', 'original_query'), use that key for query text first;
+    If query_field is set (e.g. 'body_expansion_long', 'body'), use that key for query text first;
     otherwise fallback to body, query, question."""
     rows = []
     gold: Dict[str, List[str]] = {}
