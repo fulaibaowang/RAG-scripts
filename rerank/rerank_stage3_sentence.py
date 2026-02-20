@@ -16,10 +16,20 @@ import numpy as np
 import pandas as pd
 
 import sys
-_SCRIPT_DIR = Path(__file__).resolve().parent
+_THIS_FILE = Path(__file__).resolve()
+_SCRIPT_DIR = _THIS_FILE.parent
+# Find directory containing retrieval_eval so imports work when run directly (no pipeline PYTHONPATH)
 _SHARED_SCRIPTS = _SCRIPT_DIR.parents[1]
-sys.path.insert(0, str(_SHARED_SCRIPTS))
-sys.path.insert(0, str(_SCRIPT_DIR))
+for _p in [_SHARED_SCRIPTS] + list(_SCRIPT_DIR.parents):
+    if (_p / "retrieval_eval").exists():
+        if str(_p) not in sys.path:
+            sys.path.insert(0, str(_p))
+        _SHARED_SCRIPTS = _p
+        break
+else:
+    sys.path.insert(0, str(_SHARED_SCRIPTS))
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
 
 try:
     import torch

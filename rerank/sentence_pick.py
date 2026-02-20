@@ -15,10 +15,19 @@ import numpy as np
 
 # Allow importing retrieval_eval and retrieval from shared_scripts; rerank for rerank_stage2
 import sys
-_SCRIPT_DIR = Path(__file__).resolve().parent
+_THIS_FILE = Path(__file__).resolve()
+_SCRIPT_DIR = _THIS_FILE.parent
 _SHARED_SCRIPTS = _SCRIPT_DIR.parents[1]
-sys.path.insert(0, str(_SHARED_SCRIPTS))
-sys.path.insert(0, str(_SCRIPT_DIR))
+for _p in [_SHARED_SCRIPTS] + list(_SCRIPT_DIR.parents):
+    if (_p / "retrieval_eval").exists():
+        if str(_p) not in sys.path:
+            sys.path.insert(0, str(_p))
+        _SHARED_SCRIPTS = _p
+        break
+else:
+    sys.path.insert(0, str(_SHARED_SCRIPTS))
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
 
 from retrieval_eval.common import (
     build_topics_and_gold,
