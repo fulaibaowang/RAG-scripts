@@ -38,13 +38,24 @@ from retrieval_eval.common import (
 from rerank_stage2 import extract_docno, load_run_tsv
 
 
+_nltk_punkt_ensured: bool = False
+
+
 def _ensure_nltk_punkt() -> None:
+    """Ensure NLTK sentence tokenizer data is available. Newer NLTK uses punkt_tab; older uses punkt."""
+    global _nltk_punkt_ensured
+    if _nltk_punkt_ensured:
+        return
+    import nltk
     try:
-        import nltk
-        nltk.data.find("tokenizers/punkt")
+        nltk.sent_tokenize("Hello world.")
     except LookupError:
-        import nltk
-        nltk.download("punkt", quiet=True)
+        for resource in ("punkt_tab", "punkt"):
+            try:
+                nltk.download(resource, quiet=True)
+            except Exception:
+                pass
+    _nltk_punkt_ensured = True
 
 
 def extract_title_and_sentences(rec: dict) -> Tuple[str, List[str]]:
