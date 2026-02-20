@@ -19,9 +19,11 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-# Parse -c / --config, --no-rerank, -h / --help
+# Parse -c / --config, --no-rerank, --bm25-query-field, --dense-query-field, -h / --help
 CONFIG_FILE=""
 RUN_RERANK=1
+BM25_QUERY_FIELD_ARG=""
+DENSE_QUERY_FIELD_ARG=""
 while [ $# -gt 0 ]; do
   case "$1" in
     -c|--config)
@@ -33,14 +35,26 @@ while [ $# -gt 0 ]; do
       RUN_RERANK=0
       shift
       ;;
+    --bm25-query-field)
+      [ -z "${2:-}" ] && { echo "Error: --bm25-query-field requires a value." >&2; exit 1; }
+      BM25_QUERY_FIELD_ARG="$2"
+      shift 2
+      ;;
+    --dense-query-field)
+      [ -z "${2:-}" ] && { echo "Error: --dense-query-field requires a value." >&2; exit 1; }
+      DENSE_QUERY_FIELD_ARG="$2"
+      shift 2
+      ;;
     -h|--help)
-      echo "Usage: $0 [--config|-c <config.env>] [--no-rerank]"
-      echo "  -c, --config PATH   Source PATH as config (env vars) before running."
-      echo "  --no-rerank        Run only BM25, Dense, Hybrid; skip reranker even if DOCS_JSONL is set."
-      echo "  -h, --help         Show this help."
+      echo "Usage: $0 [--config|-c <config.env>] [--no-rerank] [--bm25-query-field FIELD] [--dense-query-field FIELD]"
+      echo "  -c, --config PATH       Source PATH as config (env vars) before running."
+      echo "  --no-rerank             Run only BM25, Dense, Hybrid; skip reranker even if DOCS_JSONL is set."
+      echo "  --bm25-query-field F    Use F as query text for BM25 (overrides env; e.g. body, body_expansion_long)."
+      echo "  --dense-query-field F   Use F as query text for Dense (overrides env)."
+      echo "  -h, --help              Show this help."
       echo ""
       echo "Example: $0 --config scripts/private_scripts/config.env"
-      echo "Example: $0 -c config.env --no-rerank"
+      echo "Example: $0 -c config.env --no-rerank --bm25-query-field body_expansion_long --dense-query-field body"
       echo "Example: source workflow_config_small.env && $0"
       exit 0
       ;;
@@ -62,6 +76,10 @@ if [ -n "$CONFIG_FILE" ]; then
   set +a
   echo "Loaded config: $CONFIG_FILE"
 fi
+
+# Explicit args override env (used by run_query_field_sweep.sh so query fields are never lost)
+[ -n "$BM25_QUERY_FIELD_ARG" ] && export BM25_QUERY_FIELD="$BM25_QUERY_FIELD_ARG"
+[ -n "$DENSE_QUERY_FIELD_ARG" ] && export DENSE_QUERY_FIELD="$DENSE_QUERY_FIELD_ARG"
 
 cd "$REPO_ROOT"
 
