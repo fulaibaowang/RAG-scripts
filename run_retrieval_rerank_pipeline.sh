@@ -19,11 +19,12 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-# Parse -c / --config, --no-rerank, --bm25-query-field, --dense-query-field, -h / --help
+# Parse -c / --config, --no-rerank, --bm25-query-field, --dense-query-field, --rerank-query-field, -h / --help
 CONFIG_FILE=""
 RUN_RERANK=1
 BM25_QUERY_FIELD_ARG=""
 DENSE_QUERY_FIELD_ARG=""
+RERANK_QUERY_FIELD_ARG=""
 while [ $# -gt 0 ]; do
   case "$1" in
     -c|--config)
@@ -45,12 +46,18 @@ while [ $# -gt 0 ]; do
       DENSE_QUERY_FIELD_ARG="$2"
       shift 2
       ;;
+    --rerank-query-field)
+      [ -z "${2:-}" ] && { echo "Error: --rerank-query-field requires a value." >&2; exit 1; }
+      RERANK_QUERY_FIELD_ARG="$2"
+      shift 2
+      ;;
     -h|--help)
-      echo "Usage: $0 [--config|-c <config.env>] [--no-rerank] [--bm25-query-field FIELD] [--dense-query-field FIELD]"
+      echo "Usage: $0 [--config|-c <config.env>] [--no-rerank] [--bm25-query-field F] [--dense-query-field F] [--rerank-query-field F]"
       echo "  -c, --config PATH       Source PATH as config (env vars) before running."
       echo "  --no-rerank             Run only BM25, Dense, Hybrid; skip reranker even if DOCS_JSONL is set."
       echo "  --bm25-query-field F    Use F as query text for BM25 (overrides env; e.g. body, body_expansion_long)."
       echo "  --dense-query-field F   Use F as query text for Dense (overrides env)."
+      echo "  --rerank-query-field F  Use F as query text for reranker (overrides env; e.g. body, body_expansion_long)."
       echo "  -h, --help              Show this help."
       echo ""
       echo "Example: $0 --config scripts/private_scripts/config.env"
@@ -80,6 +87,7 @@ fi
 # Explicit args override env (used by run_query_field_sweep.sh so query fields are never lost)
 [ -n "$BM25_QUERY_FIELD_ARG" ] && export BM25_QUERY_FIELD="$BM25_QUERY_FIELD_ARG"
 [ -n "$DENSE_QUERY_FIELD_ARG" ] && export DENSE_QUERY_FIELD="$DENSE_QUERY_FIELD_ARG"
+[ -n "$RERANK_QUERY_FIELD_ARG" ] && export RERANK_QUERY_FIELD="$RERANK_QUERY_FIELD_ARG"
 
 cd "$REPO_ROOT"
 
@@ -264,6 +272,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
     [ "${RERANK_DISABLE_METRICS:-0}" = "1" ] && RERANK_ARGS+=(--disable-metrics)
     [ "${RERANK_USE_MULTI_GPU:-0}" = "1" ] && RERANK_ARGS+=(--use-multi-gpu)
     [ -n "${RERANK_NUM_GPUS:-}" ] && RERANK_ARGS+=(--num-gpus "$RERANK_NUM_GPUS")
+    [ -n "${RERANK_QUERY_FIELD:-}" ] && RERANK_ARGS+=(--query-field "$RERANK_QUERY_FIELD")
     python "$SCRIPT_DIR/rerank/rerank_stage2.py" "${RERANK_ARGS[@]}"
   fi
   echo "Done. Outputs: $WORKFLOW_OUTPUT_DIR (bm25/, dense/, hybrid/, rerank/)"
