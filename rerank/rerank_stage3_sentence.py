@@ -163,7 +163,8 @@ def parse_args() -> argparse.Namespace:
     inputs.add_argument("--query-field", type=str, default="body")
     inputs.add_argument("--candidate-limit", type=int, default=1000, help="Stage-1 candidate cutoff per query.")
     inputs.add_argument("--max-queries", type=int, default=None)
-    inputs.add_argument("--dense-index-dir", type=Path, default=None, help="Dense index dir for sentence pick (required if no --sentence-picks-dir).")
+    inputs.add_argument("--dense-model", type=str, default=None, help="Dense encoder model name for sentence pick (e.g. abhinand/MedEmbed-small-v0.1). Use this OR --dense-index-dir when not using --sentence-picks-dir.")
+    inputs.add_argument("--dense-index-dir", type=Path, default=None, help="Dense index dir to load model from meta.json. Use this OR --dense-model when not using --sentence-picks-dir.")
     inputs.add_argument("--sentence-picks-dir", type=Path, default=None, help="Precomputed sentence picks (JSON per run stem). If set, skip sentence pick.")
     inputs.add_argument("--sentence-top-k", type=int, default=3, help="Sentences to pick per doc (used when computing picks).")
     inputs.add_argument("--doc-score", type=str, default="both", choices=("max", "top2mean", "both"), help="Doc score pooling: max, top2mean, or both.")
@@ -197,8 +198,8 @@ def main() -> None:
     if not run_files:
         raise FileNotFoundError("No run files found. Provide --run-files or --runs-dir/--run-glob.")
 
-    if not args.sentence_picks_dir and not args.dense_index_dir:
-        raise ValueError("Provide --dense-index-dir (to compute sentence picks) or --sentence-picks-dir (precomputed).")
+    if not args.sentence_picks_dir and not args.dense_index_dir and not args.dense_model:
+        raise ValueError("Provide --dense-model or --dense-index-dir (to compute sentence picks) or --sentence-picks-dir (precomputed).")
 
     ks_recall = _parse_ks_recall(args.ks_recall) or RECALL_KS
     cap = int(args.candidate_limit) if args.candidate_limit else None
@@ -248,18 +249,28 @@ def main() -> None:
             all_picks[name] = load_picks_json(path)
         print("loaded sentence picks from", args.sentence_picks_dir)
     else:
-        # Run sentence pick in-process
+        # Run sentence pick in-process; load dense model by name or from index dir
         from sentence_pick import (
             load_doc_title_sentences,
             run_sentence_pick,
             save_picks_json,
         )
-        _RETRIEVAL_DIR = _SHARED_SCRIPTS / "retrieval"
-        if str(_RETRIEVAL_DIR) not in sys.path:
-            sys.path.insert(0, str(_RETRIEVAL_DIR))
-        from eval_dense import load_dense_runtime
-        model_dense, _, _, meta = load_dense_runtime(args.dense_index_dir, "cuda")
-        normalize_emb = meta.get("loaded_normalize_embeddings", True)
+        if args.dense_model:
+            try:
+                from sentence_transformers import SentenceTransformer
+            except ImportError as e:
+                raise ImportError("Missing sentence-transformers. Run: pip install sentence-transformers") from e
+            model_dense = SentenceTransformer(args.dense_model, device="cuda")
+            normalize_emb = True
+        elif args.dense_index_dir and args.dense_index_dir.exists():
+            _RETRIEVAL_DIR = _SHARED_SCRIPTS / "retrieval"
+            if str(_RETRIEVAL_DIR) not in sys.path:
+                sys.path.insert(0, str(_RETRIEVAL_DIR))
+            from eval_dense import load_dense_runtime
+            model_dense, _, _, meta = load_dense_runtime(args.dense_index_dir, "cuda")
+            normalize_emb = meta.get("loaded_normalize_embeddings", True)
+        else:
+            raise ValueError("Provide --dense-model or --dense-index-dir to compute sentence picks.")
         for name in run_names:
             run_map = run_maps[name]
             candidate_docnos = set()
@@ -390,6 +401,7 @@ def main() -> None:
         "ks_recall": list(ks_recall),
         "split_to_role": split_to_role_cfg,
         "split_to_label": split_to_label_cfg,
+        "dense_model": args.dense_model or "",
         "dense_index_dir": str(args.dense_index_dir) if args.dense_index_dir else "",
         "sentence_picks_dir": str(args.sentence_picks_dir) if args.sentence_picks_dir else "",
         "sentence_top_k": args.sentence_top_k,

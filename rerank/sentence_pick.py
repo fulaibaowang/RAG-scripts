@@ -276,7 +276,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--test-batch-jsons", type=Path, nargs="*", default=None, help="Test batch JSONs (BioASQ).")
     parser.add_argument("--query-field", type=str, default="body", help="Question key for query text.")
     parser.add_argument("--candidate-limit", type=int, default=1000, help="Max candidates per query from run.")
-    parser.add_argument("--dense-index-dir", type=Path, required=True, help="Dense index dir (meta.json) to load model.")
+    parser.add_argument("--dense-model", type=str, default=None, help="Dense encoder model name (e.g. abhinand/MedEmbed-small-v0.1). Use this OR --dense-index-dir to load the model.")
+    parser.add_argument("--dense-index-dir", type=Path, default=None, help="Dense index dir (meta.json) to load model name from. Use this OR --dense-model.")
     parser.add_argument("--top-k", type=int, default=3, help="Number of sentences to pick per document.")
     parser.add_argument("--sentence-k-rrf", type=int, default=60, help="RRF k for sentence-level fusion.")
     parser.add_argument("--sentence-w-bm25", type=float, default=1.0, help="BM25 weight in RRF.")
@@ -314,16 +315,27 @@ def main() -> None:
     if not topics:
         print("warning: no queries loaded; sentence pick will use empty query.")
 
-    # Load dense model only (from eval_dense)
-    _RETRIEVAL_DIR = _SHARED_SCRIPTS / "retrieval"
-    if str(_RETRIEVAL_DIR) not in sys.path:
-        sys.path.insert(0, str(_RETRIEVAL_DIR))
-    from eval_dense import load_dense_runtime
-    model, _index, _rowid_to_pmid, meta = load_dense_runtime(
-        args.dense_index_dir,
-        args.dense_device,
-    )
-    normalize_embeddings = meta.get("loaded_normalize_embeddings", True)
+    # Load dense model: by name (--dense-model) or from index dir (--dense-index-dir)
+    if args.dense_model:
+        try:
+            from sentence_transformers import SentenceTransformer
+        except ImportError as e:
+            raise ImportError("Missing sentence-transformers. Run: pip install sentence-transformers") from e
+        model = SentenceTransformer(args.dense_model, device=args.dense_device)
+        normalize_embeddings = True
+        print("[dense] loaded model by name:", args.dense_model)
+    elif args.dense_index_dir and args.dense_index_dir.exists():
+        _RETRIEVAL_DIR = _SHARED_SCRIPTS / "retrieval"
+        if str(_RETRIEVAL_DIR) not in sys.path:
+            sys.path.insert(0, str(_RETRIEVAL_DIR))
+        from eval_dense import load_dense_runtime
+        model, _index, _rowid_to_pmid, meta = load_dense_runtime(
+            args.dense_index_dir,
+            args.dense_device,
+        )
+        normalize_embeddings = meta.get("loaded_normalize_embeddings", True)
+    else:
+        raise ValueError("Provide --dense-model (e.g. abhinand/MedEmbed-small-v0.1) or --dense-index-dir to load the encoder for sentence pick.")
 
     output_dir = args.output_dir or Path(".")
     picks_dir = output_dir / "sentence_picks"
