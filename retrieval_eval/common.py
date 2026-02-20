@@ -49,14 +49,23 @@ def build_topics_and_gold(
     query_field: Optional[str] = None,
 ) -> Tuple[pd.DataFrame, Dict[str, List[str]]]:
     """Return topics_df(qid, query) and gold_map[qid]=[pmids].
-    If query_field is set (e.g. 'body_expansion_long', 'body'), use that key for query text first;
-    otherwise fallback to body, query, question."""
+    If query_field is set (e.g. 'body_expansion_long', 'body'), that key is required on every
+    question and must be non-empty; otherwise ValueError is raised. If query_field is None,
+    query text is taken from body, query, or question."""
     rows = []
     gold: Dict[str, List[str]] = {}
     for i, q in enumerate(questions):
         qid = str(q.get("id") or q.get("qid") or i)
-        if query_field and q.get(query_field) not in (None, ""):
-            query = str(q.get(query_field)).strip()
+        if query_field:
+            val = q.get(query_field)
+            if val is None or (isinstance(val, str) and not val.strip()):
+                sample_keys = list(q.keys())[:10]
+                raise ValueError(
+                    f"query_field={query_field!r} is missing or empty for question {qid} "
+                    f"(index {i}). Available keys (sample): {sample_keys}. "
+                    "Fix the --query-field argument or ensure the JSON has this field."
+                )
+            query = str(val).strip()
         else:
             query = str(q.get("body") or q.get("query") or q.get("question") or "").strip()
 
