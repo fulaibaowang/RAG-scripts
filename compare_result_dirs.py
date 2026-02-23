@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """
 Compare metrics and optionally plot recall and/or MAP curves across two or more
-result directories (e.g. rerank vs rerank_sentence, or hybrid vs dense).
-Each dir should contain metrics.csv; for MAP@k curve over k, runs/*.tsv and gold are required.
+result directories (e.g. rerank vs rerank_sentence, or hybrid vs rerank).
+- Dirs with metrics.csv are used as-is.
+- Dirs with only runs/*.tsv (e.g. hybrid output) are supported: provide
+  --train-json and/or --test-batch-jsons so metrics are computed from runs.
+For MAP@k curve, runs/*.tsv and gold are required.
 
 Example (stage 2 vs stage 3 sentence, with MAP curve 10–200):
   python scripts/public/shared_scripts/compare_result_dirs.py \\
@@ -49,8 +52,10 @@ else:
 from retrieval_eval.common import (
     ap_at_k,
     build_topics_and_gold,
+    evaluate_run,
     load_questions,
     normalize_pmid,
+    RECALL_KS,
     run_df_to_run_map,
 )
 
@@ -99,20 +104,66 @@ def compute_map_at_ks(
     return out
 
 
+def _metrics_from_runs_dir(
+    runs_dir: Path,
+    gold_map: Dict[str, List[str]],
+    ks_recall: Tuple[int, ...],
+    result_dir: str,
+    dir_label: str,
+) -> pd.DataFrame:
+    """Build a metrics-style DataFrame from run TSVs (e.g. hybrid output with runs/ but no metrics.csv)."""
+    run_files = sorted(runs_dir.glob("*.tsv"))
+    if not run_files:
+        return pd.DataFrame()
+    rows = []
+    for path in run_files:
+        run_id = path.stem
+        run_df = _load_run_tsv(path)
+        run_map = run_df_to_run_map(run_df, qid_col="qid", docno_col="docno")
+        gold_for_run = {qid: gold_map[qid] for qid in run_map if qid in gold_map and gold_map[qid]}
+        if not gold_for_run:
+            rows.append({"run": run_id, "label": run_id, "role": "unknown", "result_dir": result_dir, "dir_label": dir_label})
+            continue
+        metrics, _ = evaluate_run(gold_for_run, run_map, ks_recall=ks_recall)
+        row = {"run": run_id, "label": run_id, "role": "unknown", "result_dir": result_dir, "dir_label": dir_label}
+        row.update(metrics)
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
 def load_metrics_from_dirs(
     dirs: List[Path],
     labels: Optional[List[str]],
+    gold_map: Optional[Dict[str, List[str]]] = None,
+    ks_recall: Optional[Tuple[int, ...]] = None,
 ) -> Tuple[pd.DataFrame, List[str]]:
-    """Load and concatenate metrics.csv from each dir; add column 'result_dir' and optional 'dir_label'."""
+    """Load and concatenate metrics from each dir. If a dir has no metrics.csv but has runs/*.tsv,
+    compute metrics from runs when gold_map (and ks_recall) are provided."""
+    if ks_recall is None:
+        ks_recall = RECALL_KS
     rows = []
     for i, d in enumerate(dirs):
         p = d / "metrics.csv"
-        if not p.exists():
-            raise FileNotFoundError(f"metrics.csv not found in {d}")
-        df = pd.read_csv(p)
-        df["result_dir"] = str(d)
-        df["dir_label"] = (labels[i] if labels and i < len(labels) else d.name)
-        rows.append(df)
+        runs_dir = d / "runs"
+        label = labels[i] if labels and i < len(labels) else d.name
+        if p.exists():
+            df = pd.read_csv(p)
+            df["result_dir"] = str(d)
+            df["dir_label"] = label
+            rows.append(df)
+        elif runs_dir.is_dir() and list(runs_dir.glob("*.tsv")):
+            if not gold_map:
+                raise ValueError(
+                    f"Dir {d} has no metrics.csv but has runs/*.tsv. "
+                    "Provide --train-json and/or --test-batch-jsons to compute metrics from runs."
+                )
+            df = _metrics_from_runs_dir(runs_dir, gold_map, ks_recall, result_dir=str(d), dir_label=label)
+            if not df.empty:
+                rows.append(df)
+        else:
+            raise FileNotFoundError(f"metrics.csv not found in {d} and no runs/*.tsv in {d}")
+    if not rows:
+        raise ValueError("No metrics loaded from any dir.")
     combined = pd.concat(rows, ignore_index=True)
     dir_labels = list(combined["dir_label"].unique())
     return combined, dir_labels
@@ -183,16 +234,23 @@ def parse_args() -> argparse.Namespace:
         description="Compare result dirs: plot recall and/or MAP@k curves.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("--dirs", type=Path, nargs="+", required=True, help="Result directories (each with metrics.csv; for MAP curve also runs/*.tsv).")
+    parser.add_argument("--dirs", type=Path, nargs="+", required=True, help="Result dirs: each with metrics.csv, or with runs/*.tsv only (e.g. hybrid; then provide --train-json/--test-batch-jsons).")
     parser.add_argument("--labels", type=str, nargs="*", default=None, help="Display labels for each dir (same order as --dirs). Default: dir name.")
     parser.add_argument("--plot", type=str, choices=("recall", "map", "both"), default="both", help="What to plot.")
     parser.add_argument("--output-dir", type=Path, default=None, help="Where to save figures. Default: first --dirs parent.")
     parser.add_argument("--map-ks", type=str, default="10,20,50,100,200", help="Comma-separated K values for MAP curve.")
     parser.add_argument("--recall-k-max", type=int, default=None, help="Max K for recall curve (default: use all in metrics).")
-    parser.add_argument("--train-json", type=Path, default=None, help="Training questions JSON (for gold, needed for MAP curve).")
+    parser.add_argument("--ks-recall", type=str, default="", help="Comma-separated K for MeanR@k when building metrics from runs (e.g. hybrid). Default: 50,100,200,...,5000.")
+    parser.add_argument("--train-json", type=Path, default=None, help="Training questions JSON (for gold; required for MAP curve and for dirs that only have runs/).")
     parser.add_argument("--test-batch-jsons", type=Path, nargs="*", default=None, help="Test batch JSONs (for gold, needed for MAP curve).")
     parser.add_argument("--query-field", type=str, default="body", help="Query field in question JSONs.")
     return parser.parse_args()
+
+
+def _parse_ks_recall(raw: str) -> Tuple[int, ...]:
+    if not raw or not raw.strip():
+        return RECALL_KS
+    return tuple(int(x.strip()) for x in raw.split(",") if x.strip())
 
 
 def main() -> None:
@@ -206,7 +264,35 @@ def main() -> None:
     figures_dir = output_dir / "figures"
     figures_dir.mkdir(parents=True, exist_ok=True)
 
-    combined, dir_labels = load_metrics_from_dirs(dirs, args.labels)
+    # Dirs with runs/ but no metrics.csv need gold to build synthetic metrics
+    need_gold = any(
+        not (d / "metrics.csv").exists() and (d / "runs").is_dir() and list((d / "runs").glob("*.tsv"))
+        for d in dirs
+    )
+    gold_map: Dict[str, List[str]] = {}
+    ks_recall = _parse_ks_recall(args.ks_recall)
+    if need_gold or args.plot in ("map", "both"):
+        if not args.train_json and not args.test_batch_jsons:
+            if need_gold:
+                raise ValueError("Some dirs have only runs/ (e.g. hybrid). Provide --train-json and/or --test-batch-jsons to compute metrics.")
+            raise ValueError("For MAP curve provide --train-json and/or --test-batch-jsons to build gold.")
+        if args.train_json and args.train_json.exists():
+            questions = load_questions(args.train_json)
+            _, g = build_topics_and_gold(questions, query_field=args.query_field)
+            gold_map.update(g)
+        for p in args.test_batch_jsons or []:
+            if Path(p).exists():
+                questions = load_questions(Path(p))
+                _, g = build_topics_and_gold(questions, query_field=args.query_field)
+                gold_map.update(g)
+        if need_gold and not gold_map:
+            raise ValueError("No gold loaded; required for dirs that only have runs/*.tsv.")
+
+    combined, dir_labels = load_metrics_from_dirs(
+        dirs, args.labels,
+        gold_map=gold_map if need_gold else None,
+        ks_recall=ks_recall,
+    )
 
     if args.plot in ("recall", "both"):
         plot_recall_curves(
@@ -220,20 +306,8 @@ def main() -> None:
         map_ks = [int(x.strip()) for x in args.map_ks.split(",") if x.strip()]
         if not map_ks:
             map_ks = [10, 20, 50, 100, 200]
-        if not args.train_json and not args.test_batch_jsons:
-            raise ValueError("For MAP curve provide --train-json and/or --test-batch-jsons to build gold.")
-        gold_map: Dict[str, List[str]] = {}
-        if args.train_json and args.train_json.exists():
-            questions = load_questions(args.train_json)
-            _, g = build_topics_and_gold(questions, query_field=args.query_field)
-            gold_map.update(g)
-        for p in args.test_batch_jsons or []:
-            if Path(p).exists():
-                questions = load_questions(Path(p))
-                _, g = build_topics_and_gold(questions, query_field=args.query_field)
-                gold_map.update(g)
         if not gold_map:
-            raise ValueError("No gold loaded from --train-json / --test-batch-jsons.")
+            raise ValueError("For MAP curve provide --train-json and/or --test-batch-jsons to build gold.")
 
         map_by_run: Dict[Tuple[str, str], Dict[int, float]] = {}
         for _, row in combined.iterrows():
