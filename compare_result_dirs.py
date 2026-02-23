@@ -104,12 +104,29 @@ def compute_map_at_ks(
     return out
 
 
+def _infer_role_from_run_id(
+    run_id: str,
+    train_batch_stems: Tuple[str, ...],
+    test_batch_stems: Tuple[str, ...],
+) -> str:
+    """Infer role (train/test) from run_id by matching batch name stems from JSON paths."""
+    for stem in test_batch_stems:
+        if stem in run_id:
+            return "test"
+    for stem in train_batch_stems:
+        if stem in run_id:
+            return "train"
+    return "unknown"
+
+
 def _metrics_from_runs_dir(
     runs_dir: Path,
     gold_map: Dict[str, List[str]],
     ks_recall: Tuple[int, ...],
     result_dir: str,
     dir_label: str,
+    train_batch_stems: Tuple[str, ...] = (),
+    test_batch_stems: Tuple[str, ...] = (),
 ) -> pd.DataFrame:
     """Build a metrics-style DataFrame from run TSVs (e.g. hybrid output with runs/ but no metrics.csv)."""
     run_files = sorted(runs_dir.glob("*.tsv"))
@@ -121,11 +138,12 @@ def _metrics_from_runs_dir(
         run_df = _load_run_tsv(path)
         run_map = run_df_to_run_map(run_df, qid_col="qid", docno_col="docno")
         gold_for_run = {qid: gold_map[qid] for qid in run_map if qid in gold_map and gold_map[qid]}
+        role = _infer_role_from_run_id(run_id, train_batch_stems, test_batch_stems)
         if not gold_for_run:
-            rows.append({"run": run_id, "label": run_id, "role": "unknown", "result_dir": result_dir, "dir_label": dir_label})
+            rows.append({"run": run_id, "label": run_id, "role": role, "result_dir": result_dir, "dir_label": dir_label})
             continue
         metrics, _ = evaluate_run(gold_for_run, run_map, ks_recall=ks_recall)
-        row = {"run": run_id, "label": run_id, "role": "unknown", "result_dir": result_dir, "dir_label": dir_label}
+        row = {"run": run_id, "label": run_id, "role": role, "result_dir": result_dir, "dir_label": dir_label}
         row.update(metrics)
         rows.append(row)
     return pd.DataFrame(rows)
@@ -136,11 +154,16 @@ def load_metrics_from_dirs(
     labels: Optional[List[str]],
     gold_map: Optional[Dict[str, List[str]]] = None,
     ks_recall: Optional[Tuple[int, ...]] = None,
+    train_batch_stems: Optional[Tuple[str, ...]] = None,
+    test_batch_stems: Optional[Tuple[str, ...]] = None,
 ) -> Tuple[pd.DataFrame, List[str]]:
     """Load and concatenate metrics from each dir. If a dir has no metrics.csv but has runs/*.tsv,
-    compute metrics from runs when gold_map (and ks_recall) are provided."""
+    compute metrics from runs when gold_map (and ks_recall) are provided.
+    train_batch_stems/test_batch_stems are used to set role (train/test) from run_id when building from runs."""
     if ks_recall is None:
         ks_recall = RECALL_KS
+    train_stems = train_batch_stems or ()
+    test_stems = test_batch_stems or ()
     rows = []
     for i, d in enumerate(dirs):
         p = d / "metrics.csv"
@@ -157,7 +180,10 @@ def load_metrics_from_dirs(
                     f"Dir {d} has no metrics.csv but has runs/*.tsv. "
                     "Provide --train-json and/or --test-batch-jsons to compute metrics from runs."
                 )
-            df = _metrics_from_runs_dir(runs_dir, gold_map, ks_recall, result_dir=str(d), dir_label=label)
+            df = _metrics_from_runs_dir(
+                runs_dir, gold_map, ks_recall, result_dir=str(d), dir_label=label,
+                train_batch_stems=train_stems, test_batch_stems=test_stems,
+            )
             if not df.empty:
                 rows.append(df)
         else:
@@ -324,10 +350,20 @@ def main() -> None:
         if need_gold and not gold_map:
             raise ValueError("No gold loaded; required for dirs that only have runs/*.tsv.")
 
+    # Batch stems from JSON paths: used to infer role (train/test) when building metrics from runs/
+    train_batch_stems: Tuple[str, ...] = ()
+    test_batch_stems: Tuple[str, ...] = ()
+    if args.train_json and args.train_json.exists():
+        train_batch_stems = (args.train_json.stem,)
+    if args.test_batch_jsons:
+        test_batch_stems = tuple(Path(p).stem for p in args.test_batch_jsons if Path(p).exists())
+
     combined, dir_labels = load_metrics_from_dirs(
         dirs, args.labels,
         gold_map=gold_map if need_gold else None,
         ks_recall=ks_recall,
+        train_batch_stems=train_batch_stems,
+        test_batch_stems=test_batch_stems,
     )
 
     # Summary stats table (always)
