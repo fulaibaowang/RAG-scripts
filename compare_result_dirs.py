@@ -174,6 +174,7 @@ def plot_recall_curves(
     dir_labels: List[str],
     output_path: Path,
     k_max: Optional[int] = None,
+    log_x: bool = False,
 ) -> None:
     """Plot recall (MeanR@k) curves: one line per (dir_label, run), x = k."""
     if plt is None:
@@ -193,6 +194,8 @@ def plot_recall_curves(
             vals = grp[metric_cols].iloc[0].values
         label = f"{dir_lbl}: {run_id}" if len(dir_labels) > 1 or len(combined["run"].unique()) > 1 else run_id
         ax.plot(k_list, vals, marker="o", label=label, markersize=4)
+    if log_x:
+        ax.set_xscale("log")
     ax.set_xlabel("K (Recall cutoff)")
     ax.set_ylabel("Mean Recall")
     ax.set_title("Recall curve comparison")
@@ -208,6 +211,7 @@ def plot_map_curve(
     map_by_run: Dict[Tuple[str, str], Dict[int, float]],
     ks: List[int],
     output_path: Path,
+    log_x: bool = False,
 ) -> None:
     """Plot MAP@k curve: one line per (dir_label, run_id), x = k."""
     if plt is None:
@@ -218,6 +222,8 @@ def plot_map_curve(
         ys = [map_vals[k] for k in xs]
         label = f"{dir_lbl}: {run_id}"
         ax.plot(xs, ys, marker="o", label=label, markersize=5)
+    if log_x:
+        ax.set_xscale("log")
     ax.set_xlabel("K (MAP cutoff)")
     ax.set_ylabel("MAP@K")
     ax.set_title("MAP@K curve comparison")
@@ -244,6 +250,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--train-json", type=Path, default=None, help="Training questions JSON (for gold; required for MAP curve and for dirs that only have runs/).")
     parser.add_argument("--test-batch-jsons", type=Path, nargs="*", default=None, help="Test batch JSONs (for gold, needed for MAP curve).")
     parser.add_argument("--query-field", type=str, default="body", help="Query field in question JSONs.")
+    parser.add_argument("--log-x", action="store_true", help="Use log scale for x-axis (K) in recall and MAP curves.")
     return parser.parse_args()
 
 
@@ -300,6 +307,7 @@ def main() -> None:
             dir_labels,
             figures_dir / "compare_recall_curves.png",
             k_max=args.recall_k_max,
+            log_x=args.log_x,
         )
 
     if args.plot in ("map", "both"):
@@ -321,7 +329,7 @@ def main() -> None:
             run_map = run_df_to_run_map(run_df, qid_col="qid", docno_col="docno")
             map_by_run[(dir_lbl, run_id)] = compute_map_at_ks(gold_map, run_map, map_ks)
         if map_by_run:
-            plot_map_curve(map_by_run, map_ks, figures_dir / "compare_map_curves.png")
+            plot_map_curve(map_by_run, map_ks, figures_dir / "compare_map_curves.png", log_x=args.log_x)
         else:
             print("warning: no run TSV files found in dirs; skipping MAP curve.")
 
