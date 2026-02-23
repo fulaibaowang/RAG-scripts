@@ -200,8 +200,8 @@ def main():
     ap.add_argument(
         "--query-field",
         type=str,
-        default="body_expansion_long",
-        help="Question key to use as query text (e.g. body, body_expansion_synonyms, body_expansion_long). Default: body_expansion_long for BM25.",
+        default="body",
+        help="Question key to use as query text (e.g. body, body_expansion_synonyms, body_expansion_long). Default: body.",
     )
     args = ap.parse_args()
 
