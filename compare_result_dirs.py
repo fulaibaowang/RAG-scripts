@@ -279,6 +279,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--test-batch-jsons", type=Path, nargs="*", default=None, help="Test batch JSONs (for gold, needed for MAP curve).")
     parser.add_argument("--query-field", type=str, default="body", help="Query field in question JSONs.")
     parser.add_argument("--log-x", action="store_true", help="Use log scale for x-axis (K) in recall and MAP curves.")
+    parser.add_argument("--plots-by-split", action="store_true", help="Output one recall and one MAP plot per split (train/test); uses 'role' from metrics, or 'label' if role missing.")
     return parser.parse_args()
 
 
@@ -332,14 +333,31 @@ def main() -> None:
     # Summary stats table (always)
     _write_compare_summary(combined, output_dir)
 
+    # Split key for --plots-by-split: "role" (train/test) if present, else "label"
+    split_col = "role" if "role" in combined.columns and combined["role"].notna().any() else "label"
+    if args.plots_by_split:
+        split_values = sorted(combined[split_col].dropna().unique().tolist()) or ["all"]
+    else:
+        split_values = [None]  # single combined plot
+
     if args.plot in ("recall", "both"):
-        plot_recall_curves(
-            combined,
-            dir_labels,
-            figures_dir / "compare_recall_curves.png",
-            k_max=args.recall_k_max,
-            log_x=args.log_x,
-        )
+        for split_val in split_values:
+            if split_val is None:
+                subset = combined
+                out_path = figures_dir / "compare_recall_curves.png"
+            else:
+                subset = combined[combined[split_col] == split_val]
+                if subset.empty:
+                    continue
+                safe_name = str(split_val).replace("/", "_").replace(" ", "_")
+                out_path = figures_dir / f"compare_recall_curves_{safe_name}.png"
+            plot_recall_curves(
+                subset,
+                dir_labels,
+                out_path,
+                k_max=args.recall_k_max,
+                log_x=args.log_x,
+            )
 
     if args.plot in ("map", "both"):
         map_ks = [int(x.strip()) for x in args.map_ks.split(",") if x.strip()]
@@ -359,8 +377,23 @@ def main() -> None:
             run_df = _load_run_tsv(run_path)
             run_map = run_df_to_run_map(run_df, qid_col="qid", docno_col="docno")
             map_by_run[(dir_lbl, run_id)] = compute_map_at_ks(gold_map, run_map, map_ks)
+
         if map_by_run:
-            plot_map_curve(map_by_run, map_ks, figures_dir / "compare_map_curves.png", log_x=args.log_x)
+            for split_val in split_values:
+                if split_val is None:
+                    subset_map = map_by_run
+                    out_path = figures_dir / "compare_map_curves.png"
+                else:
+                    keys_in_split = set(
+                        (row["dir_label"], row["run"])
+                        for _, row in combined[combined[split_col] == split_val].iterrows()
+                    )
+                    subset_map = {k: v for k, v in map_by_run.items() if k in keys_in_split}
+                    if not subset_map:
+                        continue
+                    safe_name = str(split_val).replace("/", "_").replace(" ", "_")
+                    out_path = figures_dir / f"compare_map_curves_{safe_name}.png"
+                plot_map_curve(subset_map, map_ks, out_path, log_x=args.log_x)
         else:
             print("warning: no run TSV files found in dirs; skipping MAP curve.")
 
