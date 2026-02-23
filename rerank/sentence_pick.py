@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Sentence picking for stage-3 rerank: hybrid (BM25 + dense) over document sentences,
-output top-k sentences per (qid, docno). Outputs JSON for consumption by rerank_stage3_sentence.
+output top-k sentences per (qid, docno). Outputs JSON for use by the stage-3 rerank scripts in scripts/deprecated/ (if needed).
 """
 from __future__ import annotations
 

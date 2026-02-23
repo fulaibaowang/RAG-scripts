@@ -5,7 +5,7 @@ result directories (e.g. rerank vs rerank_sentence, or hybrid vs dense).
 Each dir should contain metrics.csv; for MAP@k curve over k, runs/*.tsv and gold are required.
 
 Example (stage 2 vs stage 3 sentence, with MAP curve 10–200):
-  python compare_result_dirs.py \\
+  python scripts/public/shared_scripts/compare_result_dirs.py \\
     --dirs output/workflow_local_3pct_hpc_bge/rerank output/workflow_local_3pct_hpc_bge/rerank_sentence \\
     --labels "Stage 2" "Stage 3 sentence" \\
     --plot both \\
@@ -32,12 +32,19 @@ except ImportError:
     plt = None  # type: ignore[assignment]
 
 import sys
-_SCRIPT_DIR = Path(__file__).resolve().parent
-for _p in [_SCRIPT_DIR.parents[0]] + list(_SCRIPT_DIR.parents):
-    if (_p / "retrieval_eval").exists():
-        if str(_p) not in sys.path:
-            sys.path.insert(0, str(_p))
-        break
+_THIS_FILE = Path(__file__).resolve()
+_SCRIPT_DIR = _THIS_FILE.parent
+_REPO_ROOT = _THIS_FILE.parents[2]
+_SHARED_SCRIPTS = _REPO_ROOT / "scripts" / "public" / "shared_scripts"
+if _SHARED_SCRIPTS.exists():
+    if str(_SHARED_SCRIPTS) not in sys.path:
+        sys.path.insert(0, str(_SHARED_SCRIPTS))
+else:
+    for _p in [_SCRIPT_DIR.parents[0]] + list(_SCRIPT_DIR.parents):
+        if (_p / "retrieval_eval").exists():
+            if str(_p) not in sys.path:
+                sys.path.insert(0, str(_p))
+            break
 
 from retrieval_eval.common import (
     ap_at_k,
