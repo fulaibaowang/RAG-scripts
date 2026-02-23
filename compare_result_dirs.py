@@ -207,6 +207,34 @@ def plot_recall_curves(
     print("Saved:", output_path)
 
 
+# Key metrics to include in summary stats table (use whatever exists in combined)
+SUMMARY_METRIC_COLS = [
+    "MAP@10", "MRR@10", "GMAP@10", "Success@10",
+    "MeanR@50", "MeanR@100", "MeanR@200", "MeanR@500", "MeanR@1000",
+]
+
+
+def _write_compare_summary(combined: pd.DataFrame, output_dir: Path) -> None:
+    """Print and save a short summary table of key metrics per (dir_label, run)."""
+    cols = ["dir_label", "run"]
+    if "label" in combined.columns:
+        cols.append("label")
+    if "role" in combined.columns:
+        cols.append("role")
+    for c in SUMMARY_METRIC_COLS:
+        if c in combined.columns:
+            cols.append(c)
+    out = combined[cols].drop_duplicates()
+    out = out.sort_values(["dir_label", "run"]).reset_index(drop=True)
+    summary_path = output_dir / "compare_summary.csv"
+    out.to_csv(summary_path, index=False)
+    print("Summary stats (saved to {}):".format(summary_path))
+    pd.set_option("display.max_columns", None)
+    pd.set_option("display.width", None)
+    print(out.to_string(index=False))
+    print()
+
+
 def plot_map_curve(
     map_by_run: Dict[Tuple[str, str], Dict[int, float]],
     ks: List[int],
@@ -300,6 +328,9 @@ def main() -> None:
         gold_map=gold_map if need_gold else None,
         ks_recall=ks_recall,
     )
+
+    # Summary stats table (always)
+    _write_compare_summary(combined, output_dir)
 
     if args.plot in ("recall", "both"):
         plot_recall_curves(
