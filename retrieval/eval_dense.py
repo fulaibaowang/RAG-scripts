@@ -307,7 +307,7 @@ def main():
         default="../output/eval_dense_MedEmbed",
         help="Output directory (dense_*.parquet, *_meta.json, *_run_map.json)",
     )
-    ap.add_argument("--train_subset_json", default="../example/training14b_10pct_sample.json")
+    ap.add_argument("--train-json", dest="train_json", default="../example/training14b_10pct_sample.json")
     ap.add_argument("--test_batch_jsons", nargs="*", default=[], help="List of 13B*_golden.json files")
 
     ap.add_argument("--topk", type=int, default=5000)
@@ -398,10 +398,10 @@ def main():
         "effective": int(ef_effective),
     }
 
-    train_stem = Path(args.train_subset_json).stem
+    train_stem = Path(args.train_json).stem
 
     if args.no_eval:
-        train_data = json.loads(Path(args.train_subset_json).read_text(encoding="utf-8"))
+        train_data = json.loads(Path(args.train_json).read_text(encoding="utf-8"))
         topics_df, _ = build_topics_and_gold(train_data["questions"], query_field=args.query_field)
         res_df = dense_retrieve_topics(
             model=model,
@@ -440,7 +440,7 @@ def main():
     all_rows = []
 
     # train subset
-    train_data = json.loads(Path(args.train_subset_json).read_text(encoding="utf-8"))
+    train_data = json.loads(Path(args.train_json).read_text(encoding="utf-8"))
     all_rows.append(
         evaluate_and_save_dense_on_questions(
             train_data["questions"],

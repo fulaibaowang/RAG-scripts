@@ -57,14 +57,14 @@ def _parse_split_from_run_stem(run_stem: str) -> Optional[str]:
 
 
 def _build_split_to_role_and_label(
-    train_subset_json: Optional[Path],
+    train_json: Optional[Path],
     test_batch_jsons: List[Path],
 ) -> Tuple[Dict[str, str], Dict[str, str]]:
     """Build split -> role (train/test) and split -> label (file stem for display)."""
     split_to_role: Dict[str, str] = {}
     split_to_label: Dict[str, str] = {}
-    if train_subset_json and train_subset_json.exists():
-        train_stem = train_subset_json.stem
+    if train_json and train_json.exists():
+        train_stem = train_json.stem
         split_to_role[train_stem] = "train"
         split_to_label[train_stem] = train_stem
     for p in test_batch_jsons:
@@ -93,11 +93,10 @@ def parse_args() -> argparse.Namespace:
     inputs.add_argument("--run-glob", type=str, default="*.tsv", help="Glob for run files under --runs-dir.")
     inputs.add_argument("--docs-jsonl", type=Path, default=None, help="JSONL corpus with PubMed texts.")
     inputs.add_argument(
-        "--train-subset-json",
-        "--train_subset_json",
+        "--train-json",
         type=Path,
         default=None,
-        help="Training subset JSON (BioASQ format).",
+        help="Training questions JSON (BioASQ format).",
     )
     inputs.add_argument(
         "--test-batch-jsons",
@@ -375,7 +374,7 @@ def main() -> None:
 
     runs_dir = args.runs_dir or root / "output" / "eval_hybird_production_test" / "runs"
     docs_jsonl = args.docs_jsonl or root / "output" / "subset_pubmed.jsonl"
-    train_subset_json = args.train_subset_json
+    train_json = args.train_json
     test_batch_jsons = args.test_batch_jsons or []
     output_dir = args.output_dir or root / "output" / "eval_stage2_rerank"
 
@@ -432,8 +431,8 @@ def main() -> None:
         for qid, docs in gold_map.items():
             gold_map_all[qid] = docs
 
-    if train_subset_json:
-        _add_questions(train_subset_json, query_field=args.query_field)
+    if train_json:
+        _add_questions(train_json, query_field=args.query_field)
 
     for path in test_batch_jsons:
         _add_questions(Path(path), query_field=args.query_field)
@@ -480,7 +479,7 @@ def main() -> None:
 
     if not args.disable_metrics and gold_map_all:
         split_to_role, split_to_label = _build_split_to_role_and_label(
-            train_subset_json, [Path(p) for p in test_batch_jsons]
+            train_json, [Path(p) for p in test_batch_jsons]
         )
         for name, reranked in reranked_runs.items():
             reranked_map = {qid: [doc for doc, _ in docs] for qid, docs in reranked.items()}
@@ -526,10 +525,10 @@ def main() -> None:
 
     split_to_role_cfg: Dict[str, str] = {}
     split_to_label_cfg: Dict[str, str] = {}
-    if train_subset_json or test_batch_jsons:
+    if train_json or test_batch_jsons:
         try:
             split_to_role_cfg, split_to_label_cfg = _build_split_to_role_and_label(
-                train_subset_json, [Path(p) for p in test_batch_jsons]
+                train_json, [Path(p) for p in test_batch_jsons]
             )
         except ValueError:
             pass
@@ -546,7 +545,7 @@ def main() -> None:
         "runs_dir": str(runs_dir),
         "run_files": [str(p) for p in run_files],
         "docs_jsonl": str(docs_jsonl),
-        "train_subset_json": str(train_subset_json) if train_subset_json else "",
+        "train_json": str(train_json) if train_json else "",
         "test_batch_jsons": [str(p) for p in test_batch_jsons],
         "ks_recall": list(ks_recall),
         "split_to_role": split_to_role_cfg,

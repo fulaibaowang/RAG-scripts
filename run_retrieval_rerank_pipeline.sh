@@ -188,7 +188,7 @@ fi
 DENSE_ARGS=(
   --index_dir "$DENSE_INDEX_DIR"
   --out_dir "$DENSE_OUT"
-  --train_subset_json "$TRAIN_JSON"
+  --train-json "$TRAIN_JSON"
   --test_batch_jsons $TEST_BATCH_JSONS
   --topk "$DENSE_TOP_K"
   --ks "$RECALL_KS"
@@ -214,7 +214,7 @@ HYBRID_ARGS=(
   --bm25_runs_dir "$BM25_OUT/runs"
   --bm25_topk "$BM25_TOP_K"
   --dense_root "$DENSE_OUT"
-  --train_subset_json "$TRAIN_JSON"
+  --train-json "$TRAIN_JSON"
   --test_batch_jsons $TEST_BATCH_JSONS
   --out_dir "$HYBRID_OUT"
   --k_max_eval "$HYBRID_K_MAX_EVAL"
@@ -255,7 +255,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
     else
       echo "[4/$TOTAL_STEPS] Reranker... (generating eval plots from existing results)"
       PLOT_ARGS=(--output-dir "$RERANK_OUT" --runs-dir "$HYBRID_OUT/runs")
-      [ -n "${TRAIN_JSON:-}" ] && PLOT_ARGS+=(--train_subset_json "$TRAIN_JSON")
+      [ -n "${TRAIN_JSON:-}" ] && PLOT_ARGS+=(--train-json "$TRAIN_JSON")
       [ -n "${TEST_BATCH_JSONS:-}" ] && PLOT_ARGS+=(--test_batch_jsons $TEST_BATCH_JSONS)
       python "$SCRIPT_DIR/rerank/plot_rerank_eval.py" "${PLOT_ARGS[@]}"
     fi
@@ -277,7 +277,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
       --candidate-limit "$RERANK_EFFECTIVE"
       --ks-recall "${RERANK_KS_RECALL:-$RECALL_KS}"
     )
-    [ -n "${TRAIN_JSON:-}" ] && RERANK_ARGS+=(--train_subset_json "$TRAIN_JSON")
+    [ -n "${TRAIN_JSON:-}" ] && RERANK_ARGS+=(--train-json "$TRAIN_JSON")
     [ -n "${TEST_BATCH_JSONS:-}" ] && RERANK_ARGS+=(--test_batch_jsons $TEST_BATCH_JSONS)
     [ -n "${RERANK_MODEL:-}" ] && RERANK_ARGS+=(--model "$RERANK_MODEL")
     [ -n "${RERANK_MODEL_DEVICE:-}" ] && RERANK_ARGS+=(--model-device "$RERANK_MODEL_DEVICE")
@@ -299,7 +299,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
         --k-top 10
         --m-bge "$RERANK_GUARD_RAIL_M"
       )
-      [ -n "${TRAIN_JSON:-}" ] && GUARD_ARGS+=(--train-subset-json "$TRAIN_JSON")
+      [ -n "${TRAIN_JSON:-}" ] && GUARD_ARGS+=(--train-json "$TRAIN_JSON")
       [ -n "${TEST_BATCH_JSONS:-}" ] && GUARD_ARGS+=(--test-batch-jsons $TEST_BATCH_JSONS)
       [ -n "${RERANK_KS_RECALL:-}" ] && GUARD_ARGS+=(--ks-recall "$RERANK_KS_RECALL")
       python "$SCRIPT_DIR/rerank/rerank_guard_rail_topk.py" "${GUARD_ARGS[@]}"

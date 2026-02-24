@@ -195,7 +195,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Generate Hybrid vs Reranker eval plots from existing metrics and runs.")
     ap.add_argument("--output-dir", type=Path, required=True, help="Rerank output dir (contains metrics.csv).")
     ap.add_argument("--runs-dir", type=Path, required=True, help="Hybrid runs dir (TSV files).")
-    ap.add_argument("--train-subset-json", "--train_subset_json", type=Path, default=None)
+    ap.add_argument("--train-json", type=Path, default=None)
     ap.add_argument("--test-batch-jsons", "--test_batch_jsons", type=Path, nargs="*", default=None)
     args = ap.parse_args()
 
@@ -227,13 +227,13 @@ def main() -> None:
         for qid, docs in gold_map.items():
             gold_map_all[qid] = docs
 
-    if args.train_subset_json:
-        _add_questions(args.train_subset_json)
+    if args.train_json:
+        _add_questions(args.train_json)
     for path in args.test_batch_jsons or []:
         _add_questions(Path(path))
 
     if not gold_map_all:
-        raise ValueError("No gold loaded; provide --train_subset_json and/or --test_batch_jsons")
+        raise ValueError("No gold loaded; provide --train-json and/or --test-batch-jsons")
 
     candidate_limit = None
     plot_config = None
@@ -244,11 +244,12 @@ def main() -> None:
             candidate_limit = config.get("candidate_limit")
             plot_config = dict(config)
             # Backward compat: build split_to_role / split_to_label from paths if missing
-            if "split_to_role" not in plot_config and ("train_subset_json" in config or "test_batch_jsons" in config):
+            if "split_to_role" not in plot_config and ("train_json" in config or "train_subset_json" in config or "test_batch_jsons" in config):
                 s2r: Dict[str, str] = {}
                 s2l: Dict[str, str] = {}
-                if config.get("train_subset_json"):
-                    train_stem = Path(config["train_subset_json"]).stem
+                train_path = config.get("train_json") or config.get("train_subset_json")
+                if train_path:
+                    train_stem = Path(train_path).stem
                     s2r[train_stem] = "train"
                     s2l[train_stem] = train_stem
                 for p in config.get("test_batch_jsons") or []:

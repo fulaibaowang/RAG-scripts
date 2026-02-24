@@ -10,7 +10,8 @@ import pandas as pd
 
 import sys
 
-_SHARED_SCRIPTS = Path(__file__).resolve().parents[2]  # shared_scripts/
+# shared_scripts/ (parent of rerank/) so retrieval_eval is findable when run directly
+_SHARED_SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_SHARED_SCRIPTS))
 
 from retrieval_eval.common import (  # type: ignore
@@ -22,12 +23,12 @@ from retrieval_eval.common import (  # type: ignore
 
 
 def _parse_split_from_run_stem(run_stem: str) -> Optional[str]:
-    m = re.fullmatch(r"best_rrf_(.+)_top\\d+", run_stem)
+    m = re.fullmatch(r"best_rrf_(.+)_top\d+", run_stem)
     return m.group(1) if m else None
 
 
 def load_run_tsv(path: Path) -> pd.DataFrame:
-    df = pd.read_csv(path, sep="\\t")
+    df = pd.read_csv(path, sep="\t")
     cols = {c.lower(): c for c in df.columns}
     qid_col = cols.get("qid") or cols.get("query_id") or df.columns[0]
     doc_col = cols.get("docno") or cols.get("docid") or cols.get("doc") or df.columns[1]
@@ -124,11 +125,10 @@ def parse_args() -> argparse.Namespace:
         help="Number of top docs taken from BGE within the final top-k (rest filled from Hybrid).",
     )
     p.add_argument(
-        "--train-subset-json",
-        "--train_subset_json",
+        "--train-json",
         type=Path,
         default=None,
-        help="Training subset JSON (BioASQ format) for metrics (optional).",
+        help="Training questions JSON (BioASQ format) for metrics (optional).",
     )
     p.add_argument(
         "--test-batch-jsons",
@@ -217,19 +217,19 @@ def main() -> None:
         fused_runs[split] = fused_df
 
         out_path = out_runs / f"{name}_guardk{int(args.k_top)}_m{int(args.m_bge)}.tsv"
-        fused_df.to_csv(out_path, sep="\\t", index=False)
+        fused_df.to_csv(out_path, sep="\t", index=False)
 
     if args.disable_metrics or not fused_runs:
         print("Guard-rail fusion complete. Metrics skipped or no runs to evaluate.")
         return
 
     # Build gold and evaluate, if questions are provided
-    train_subset_json: Optional[Path] = args.train_subset_json
+    train_json: Optional[Path] = args.train_json
     test_batch_jsons: Optional[Sequence[Path]] = args.test_batch_jsons
 
     all_questions: List[dict] = []
-    if train_subset_json and train_subset_json.exists():
-        all_questions.extend(load_questions(train_subset_json))
+    if train_json and train_json.exists():
+        all_questions.extend(load_questions(train_json))
     if test_batch_jsons:
         for p in test_batch_jsons:
             if p and Path(p).exists():
@@ -256,8 +256,8 @@ def main() -> None:
 
     if summary_rows:
         summary_df = pd.DataFrame(summary_rows)
-        summary_df.to_csv(out_dir / "metrics_guard_rail.csv", index=False)
-        print(f"Wrote guard-rail metrics to {out_dir / 'metrics_guard_rail.csv'}")
+        summary_df.to_csv(out_dir / "metrics.csv", index=False)
+        print(f"Wrote guard-rail metrics to {out_dir / 'metrics.csv'}")
     else:
         print("No summary metrics to write.")
 

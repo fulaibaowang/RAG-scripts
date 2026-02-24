@@ -513,7 +513,7 @@ def main() -> None:
     ap.add_argument("--bm25_topk", type=int, default=5000)
     ap.add_argument("--dense_root", required=True, help="Path to dense output folder (dense_*.parquet)")
 
-    ap.add_argument("--train_subset_json", required=True)
+    ap.add_argument("--train-json", dest="train_json", required=True)
     ap.add_argument("--test_batch_jsons", nargs="+", required=True, help="List of 13B*_golden.json files")
 
     ap.add_argument("--out_dir", required=True)
@@ -554,7 +554,7 @@ def main() -> None:
         if not fp.exists():
             raise FileNotFoundError(f"Missing test batch: {fp}")
 
-    train_questions_all = load_questions(Path(args.train_subset_json).resolve())
+    train_questions_all = load_questions(Path(args.train_json).resolve())
     test_qids = set()
     for fp in test_files:
         test_qids |= collect_qids_from_questions(load_questions(fp))
@@ -568,7 +568,7 @@ def main() -> None:
             if str(q.get("id") or q.get("qid") or i) not in test_qids
         ]
 
-    train_stem = Path(args.train_subset_json).stem
+    train_stem = Path(args.train_json).stem
 
     gold_maps: Dict[str, Dict[str, List[str]]] = {}
     _, gold_maps[train_stem] = build_topics_and_gold(train_questions)

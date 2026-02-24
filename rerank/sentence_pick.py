@@ -292,7 +292,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--run-files", type=Path, nargs="*", default=None, help="Explicit run TSV files.")
     parser.add_argument("--run-glob", type=str, default="*.tsv", help="Glob for run files under --runs-dir.")
     parser.add_argument("--docs-jsonl", type=Path, required=True, help="JSONL corpus with title/abstract.")
-    parser.add_argument("--train-subset-json", type=Path, default=None, help="Training questions JSON (BioASQ).")
+    parser.add_argument("--train-json", type=Path, default=None, help="Training questions JSON (BioASQ).")
     parser.add_argument("--test-batch-jsons", type=Path, nargs="*", default=None, help="Test batch JSONs (BioASQ).")
     parser.add_argument("--query-field", type=str, default="body", help="Question key for query text.")
     parser.add_argument("--candidate-limit", type=int, default=1000, help="Max candidates per query from run.")
@@ -322,8 +322,8 @@ def main() -> None:
 
     # Topics from train + test JSONs
     topics: Dict[str, str] = {}
-    if args.train_subset_json and args.train_subset_json.exists():
-        questions = load_questions(args.train_subset_json)
+    if args.train_json and args.train_json.exists():
+        questions = load_questions(args.train_json)
         topics_df, _ = build_topics_and_gold(questions, query_field=args.query_field)
         topics.update(dict(zip(topics_df["qid"].astype(str), topics_df["query"].astype(str))))
     for path in args.test_batch_jsons or []:
