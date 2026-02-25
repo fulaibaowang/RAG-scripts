@@ -48,8 +48,9 @@ All stages write runs as TSV with columns: `qid`, `docno`, `rank`, `score`. No p
 ## Running the pipeline
 
 1. Use or copy an example config:
-   - `workflow_config_small.env` – small dataset (TOP_K=1000)
-   - `workflow_config_full.env` – full parameter list and comments
+   - `workflow_config_baseline.env` – baseline defaults (in this folder)
+   - `workflow_config_small.env` – small dataset (TOP_K=1000) (in this folder)
+   - `workflow_config_full.env` – full parameter list and comments (in this folder)
    - `scripts/private_scripts/config.env` – local paths (edit `REPO_ROOT` and index paths)
 
 2. Run with a config file (from repo root):
@@ -57,14 +58,14 @@ All stages write runs as TSV with columns: `qid`, `docno`, `rank`, `score`. No p
    cd /path/to/BioASQ
    ./scripts/public/shared_scripts/run_retrieval_rerank_pipeline.sh --config scripts/private_scripts/config.env
    ```
-   Or: `./scripts/public/shared_scripts/run_retrieval_rerank_pipeline.sh -c scripts/public/workflow_config_small.env`
+   Or: `./scripts/public/shared_scripts/run_retrieval_rerank_pipeline.sh -c scripts/public/shared_scripts/workflow_config_baseline.env`
 
    To run only retrieval (BM25, Dense, Hybrid) and skip the reranker: add `--no-rerank`:
    ```bash
    ./scripts/public/shared_scripts/run_retrieval_rerank_pipeline.sh -c config.env --no-rerank
    ```
 
-   You can still source then run: `source scripts/public/workflow_config_small.env && ./scripts/public/shared_scripts/run_retrieval_rerank_pipeline.sh`
+   You can still source then run: `source scripts/public/shared_scripts/workflow_config_baseline.env && ./scripts/public/shared_scripts/run_retrieval_rerank_pipeline.sh`
 
 3. Outputs appear under `$WORKFLOW_OUTPUT_DIR/bm25/`, `dense/`, `hybrid/`. If `DOCS_JSONL` is set and you do not pass `--no-rerank`, the reranker step runs and writes to `rerank/`. Set `RERANK_DISABLE_METRICS=1` when you have no ground truth. If a stage's key output already exists (e.g. hybrid's `ranked_test_avg.csv`), that stage is skipped; when hybrid is done, the reranker uses hybrid results and does not rerun earlier stages.
 

@@ -291,7 +291,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
         echo "[4/$TOTAL_STEPS] RRF fusion (Hybrid + Rerank, top-10)..."
       RRF_POOL_TOP="${RRF_POOL_TOP:-50}"
       RRF_K_RRF="${RRF_K_RRF:-60}"
-      RRF_W_BGE="${RRF_W_BGE:-0.8}"
+      RRF_W_BGE="${RRF_W_BGE:-0.85}"
       # If only RRF_W_BGE is set, derive Hybrid weight as 1 - RRF_W_BGE
       if [ -z "${RRF_W_HYBRID:-}" ]; then
         RRF_W_HYBRID=$(python - <<'EOF'
