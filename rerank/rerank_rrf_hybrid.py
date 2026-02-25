@@ -3,15 +3,12 @@ from __future__ import annotations
 import argparse
 import re
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
 
 import sys
-
-# DEPRECATED: guard-rail fusion (BGE top-m + Hybrid anchors).
-# Kept for reference; superseded by rerank_rrf_hybrid.py and not used by the pipeline.
 
 # shared_scripts/ (parent of rerank/) so retrieval_eval is findable when run directly
 _SHARED_SCRIPTS = Path(__file__).resolve().parents[1]
@@ -58,53 +55,38 @@ def load_run_tsv(path: Path) -> pd.DataFrame:
     return out.sort_values(["qid", "rank"]).reset_index(drop=True)
 
 
-def _guard_rail_fuse_topk(
+def _rrf_fuse_docs(
     bge_docs: List[str],
     hybrid_docs: List[str],
-    m_bge: int,
-    k_top: int,
+    pool_top: int,
+    k_rrf: int,
+    w_bge: float,
+    w_hybrid: float,
 ) -> List[str]:
-    """Apply guard-rail fusion for the top-k prefix.
+    """Union of top-N from BGE + Hybrid, weighted RRF, full fused ranking."""
+    bge_top = bge_docs[:pool_top]
+    hyb_top = hybrid_docs[:pool_top]
+    rank_bge = {d: i + 1 for i, d in enumerate(bge_top)}
+    rank_hyb = {d: i + 1 for i, d in enumerate(hyb_top)}
 
-    First take top m_bge docs from BGE, then fill remaining (k_top - m_bge)
-    slots with docs from Hybrid that are not already selected. The remainder
-    of the ranking is filled with the remaining BGE docs in original order.
-    """
-    selected: List[str] = []
-    seen = set()
-
-    # 1) top-m from BGE
-    for doc in bge_docs:
-        if doc in seen:
-            continue
-        selected.append(doc)
-        seen.add(doc)
-        if len(selected) >= m_bge or len(selected) >= k_top:
-            break
-
-    # 2) anchors from Hybrid to reach k_top
-    if len(selected) < k_top:
-        for doc in hybrid_docs:
-            if doc in seen:
-                continue
-            selected.append(doc)
-            seen.add(doc)
-            if len(selected) >= k_top:
-                break
-
-    # 3) remainder from BGE
-    for doc in bge_docs:
-        if doc in seen:
-            continue
-        selected.append(doc)
-        seen.add(doc)
-
-    return selected
+    union: List[str] = list(dict.fromkeys(bge_top + hyb_top))
+    scores = []
+    for d in union:
+        s = 0.0
+        rb = rank_bge.get(d)
+        rh = rank_hyb.get(d)
+        if rb is not None:
+            s += w_bge / (k_rrf + rb)
+        if rh is not None:
+            s += w_hybrid / (k_rrf + rh)
+        scores.append((d, s))
+    scores.sort(key=lambda x: -x[1])
+    return [d for d, _ in scores]
 
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Apply a top-k guard rail on existing BGE rerank runs using Hybrid anchors.",
+        description="RRF fusion of existing BGE rerank runs and Hybrid runs (top-50 union, weighted RRF, top-10).",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument("--hybrid-runs-dir", type=Path, required=True, help="Hybrid runs directory (best_rrf_*.tsv).")
@@ -113,19 +95,31 @@ def parse_args() -> argparse.Namespace:
         "--output-dir",
         type=Path,
         required=True,
-        help="Output directory for guard-rail runs and metrics (created if missing).",
+        help="Output directory for fused runs and metrics (created if missing).",
     )
     p.add_argument(
-        "--k-top",
+        "--pool-top",
         type=int,
-        default=10,
-        help="Final top-k cutoff where guard rail is applied (e.g. 10).",
+        default=50,
+        help="Pool size per list: union of top-N from BGE and Hybrid.",
     )
     p.add_argument(
-        "--m-bge",
+        "--k-rrf",
         type=int,
-        default=8,
-        help="Number of top docs taken from BGE within the final top-k (rest filled from Hybrid).",
+        default=60,
+        help="RRF K parameter in 1/(K+rank).",
+    )
+    p.add_argument(
+        "--w-bge",
+        type=float,
+        default=0.8,
+        help="Weight for BGE rerank scores in RRF.",
+    )
+    p.add_argument(
+        "--w-hybrid",
+        type=float,
+        default=0.2,
+        help="Weight for Hybrid scores in RRF.",
     )
     p.add_argument(
         "--train-json",
@@ -174,11 +168,10 @@ def main() -> None:
 
     ks_recall = _parse_ks_recall(args.ks_recall)
 
-    # Map split -> guard-rail run_df
     fused_runs: Dict[str, pd.DataFrame] = {}
 
     for rerank_path in sorted(rerank_runs_dir.glob("*.tsv")):
-        name = rerank_path.stem  # e.g. best_rrf_training14b_3pct_sample_top5000
+        name = rerank_path.stem  # e.g. best_rrf_training14b_10pct_sample_top5000
         split = _parse_split_from_run_stem(name)
         if split is None:
             print(f"skip {rerank_path} (could not parse split)")
@@ -189,7 +182,11 @@ def main() -> None:
             print(f"skip {rerank_path}: missing hybrid run {hybrid_path}")
             continue
 
-        print(f"Guard-rail fusion for split={split} using {rerank_path.name} + {hybrid_path.name}")
+        print(
+            f"RRF fusion for split={split} using {rerank_path.name} "
+            f"+ {hybrid_path.name} (pool_top={args.pool_top}, k_rrf={args.k_rrf}, "
+            f"w_bge={args.w_bge}, w_hybrid={args.w_hybrid})"
+        )
         bge_df = load_run_tsv(rerank_path)
         hyb_df = load_run_tsv(hybrid_path)
 
@@ -202,11 +199,13 @@ def main() -> None:
             if not bge_docs and not hybrid_docs:
                 continue
 
-            fused_docs = _guard_rail_fuse_topk(
+            fused_docs = _rrf_fuse_docs(
                 bge_docs=bge_docs,
                 hybrid_docs=hybrid_docs,
-                m_bge=int(args.m_bge),
-                k_top=int(args.k_top),
+                pool_top=int(args.pool_top),
+                k_rrf=int(args.k_rrf),
+                w_bge=float(args.w_bge),
+                w_hybrid=float(args.w_hybrid),
             )
 
             for rank, docno in enumerate(fused_docs, start=1):
@@ -219,11 +218,11 @@ def main() -> None:
         fused_df = pd.DataFrame(fused_rows).sort_values(["qid", "rank"]).reset_index(drop=True)
         fused_runs[split] = fused_df
 
-        out_path = out_runs / f"{name}_guardk{int(args.k_top)}_m{int(args.m_bge)}.tsv"
+        out_path = out_runs / f"{name}_rrf_pool{int(args.pool_top)}_k{int(args.k_rrf)}.tsv"
         fused_df.to_csv(out_path, sep="\t", index=False)
 
     if args.disable_metrics or not fused_runs:
-        print("Guard-rail fusion complete. Metrics skipped or no runs to evaluate.")
+        print("RRF fusion complete. Metrics skipped or no runs to evaluate.")
         return
 
     # Build gold and evaluate, if questions are provided
@@ -251,7 +250,10 @@ def main() -> None:
         run_map = run_df_to_run_map(fused_df, qid_col="qid", docno_col="docno")
 
         metrics, perq = evaluate_run(gold_map, run_map, ks_recall=ks_recall)
-        perq.to_csv(out_per_query / f"{split}_guardk{int(args.k_top)}_m{int(args.m_bge)}.csv", index=False)
+        perq.to_csv(
+            out_per_query / f"{split}_rrf_pool{int(args.pool_top)}_k{int(args.k_rrf)}.csv",
+            index=False,
+        )
 
         row = {"split": split}
         row.update(metrics)
@@ -260,9 +262,7 @@ def main() -> None:
     if summary_rows:
         summary_df = pd.DataFrame(summary_rows)
         summary_df.to_csv(out_dir / "metrics.csv", index=False)
-        print(f"Wrote guard-rail metrics to {out_dir / 'metrics.csv'}")
-    else:
-        print("No summary metrics to write.")
+        print(f"Wrote RRF fusion metrics to {out_dir / 'metrics.csv'}")
 
 
 if __name__ == "__main__":
