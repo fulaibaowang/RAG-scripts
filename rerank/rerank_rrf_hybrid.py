@@ -248,8 +248,11 @@ def main() -> None:
 
     for split, fused_df in fused_runs.items():
         run_map = run_df_to_run_map(fused_df, qid_col="qid", docno_col="docno")
-
-        metrics, perq = evaluate_run(gold_map, run_map, ks_recall=ks_recall)
+        # Restrict gold to qids in this run so MAP@10 is per-split (not averaged over all splits)
+        gold_for_run = {qid: gold_map[qid] for qid in run_map if qid in gold_map}
+        if not gold_for_run:
+            continue
+        metrics, perq = evaluate_run(gold_for_run, run_map, ks_recall=ks_recall)
         perq.to_csv(
             out_per_query / f"{split}_rrf_pool{int(args.pool_top)}_k{int(args.k_rrf)}.csv",
             index=False,
