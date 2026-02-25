@@ -166,7 +166,7 @@ def load_metrics_from_dirs(
     test_stems = test_batch_stems or ()
     rows = []
     for i, d in enumerate(dirs):
-        # Accept metrics.csv or metrics_guard_rail.csv (guard_rail_topk output)
+        # Accept metrics.csv or metrics_guard_rail.csv (deprecated guard_rail_topk output)
         p = d / "metrics.csv"
         if not p.exists():
             p_alt = d / "metrics_guard_rail.csv"
@@ -178,7 +178,7 @@ def load_metrics_from_dirs(
             df = pd.read_csv(p)
             df["result_dir"] = str(d)
             df["dir_label"] = label
-            # Guard-rail (and similar) metrics use "split" not "run"; normalize so rest of script works
+            # Deprecated guard-rail (and similar) metrics use "split" not "run"; normalize so rest of script works
             if "run" not in df.columns or df["run"].isna().all():
                 if "split" in df.columns and runs_dir.is_dir():
                     run_stems = [f.stem for f in runs_dir.glob("*.tsv")]
