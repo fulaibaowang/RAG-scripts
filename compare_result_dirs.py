@@ -166,13 +166,39 @@ def load_metrics_from_dirs(
     test_stems = test_batch_stems or ()
     rows = []
     for i, d in enumerate(dirs):
+        # Accept metrics.csv or metrics_guard_rail.csv (guard_rail_topk output)
         p = d / "metrics.csv"
+        if not p.exists():
+            p_alt = d / "metrics_guard_rail.csv"
+            if p_alt.exists():
+                p = p_alt
         runs_dir = d / "runs"
         label = labels[i] if labels and i < len(labels) else d.name
         if p.exists():
             df = pd.read_csv(p)
             df["result_dir"] = str(d)
             df["dir_label"] = label
+            # Guard-rail (and similar) metrics use "split" not "run"; normalize so rest of script works
+            if "run" not in df.columns or df["run"].isna().all():
+                if "split" in df.columns and runs_dir.is_dir():
+                    run_stems = [f.stem for f in runs_dir.glob("*.tsv")]
+                    def run_for_split(split_val):
+                        if pd.isna(split_val):
+                            return None
+                        s = str(split_val).strip()
+                        for stem in run_stems:
+                            if s in stem:
+                                return stem
+                        return None
+                    df["run"] = df["split"].map(run_for_split)
+                else:
+                    df["run"] = df.get("split", pd.Series(dtype=object))
+            if "label" not in df.columns and "split" in df.columns:
+                df["label"] = df["split"]
+            if "role" not in df.columns and "split" in df.columns:
+                df["role"] = df["split"].map(
+                    lambda s: "train" if s and "training" in str(s).lower() else "test"
+                )
             rows.append(df)
         elif runs_dir.is_dir() and list(runs_dir.glob("*.tsv")):
             if not gold_map:
@@ -406,6 +432,8 @@ def main() -> None:
         for _, row in combined.iterrows():
             dir_lbl = row["dir_label"]
             run_id = row["run"]
+            if pd.isna(run_id) or run_id is None:
+                continue
             result_dir = Path(row["result_dir"])
             run_path = result_dir / "runs" / f"{run_id}.tsv"
             if not run_path.exists():
