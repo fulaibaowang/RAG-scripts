@@ -96,6 +96,15 @@ fi
 [ -n "$DENSE_QUERY_FIELD_ARG" ] && export DENSE_QUERY_FIELD="$DENSE_QUERY_FIELD_ARG"
 [ -n "$RERANK_QUERY_FIELD_ARG" ] && export RERANK_QUERY_FIELD="$RERANK_QUERY_FIELD_ARG"
 
+# Optional: single switch to skip all eval metrics (run pipeline without ground truth)
+if [ "${HAVE_GROUND_TRUTH:-1}" = "0" ]; then
+  export BM25_NO_EVAL=1
+  export DENSE_NO_EVAL=1
+  export HYBRID_NO_EVAL=1
+  export RERANK_DISABLE_METRICS=1
+  echo "HAVE_GROUND_TRUTH=0: eval metrics disabled for BM25, Dense, Hybrid, Rerank"
+fi
+
 cd "$REPO_ROOT"
 
 # Required env (set by config file or by sourcing before run)
@@ -319,7 +328,62 @@ EOF
       fi
     fi
   fi
+
+  # ----- Evidence (post-rerank JSON + contexts JSONL): runs when DOCS_JSONL set and rerank_hybrid/runs exist -----
+  if [ -n "${DOCS_JSONL:-}" ] && [ -f "$DOCS_JSONL" ] && [ -d "$RERANK_HYBRID_OUT/runs" ]; then
+    mkdir -p "$WORKFLOW_OUTPUT_DIR/evidence"
+    for _tsv in "$RERANK_HYBRID_OUT/runs/"*.tsv; do
+      [ -f "$_tsv" ] || continue
+      _stem=$(basename "$_tsv" .tsv)
+      _split="${_stem#best_rrf_}"
+      _split="${_split%%_top*}"
+      [ -n "$_split" ] || continue
+
+      # Resolve query JSON for this split: match split to basename (no .json) of TRAIN_JSON or any TEST_BATCH_JSONS
+      _query_json=""
+      if [ -f "${TRAIN_JSON:-}" ] && [ "$(basename "$TRAIN_JSON" .json)" = "$_split" ]; then
+        _query_json="$TRAIN_JSON"
+      fi
+      if [ -z "$_query_json" ]; then
+        for _p in $TEST_BATCH_JSONS; do
+          [ -f "$_p" ] || continue
+          [ "$(basename "$_p" .json)" = "$_split" ] || continue
+          _query_json="$_p"
+          break
+        done
+      fi
+      if [ -z "$_query_json" ]; then
+        echo "[Evidence] Skip $_split: no matching TRAIN_JSON or TEST_BATCH_JSONS (basename without .json)"
+        continue
+      fi
+
+      _post_json="$RERANK_HYBRID_OUT/post_rerank_${_split}.json"
+      if [ ! -f "$_post_json" ]; then
+        echo "[Evidence] Post-rerank JSON ($_split)..."
+        python "$SCRIPT_DIR/evidence/post_rerank_json.py" \
+          --run-path "$_tsv" \
+          --query-json "$_query_json" \
+          --output-path "$_post_json" \
+          --top-k 10
+      else
+        echo "[Evidence] Post-rerank JSON ($_split)... (skip: output exists)"
+      fi
+
+      _ctx_jsonl="$WORKFLOW_OUTPUT_DIR/evidence/${_split}_contexts.jsonl"
+      if [ ! -f "$_ctx_jsonl" ]; then
+        echo "[Evidence] Contexts from documents ($_split)..."
+        python "$SCRIPT_DIR/evidence/build_contexts_from_documents.py" \
+          --post-rerank-json "$_post_json" \
+          --corpus-path "$DOCS_JSONL" \
+          --output-path "$_ctx_jsonl"
+      else
+        echo "[Evidence] Contexts ($_split)... (skip: output exists)"
+      fi
+    done
+  fi
+
   echo "Done. Outputs: $WORKFLOW_OUTPUT_DIR (bm25/, dense/, hybrid/, rerank/, rerank_hybrid/)"
+  [ -n "${DOCS_JSONL:-}" ] && [ -f "$DOCS_JSONL" ] && echo "  Evidence: rerank_hybrid/post_rerank_*.json, evidence/*_contexts.jsonl"
 else
   echo "Done. Outputs: $WORKFLOW_OUTPUT_DIR (bm25/, dense/, hybrid/)"
   if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "0" ]; then
