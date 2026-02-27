@@ -328,7 +328,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--recall-k-max", type=int, default=None, help="Max K for recall curve (default: use all in metrics).")
     parser.add_argument("--ks-recall", type=str, default="", help="Comma-separated K for MeanR@k when building metrics from runs (e.g. hybrid). Default: 50,100,200,...,5000.")
     parser.add_argument("--train-json", type=Path, default=None, help="Training questions JSON (for gold; required for MAP curve and for dirs that only have runs/).")
-    parser.add_argument("--test-batch-jsons", type=Path, nargs="*", default=None, help="Test batch JSONs (for gold, needed for MAP curve).")
+    parser.add_argument(
+        "--test-batch-jsons",
+        "--test_batch_jsons",
+        type=Path,
+        nargs="*",
+        default=None,
+        help="Test batch JSONs (for gold, needed for MAP curve). Supports both --test-batch-jsons and --test_batch_jsons.",
+    )
     parser.add_argument("--query-field", type=str, default="body", help="Query field in question JSONs.")
     parser.add_argument("--log-x", action="store_true", help="Use log scale for x-axis (K) in recall and MAP curves.")
     parser.add_argument("--plots-by-split", action="store_true", help="Output one recall and one MAP plot per split (train/test); uses 'role' from metrics, or 'label' if role missing.")
@@ -391,6 +398,26 @@ def main() -> None:
         train_batch_stems=train_batch_stems,
         test_batch_stems=test_batch_stems,
     )
+
+    # Normalize role where possible so --plots-by-split can group curves sensibly.
+    # Some upstream scripts may emit role="unknown" even though run/label clearly
+    # correspond to a train or test batch. When we have batch stems, try to fix that.
+    if "role" in combined.columns and (train_batch_stems or test_batch_stems):
+        def _fix_role(row: pd.Series) -> str:
+            role = str(row.get("role") or "").strip().lower()
+            if role and role not in ("unknown", "nan"):
+                return role
+            text = f"{row.get('run', '')} {row.get('label', '')}"
+            text_lower = str(text).lower()
+            for stem in test_batch_stems:
+                if str(stem).lower() in text_lower:
+                    return "test"
+            for stem in train_batch_stems:
+                if str(stem).lower() in text_lower:
+                    return "train"
+            return "unknown"
+
+        combined["role"] = combined.apply(_fix_role, axis=1)
 
     # Summary stats table (always)
     _write_compare_summary(combined, output_dir)
