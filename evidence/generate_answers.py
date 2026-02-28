@@ -22,6 +22,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import requests
+
 try:
     from tqdm.auto import tqdm  # type: ignore
 except Exception:
@@ -32,7 +34,19 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 OLLAMA_URL = "https://chat.fri.uni-lj.si/ollama/api/generate"
 OLLAMA_MODEL = "llama3.3:latest"
 
+MAX_LLM_RETRIES = 3
+RETRY_SLEEP_SECONDS = 5
+
 logger = logging.getLogger(__name__)
+
+
+def _is_retryable_request_error(exc: BaseException) -> bool:
+    """True if the exception is a transient error worth retrying (timeout, 5xx, connection)."""
+    if isinstance(exc, (requests.exceptions.Timeout, requests.exceptions.ConnectionError)):
+        return True
+    if isinstance(exc, requests.exceptions.HTTPError) and exc.response is not None:
+        return exc.response.status_code in (429, 502, 503, 504)
+    return False
 
 
 def _load_dotenv() -> None:
@@ -115,7 +129,6 @@ def call_llm(
     user_prompt: str,
     timeout: int = 120,
 ) -> str:
-    import requests
     prompt = f"[SYSTEM]\n{system_prompt}\n\n[USER]\n{user_prompt}"
     r = requests.post(
         OLLAMA_URL,
@@ -327,28 +340,47 @@ def main() -> int:
                 out["exact_answer"] = None
             return idx, out
 
+        schema_block = get_schema_block(qtype)
+        evidence_block = format_evidence_block(
+            contexts, args.max_contexts, args.max_chars_per_context
+        )
+        user_prompt = fill_user_prompt(question, evidence_block, qtype, schema_block)
+
         raw = None
-        try:
-            schema_block = get_schema_block(qtype)
-            evidence_block = format_evidence_block(
-                contexts, args.max_contexts, args.max_chars_per_context
-            )
-            user_prompt = fill_user_prompt(question, evidence_block, qtype, schema_block)
-            raw = call_llm(api_key, system_text, user_prompt)
-            if args.sleep > 0:
-                time.sleep(args.sleep)
-            parsed = parse_answer_json_for_type(raw, qtype, q_id=q_id)
-            out["ideal_answer"] = parsed["ideal_answer"]
-            out["evidence_ids"] = parsed["evidence_ids"]
-            if qtype in ("yesno", "factoid", "list"):
-                out["exact_answer"] = parsed.get("exact_answer")
-        except Exception as e:
-            logger.debug("Parse failed for id=%s type=%s: %s", q_id, qtype, e)
+        last_error: Optional[Exception] = None
+        for attempt in range(MAX_LLM_RETRIES):
+            try:
+                raw = call_llm(api_key, system_text, user_prompt)
+                if args.sleep > 0:
+                    time.sleep(args.sleep)
+                parsed = parse_answer_json_for_type(raw, qtype, q_id=q_id)
+                out["ideal_answer"] = parsed["ideal_answer"]
+                out["evidence_ids"] = parsed["evidence_ids"]
+                if qtype in ("yesno", "factoid", "list"):
+                    out["exact_answer"] = parsed.get("exact_answer")
+                break
+            except Exception as e:
+                last_error = e
+                if attempt < MAX_LLM_RETRIES - 1 and _is_retryable_request_error(e):
+                    logger.warning(
+                        "LLM call failed (attempt %s/%s) for id=%s: %s; retrying in %ss...",
+                        attempt + 1,
+                        MAX_LLM_RETRIES,
+                        q_id,
+                        e,
+                        RETRY_SLEEP_SECONDS,
+                    )
+                    time.sleep(RETRY_SLEEP_SECONDS)
+                else:
+                    break
+
+        if last_error is not None:
+            logger.debug("Parse failed for id=%s type=%s: %s", q_id, qtype, last_error)
             if args.verbose and raw:
                 logger.debug("Raw response (first 600 chars): %s", repr(raw[:600]))
             out["ideal_answer"] = None
             out["evidence_ids"] = []
-            out["error"] = str(e)
+            out["error"] = str(last_error)
             if qtype in ("yesno", "factoid", "list"):
                 out["exact_answer"] = None
         return idx, out
