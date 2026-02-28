@@ -252,6 +252,43 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
   RERANK_FIGS_EXIST=0
   [ -n "$(find "$RERANK_OUT/figures" -maxdepth 1 -name 'hybrid_reranker_recall_map10_*.png' 2>/dev/null | head -1)" ] && RERANK_FIGS_EXIST=1
 
+  # Check whether RRF fusion (Hybrid + Rerank -> rerank_hybrid) already exists
+  RRF_EXIST=0
+  if [ -f "$RERANK_HYBRID_OUT/metrics.csv" ] || [ -n "$(find "$RERANK_HYBRID_OUT/runs" -maxdepth 1 -name '*.tsv' 2>/dev/null | head -1)" ]; then
+    RRF_EXIST=1
+  fi
+
+  # If rerank results exist but RRF fusion outputs are missing, run fusion (unless disabled)
+  if [ "$RERANK_RESULTS_EXIST" = "1" ] && [ "$RRF_EXIST" = "0" ] && [ "$RUN_RRF_FUSION" = "1" ]; then
+    echo "[4/$TOTAL_STEPS] RRF fusion (Hybrid + Rerank, top-10)... (generating missing rerank_hybrid)"
+    RRF_POOL_TOP="${RRF_POOL_TOP:-50}"
+    RRF_K_RRF="${RRF_K_RRF:-60}"
+    RRF_W_BGE="${RRF_W_BGE:-0.85}"
+    if [ -z "${RRF_W_HYBRID:-}" ]; then
+      RRF_W_HYBRID=$(python - <<'EOF'
+import os
+w_bge = float(os.environ.get("RRF_W_BGE", "0.8"))
+print(max(0.0, min(1.0, 1.0 - w_bge)))
+EOF
+)
+    else
+      RRF_W_HYBRID="${RRF_W_HYBRID}"
+    fi
+    RRF_ARGS=(
+      --hybrid-runs-dir "$HYBRID_OUT/runs"
+      --rerank-runs-dir "$RERANK_OUT/runs"
+      --output-dir "$RERANK_HYBRID_OUT"
+      --pool-top "$RRF_POOL_TOP"
+      --k-rrf "$RRF_K_RRF"
+      --w-bge "$RRF_W_BGE"
+      --w-hybrid "$RRF_W_HYBRID"
+    )
+    [ -n "${TRAIN_JSON:-}" ] && RRF_ARGS+=(--train-json "$TRAIN_JSON")
+    [ -n "${TEST_BATCH_JSONS:-}" ] && RRF_ARGS+=(--test-batch-jsons $TEST_BATCH_JSONS)
+    [ -n "${RERANK_KS_RECALL:-}" ] && RRF_ARGS+=(--ks-recall "$RERANK_KS_RECALL")
+    python "$SCRIPT_DIR/rerank/rerank_rrf_hybrid.py" "${RRF_ARGS[@]}"
+  fi
+
   if [ "$RERANK_RESULTS_EXIST" = "1" ]; then
     if [ "$RERANK_FIGS_EXIST" = "1" ]; then
       echo "[4/$TOTAL_STEPS] Reranker... (skip: output exists)"
