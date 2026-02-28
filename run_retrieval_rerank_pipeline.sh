@@ -148,9 +148,13 @@ RERANK_HYBRID_OUT="$WORKFLOW_OUTPUT_DIR/rerank_hybrid"
 
 mkdir -p "$BM25_OUT" "$DENSE_OUT" "$HYBRID_OUT"
 
-# Step count for progress (3 = retrieval only, 4 = retrieval + reranker)
+# Step count for progress (3 = retrieval only, 4 = retrieval + reranker, 5 = + RRF fusion)
 if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
-  TOTAL_STEPS=4
+  if [ "$RUN_RRF_FUSION" = "1" ]; then
+    TOTAL_STEPS=5
+  else
+    TOTAL_STEPS=4
+  fi
 else
   TOTAL_STEPS=3
 fi
@@ -239,7 +243,7 @@ if [ -f "$HYBRID_OUT/ranked_test_avg.csv" ] || [ -f "$HYBRID_OUT/results_all.csv
   echo "[3/$TOTAL_STEPS] Hybrid... (skip: output exists)"
 else
   echo "[3/$TOTAL_STEPS] Hybrid..."
-  python "$SCRIPT_DIR/retrieval/eval_hybird.py" "${HYBRID_ARGS[@]}"
+  python "$SCRIPT_DIR/retrieval/eval_hybrid.py" "${HYBRID_ARGS[@]}"
 fi
 
 # ----- Reranker (optional: only if DOCS_JSONL set and not --no-rerank) -----
@@ -258,37 +262,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
     RRF_EXIST=1
   fi
 
-  # If rerank results exist but RRF fusion outputs are missing, run fusion (unless disabled)
-  if [ "$RERANK_RESULTS_EXIST" = "1" ] && [ "$RRF_EXIST" = "0" ] && [ "$RUN_RRF_FUSION" = "1" ]; then
-    echo "[4/$TOTAL_STEPS] RRF fusion (Hybrid + Rerank, top-10)... (generating missing rerank_hybrid)"
-    RRF_POOL_TOP="${RRF_POOL_TOP:-50}"
-    RRF_K_RRF="${RRF_K_RRF:-60}"
-    RRF_W_BGE="${RRF_W_BGE:-0.85}"
-    if [ -z "${RRF_W_HYBRID:-}" ]; then
-      RRF_W_HYBRID=$(python - <<'EOF'
-import os
-w_bge = float(os.environ.get("RRF_W_BGE", "0.8"))
-print(max(0.0, min(1.0, 1.0 - w_bge)))
-EOF
-)
-    else
-      RRF_W_HYBRID="${RRF_W_HYBRID}"
-    fi
-    RRF_ARGS=(
-      --hybrid-runs-dir "$HYBRID_OUT/runs"
-      --rerank-runs-dir "$RERANK_OUT/runs"
-      --output-dir "$RERANK_HYBRID_OUT"
-      --pool-top "$RRF_POOL_TOP"
-      --k-rrf "$RRF_K_RRF"
-      --w-bge "$RRF_W_BGE"
-      --w-hybrid "$RRF_W_HYBRID"
-    )
-    [ -n "${TRAIN_JSON:-}" ] && RRF_ARGS+=(--train-json "$TRAIN_JSON")
-    [ -n "${TEST_BATCH_JSONS:-}" ] && RRF_ARGS+=(--test-batch-jsons $TEST_BATCH_JSONS)
-    [ -n "${RERANK_KS_RECALL:-}" ] && RRF_ARGS+=(--ks-recall "$RERANK_KS_RECALL")
-    python "$SCRIPT_DIR/rerank/rerank_rrf_hybrid.py" "${RRF_ARGS[@]}"
-  fi
-
+  # ----- Step 4: Reranker (always report and run/skip before step 5) -----
   if [ "$RERANK_RESULTS_EXIST" = "1" ]; then
     if [ "$RERANK_FIGS_EXIST" = "1" ]; then
       echo "[4/$TOTAL_STEPS] Reranker... (skip: output exists)"
@@ -328,17 +302,22 @@ EOF
     [ -n "${RERANK_NUM_GPUS:-}" ] && RERANK_ARGS+=(--num-gpus "$RERANK_NUM_GPUS")
     [ -n "${RERANK_QUERY_FIELD:-}" ] && RERANK_ARGS+=(--query-field "$RERANK_QUERY_FIELD")
     python "$SCRIPT_DIR/rerank/rerank_stage2.py" "${RERANK_ARGS[@]}"
-    # Optional: apply RRF fusion (Hybrid + BGE rerank) on existing rerank runs (no extra model calls).
-    if [ "$RUN_RRF_FUSION" = "1" ]; then
-      if [ -f "$RERANK_HYBRID_OUT/metrics.csv" ] || [ -n "$(find "$RERANK_HYBRID_OUT/runs" -maxdepth 1 -name '*.tsv' 2>/dev/null | head -1)" ]; then
-        echo "[4/$TOTAL_STEPS] RRF fusion (Hybrid + Rerank, top-10)... (skip: output exists)"
-        :
-      else
-        echo "[4/$TOTAL_STEPS] RRF fusion (Hybrid + Rerank, top-10)..."
+  fi
+
+  # ----- Step 5: RRF fusion (Hybrid + Rerank -> rerank_hybrid); only when RUN_RRF_FUSION=1 -----
+  if [ "$RUN_RRF_FUSION" = "1" ] && [ "$TOTAL_STEPS" = "5" ]; then
+    # Re-check RRF output in case we just ran reranker in step 4
+    RRF_EXIST=0
+    if [ -f "$RERANK_HYBRID_OUT/metrics.csv" ] || [ -n "$(find "$RERANK_HYBRID_OUT/runs" -maxdepth 1 -name '*.tsv' 2>/dev/null | head -1)" ]; then
+      RRF_EXIST=1
+    fi
+    if [ "$RRF_EXIST" = "1" ]; then
+      echo "[5/$TOTAL_STEPS] RRF fusion (Hybrid + Rerank, top-10)... (skip: output exists)"
+    else
+      echo "[5/$TOTAL_STEPS] RRF fusion (Hybrid + Rerank, top-10)..."
       RRF_POOL_TOP="${RRF_POOL_TOP:-50}"
       RRF_K_RRF="${RRF_K_RRF:-60}"
       RRF_W_BGE="${RRF_W_BGE:-0.85}"
-      # If only RRF_W_BGE is set, derive Hybrid weight as 1 - RRF_W_BGE
       if [ -z "${RRF_W_HYBRID:-}" ]; then
         RRF_W_HYBRID=$(python - <<'EOF'
 import os
@@ -362,7 +341,6 @@ EOF
       [ -n "${TEST_BATCH_JSONS:-}" ] && RRF_ARGS+=(--test-batch-jsons $TEST_BATCH_JSONS)
       [ -n "${RERANK_KS_RECALL:-}" ] && RRF_ARGS+=(--ks-recall "$RERANK_KS_RECALL")
       python "$SCRIPT_DIR/rerank/rerank_rrf_hybrid.py" "${RRF_ARGS[@]}"
-      fi
     fi
   fi
 

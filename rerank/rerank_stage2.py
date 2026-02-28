@@ -372,7 +372,7 @@ def main() -> None:
             torch.cuda.device_count(),
         )
 
-    runs_dir = args.runs_dir or root / "output" / "eval_hybird_production_test" / "runs"
+    runs_dir = args.runs_dir or root / "output" / "eval_hybrid_production_test" / "runs"
     docs_jsonl = args.docs_jsonl or root / "output" / "subset_pubmed.jsonl"
     train_json = args.train_json
     test_batch_jsons = args.test_batch_jsons or []
