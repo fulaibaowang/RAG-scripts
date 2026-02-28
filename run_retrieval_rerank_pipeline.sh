@@ -344,7 +344,7 @@ EOF
     fi
   fi
 
-  # ----- Evidence (post-rerank JSON + contexts JSONL): runs when DOCS_JSONL set and rerank_hybrid/runs exist -----
+  # ----- Evidence (post-rerank JSON + contexts): build all splits first -----
   if [ -n "${DOCS_JSONL:-}" ] && [ -f "$DOCS_JSONL" ] && [ -d "$RERANK_HYBRID_OUT/runs" ]; then
     mkdir -p "$WORKFLOW_OUTPUT_DIR/evidence"
     for _tsv in "$RERANK_HYBRID_OUT/runs/"*.tsv; do
@@ -394,14 +394,25 @@ EOF
       else
         echo "[Evidence] Contexts ($_split)... (skip: output exists)"
       fi
+    done
 
-      # ----- Generation (LLM answers from contexts JSON) -----
+    # ----- Generation (LLM answers from contexts JSON): run after all evidence is built -----
+    mkdir -p "$WORKFLOW_OUTPUT_DIR/generation"
+    for _tsv in "$RERANK_HYBRID_OUT/runs/"*.tsv; do
+      [ -f "$_tsv" ] || continue
+      _stem=$(basename "$_tsv" .tsv)
+      _split="${_stem#best_rrf_}"
+      _split="${_split%%_top*}"
+      [ -n "$_split" ] || continue
+
+      _ctx_json="$WORKFLOW_OUTPUT_DIR/evidence/${_split}_contexts.json"
       _gen_json="$WORKFLOW_OUTPUT_DIR/generation/${_split}_answers.json"
       if [ -f "$_gen_json" ]; then
         echo "[Generation] $_split... (skip: output exists)"
+      elif [ ! -f "$_ctx_json" ]; then
+        echo "[Generation] Skip $_split: evidence not found ($_ctx_json)"
       else
         echo "[Generation] $_split..."
-        mkdir -p "$WORKFLOW_OUTPUT_DIR/generation"
         GENERATION_ARGS=(
           --input-path "$_ctx_json"
           --output-dir "$WORKFLOW_OUTPUT_DIR/generation"
