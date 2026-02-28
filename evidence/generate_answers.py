@@ -375,6 +375,12 @@ def main() -> int:
                     break
 
         if last_error is not None:
+            logger.warning(
+                "LLM call failed after %s attempts for id=%s: %s",
+                MAX_LLM_RETRIES,
+                q_id,
+                last_error,
+            )
             logger.debug("Parse failed for id=%s type=%s: %s", q_id, qtype, last_error)
             if args.verbose and raw:
                 logger.debug("Raw response (first 600 chars): %s", repr(raw[:600]))
