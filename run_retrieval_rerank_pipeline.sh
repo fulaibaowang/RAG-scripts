@@ -379,11 +379,31 @@ EOF
       else
         echo "[Evidence] Contexts ($_split)... (skip: output exists)"
       fi
+
+      # ----- Generation (LLM answers from contexts JSONL) -----
+      _gen_jsonl="$WORKFLOW_OUTPUT_DIR/generation/jsonl/${_split}_answers.jsonl"
+      _gen_json="$WORKFLOW_OUTPUT_DIR/generation/json/${_split}_answers.json"
+      if [ -f "$_gen_jsonl" ] || [ -f "$_gen_json" ]; then
+        echo "[Generation] $_split... (skip: output exists)"
+      else
+        echo "[Generation] $_split..."
+        mkdir -p "$WORKFLOW_OUTPUT_DIR/generation"
+        GENERATION_ARGS=(
+          --input-path "$_ctx_jsonl"
+          --output-dir "$WORKFLOW_OUTPUT_DIR/generation"
+        )
+        [ -n "${GENERATION_CONCURRENCY:-}" ] && GENERATION_ARGS+=(--concurrency "$GENERATION_CONCURRENCY")
+        [ -n "${GENERATION_MAX_CONTEXTS:-}" ] && GENERATION_ARGS+=(--max-contexts "$GENERATION_MAX_CONTEXTS")
+        [ -n "${GENERATION_MAX_CHARS_PER_CONTEXT:-}" ] && GENERATION_ARGS+=(--max-chars-per-context "$GENERATION_MAX_CHARS_PER_CONTEXT")
+        [ -n "${GENERATION_SLEEP:-}" ] && GENERATION_ARGS+=(--sleep "$GENERATION_SLEEP")
+        python "$SCRIPT_DIR/evidence/generate_answers.py" "${GENERATION_ARGS[@]}"
+      fi
     done
   fi
 
   echo "Done. Outputs: $WORKFLOW_OUTPUT_DIR (bm25/, dense/, hybrid/, rerank/, rerank_hybrid/)"
   [ -n "${DOCS_JSONL:-}" ] && [ -f "$DOCS_JSONL" ] && echo "  Evidence: rerank_hybrid/post_rerank_*.json, evidence/*_contexts.jsonl"
+  [ -n "${DOCS_JSONL:-}" ] && [ -f "$DOCS_JSONL" ] && echo "  Generation: generation/json/*_answers.json, generation/jsonl/*_answers.jsonl"
 else
   echo "Done. Outputs: $WORKFLOW_OUTPUT_DIR (bm25/, dense/, hybrid/)"
   if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "0" ]; then
