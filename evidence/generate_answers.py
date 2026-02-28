@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Generate BioASQ answers from contexts JSONL using an LLM.
+Generate BioASQ answers from contexts JSON using an LLM.
 
-Reads the JSONL produced by build_contexts_from_documents.py (id, body, type,
+Reads the JSON produced by build_contexts_from_documents.py (id, body, type,
 documents, contexts), calls an LLM per question, parses ideal_answer and
-evidence_ids (and exact_answer for yesno/factoid/list), and writes both
-JSON and JSONL under output_dir/json/ and output_dir/jsonl/.
+evidence_ids (and exact_answer for yesno/factoid/list), and writes a single
+JSON file to output_dir (e.g. output_dir/<stem>_answers.json).
 
 Requires: LLAMA_API_KEY in env or .env at repo root.
 """
@@ -52,19 +52,19 @@ def _load_dotenv() -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Generate BioASQ answers from contexts JSONL using an LLM."
+        description="Generate BioASQ answers from contexts JSON using an LLM."
     )
     parser.add_argument(
         "--input-path",
         type=Path,
         required=True,
-        help="Path to contexts JSONL (output of build_contexts_from_documents.py).",
+        help="Path to contexts JSON (output of build_contexts_from_documents.py).",
     )
     parser.add_argument(
         "--output-dir",
         type=Path,
         required=True,
-        help="Base output directory; creates output_dir/json/ and output_dir/jsonl/.",
+        help="Output directory; writes <stem>_answers.json here.",
     )
     parser.add_argument(
         "--concurrency",
@@ -231,11 +231,15 @@ def parse_answer_json_for_type(raw: str, qtype: str, q_id: Optional[str] = None)
     return out
 
 
-def iter_lines(path: Path):
+def load_contexts_json(path: Path) -> List[Dict[str, Any]]:
+    """Load contexts from JSON: expects {"questions": [...]} or a top-level list."""
     with open(path, "r", encoding="utf-8") as f:
-        for line in f:
-            if line.strip():
-                yield json.loads(line)
+        data = json.load(f)
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict) and "questions" in data:
+        return data["questions"]
+    raise ValueError("Input JSON must be a list or an object with 'questions' key")
 
 
 def main() -> int:
@@ -291,7 +295,7 @@ def main() -> int:
             .replace("{EVIDENCE_BLOCK}", evidence_block)
         )
 
-    all_objs = list(iter_lines(args.input_path))
+    all_objs = load_contexts_json(args.input_path)
     total = len(all_objs)
     if total == 0:
         logger.warning("No questions in input; nothing to write.")
@@ -301,13 +305,8 @@ def main() -> int:
     if stem.endswith("_contexts"):
         stem = stem[: -len("_contexts")]
 
-    json_dir = args.output_dir / "json"
-    jsonl_dir = args.output_dir / "jsonl"
-    json_dir.mkdir(parents=True, exist_ok=True)
-    jsonl_dir.mkdir(parents=True, exist_ok=True)
-
-    json_path = json_dir / f"{stem}_answers.json"
-    jsonl_path = jsonl_dir / f"{stem}_answers.jsonl"
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    json_path = args.output_dir / f"{stem}_answers.json"
 
     def process_one(idx: int, obj: Dict[str, Any]) -> tuple[int, Dict[str, Any]]:
         q_id = obj.get("id")
@@ -371,14 +370,10 @@ def main() -> int:
 
     records_out = [results_by_idx[i] for i in range(1, total + 1)]
 
-    with open(jsonl_path, "w", encoding="utf-8") as f:
-        for rec in records_out:
-            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(records_out, f, ensure_ascii=False, indent=2)
 
-    logger.info("Wrote %d records to %s and %s", len(records_out), jsonl_path, json_path)
+    logger.info("Wrote %d records to %s", len(records_out), json_path)
     return 0
 
 

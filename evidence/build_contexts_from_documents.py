@@ -4,9 +4,8 @@ Build contexts (title + abstract) from post-rerank JSON and literature corpus.
 
 Reads the JSON produced by post_rerank_json.py (questions with body, type, id,
 documents), looks up title and abstract for each document PMID from a PubMed
-JSONL corpus, appends a "contexts" field to each question, and writes JSONL
-(one line per question) with the full question object (body, type, id,
-documents, contexts) preserved.
+JSONL corpus, appends a "contexts" field to each question, and writes a single
+JSON file {"questions": [...]} with the full question objects preserved.
 """
 
 import argparse
@@ -42,7 +41,7 @@ def parse_args() -> argparse.Namespace:
         "--output-path",
         type=Path,
         required=True,
-        help="Path to output JSONL (e.g. output/<workflow>/rerank_hybrid/evidence/..._contexts.jsonl).",
+        help="Path to output JSON (e.g. output/<workflow>/evidence/..._contexts.json).",
     )
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose logging.")
     return parser.parse_args()
@@ -138,40 +137,41 @@ def main() -> int:
 
     args.output_path.parent.mkdir(parents=True, exist_ok=True)
     missing_total = 0
-    num_written = 0
-    with open(args.output_path, "w") as f:
-        for q in questions:
-            qid = q.get("id")
-            if qid is None:
+    out_questions: List[dict] = []
+    for q in questions:
+        qid = q.get("id")
+        if qid is None:
+            continue
+        contexts = []
+        for rank, url in enumerate(q.get("documents") or [], start=1):
+            pmid = pmid_from_url(url)
+            if not pmid:
                 continue
-            contexts = []
-            for rank, url in enumerate(q.get("documents") or [], start=1):
-                pmid = pmid_from_url(url)
-                if not pmid:
-                    continue
-                pair = pmid_to_text.get(pmid)
-                if pair is None:
-                    missing_total += 1
-                    continue
-                title, abstract = pair
-                text = build_context_text(title, abstract)
-                # One context per document (one title+abstract per PMID); id is pmid-1
-                contexts.append(
-                    {
-                        "id": f"{pmid}-1",
-                        "doc": f"http://www.ncbi.nlm.nih.gov/pubmed/{pmid}",
-                        "text": text,
-                    }
-                )
-            # Output full question object (body, type, id, documents, etc.) with contexts appended
-            out_q = dict(q)
-            out_q["contexts"] = contexts
-            f.write(json.dumps(out_q, ensure_ascii=False) + "\n")
-            num_written += 1
+            pair = pmid_to_text.get(pmid)
+            if pair is None:
+                missing_total += 1
+                continue
+            title, abstract = pair
+            text = build_context_text(title, abstract)
+            # One context per document (one title+abstract per PMID); id is pmid-1
+            contexts.append(
+                {
+                    "id": f"{pmid}-1",
+                    "doc": f"http://www.ncbi.nlm.nih.gov/pubmed/{pmid}",
+                    "text": text,
+                }
+            )
+        # Full question object (body, type, id, documents, etc.) with contexts appended
+        out_q = dict(q)
+        out_q["contexts"] = contexts
+        out_questions.append(out_q)
+
+    with open(args.output_path, "w", encoding="utf-8") as f:
+        json.dump({"questions": out_questions}, f, ensure_ascii=False, indent=2)
 
     if missing_total:
         logger.warning("PMIDs missing from corpus: %d", missing_total)
-    logger.info("Wrote %d query records to %s", num_written, args.output_path)
+    logger.info("Wrote %d query records to %s", len(out_questions), args.output_path)
     return 0
 
 

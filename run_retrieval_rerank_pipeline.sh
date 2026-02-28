@@ -384,27 +384,26 @@ EOF
         echo "[Evidence] Post-rerank JSON ($_split)... (skip: output exists)"
       fi
 
-      _ctx_jsonl="$WORKFLOW_OUTPUT_DIR/evidence/${_split}_contexts.jsonl"
-      if [ ! -f "$_ctx_jsonl" ]; then
+      _ctx_json="$WORKFLOW_OUTPUT_DIR/evidence/${_split}_contexts.json"
+      if [ ! -f "$_ctx_json" ]; then
         echo "[Evidence] Contexts from documents ($_split)..."
         python "$SCRIPT_DIR/evidence/build_contexts_from_documents.py" \
           --post-rerank-json "$_post_json" \
           --corpus-path "$DOCS_JSONL" \
-          --output-path "$_ctx_jsonl"
+          --output-path "$_ctx_json"
       else
         echo "[Evidence] Contexts ($_split)... (skip: output exists)"
       fi
 
-      # ----- Generation (LLM answers from contexts JSONL) -----
-      _gen_jsonl="$WORKFLOW_OUTPUT_DIR/generation/jsonl/${_split}_answers.jsonl"
-      _gen_json="$WORKFLOW_OUTPUT_DIR/generation/json/${_split}_answers.json"
-      if [ -f "$_gen_jsonl" ] || [ -f "$_gen_json" ]; then
+      # ----- Generation (LLM answers from contexts JSON) -----
+      _gen_json="$WORKFLOW_OUTPUT_DIR/generation/${_split}_answers.json"
+      if [ -f "$_gen_json" ]; then
         echo "[Generation] $_split... (skip: output exists)"
       else
         echo "[Generation] $_split..."
         mkdir -p "$WORKFLOW_OUTPUT_DIR/generation"
         GENERATION_ARGS=(
-          --input-path "$_ctx_jsonl"
+          --input-path "$_ctx_json"
           --output-dir "$WORKFLOW_OUTPUT_DIR/generation"
         )
         [ -n "${GENERATION_CONCURRENCY:-}" ] && GENERATION_ARGS+=(--concurrency "$GENERATION_CONCURRENCY")
@@ -417,8 +416,8 @@ EOF
   fi
 
   echo "Done. Outputs: $WORKFLOW_OUTPUT_DIR (bm25/, dense/, hybrid/, rerank/, rerank_hybrid/)"
-  [ -n "${DOCS_JSONL:-}" ] && [ -f "$DOCS_JSONL" ] && echo "  Evidence: rerank_hybrid/post_rerank_*.json, evidence/*_contexts.jsonl"
-  [ -n "${DOCS_JSONL:-}" ] && [ -f "$DOCS_JSONL" ] && echo "  Generation: generation/json/*_answers.json, generation/jsonl/*_answers.jsonl"
+  [ -n "${DOCS_JSONL:-}" ] && [ -f "$DOCS_JSONL" ] && echo "  Evidence: rerank_hybrid/post_rerank_*.json, evidence/*_contexts.json"
+  [ -n "${DOCS_JSONL:-}" ] && [ -f "$DOCS_JSONL" ] && echo "  Generation: generation/*_answers.json"
 else
   echo "Done. Outputs: $WORKFLOW_OUTPUT_DIR (bm25/, dense/, hybrid/)"
   if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "0" ]; then
