@@ -101,7 +101,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def get_api_key() -> str:
-    key = os.getenv("LLAMA_API_KEY").strip()
+    key = (os.getenv("LLAMA_API_KEY") or "").strip()
     if not key:
         raise RuntimeError(
             "Missing LLAMA_API_KEY in environment or .env"
