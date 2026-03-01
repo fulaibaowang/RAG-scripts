@@ -273,10 +273,21 @@ def parse_answer_json_for_type(raw: str, qtype: str, q_id: Optional[str] = None)
             raise ValueError(f"{qtype} type requires 'exact_answer'")
         ea = obj["exact_answer"]
         if not isinstance(ea, list):
-            raise ValueError(f"{qtype} exact_answer must be a list of strings")
-        if not all(isinstance(x, str) for x in ea):
-            raise ValueError(f"{qtype} exact_answer list must contain only strings")
-        out["exact_answer"] = ea
+            raise ValueError(f"{qtype} exact_answer must be a list (or list of lists)")
+        if len(ea) == 0:
+            out["exact_answer"] = []
+        elif isinstance(ea[0], str):
+            # Flat list of strings -> array-of-arrays (one inner array per answer)
+            if not all(isinstance(x, str) for x in ea):
+                raise ValueError(f"{qtype} exact_answer list must contain only strings")
+            out["exact_answer"] = [[s] for s in ea]
+        elif isinstance(ea[0], list):
+            # Already array-of-arrays
+            if not all(isinstance(inner, list) and all(isinstance(x, str) for x in inner) for inner in ea):
+                raise ValueError(f"{qtype} exact_answer must be list of lists of strings")
+            out["exact_answer"] = ea
+        else:
+            raise ValueError(f"{qtype} exact_answer must be list of strings or list of lists of strings")
 
     return out
 
