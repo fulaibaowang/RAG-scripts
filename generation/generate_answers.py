@@ -35,7 +35,6 @@ OLLAMA_URL = "https://chat.fri.uni-lj.si/ollama/api/generate"
 OLLAMA_MODEL = "llama3.3:latest"
 
 MAX_LLM_RETRIES = 3
-RETRY_SLEEP_SECONDS = 5
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +109,18 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Prompts directory (default: REPO_ROOT/scripts/public/prompts).",
     )
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=120,
+        help="Seconds to wait for each LLM response (default: 120).",
+    )
+    parser.add_argument(
+        "--retry-sleep",
+        type=int,
+        default=5,
+        help="Seconds to sleep between retries after a failed LLM call (default: 5).",
+    )
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose logging.")
     return parser.parse_args()
 
@@ -155,6 +166,39 @@ def format_evidence_block(
         block = f"[{cid}],\n{text}" if text else f"[{cid}],"
         lines.append(block)
     return "\n\n".join(lines)
+
+
+def build_full_prompt_for_record(
+    record: Dict[str, Any],
+    prompts_dir: Path,
+    max_contexts: int = 8,
+    max_chars_per_context: int = 1200,
+) -> str:
+    """Build the exact prompt that would be sent for this record. Used by rescue script."""
+    qtype = (record.get("type") or "summary").strip().lower()
+    question = (record.get("body") or "").strip()
+    contexts = record.get("contexts") or []
+    if not question or not contexts:
+        return ""
+    system_path = prompts_dir / "system.txt"
+    user_path = prompts_dir / "user_base.txt"
+    schemas_dir = prompts_dir / "schemas"
+    if not system_path.exists() or not user_path.exists():
+        return ""
+    system_text = system_path.read_text(encoding="utf-8").strip()
+    user_base_text = user_path.read_text(encoding="utf-8").strip()
+    schema_path = schemas_dir / f"{qtype}.txt"
+    if not schema_path.exists():
+        schema_path = schemas_dir / "summary.txt"
+    schema_block = schema_path.read_text(encoding="utf-8").strip()
+    evidence_block = format_evidence_block(contexts, max_contexts, max_chars_per_context)
+    user_prompt = (
+        user_base_text.replace("{SCHEMA_BLOCK}", schema_block)
+        .replace("{QTYPE}", qtype)
+        .replace("{QUESTION}", question)
+        .replace("{EVIDENCE_BLOCK}", evidence_block)
+    )
+    return f"[SYSTEM]\n{system_text}\n\n[USER]\n{user_prompt}"
 
 
 def extract_first_json_object(raw: str) -> str:
@@ -232,8 +276,6 @@ def parse_answer_json_for_type(raw: str, qtype: str, q_id: Optional[str] = None)
             raise ValueError(f"{qtype} exact_answer must be a list of strings")
         if not all(isinstance(x, str) for x in ea):
             raise ValueError(f"{qtype} exact_answer list must contain only strings")
-        if qtype == "factoid" and len(ea) > 5:
-            raise ValueError("factoid exact_answer must have 0-5 items")
         out["exact_answer"] = ea
 
     return out
@@ -345,7 +387,7 @@ def main() -> int:
         last_error: Optional[Exception] = None
         for attempt in range(MAX_LLM_RETRIES):
             try:
-                raw = call_llm(api_key, system_text, user_prompt)
+                raw = call_llm(api_key, system_text, user_prompt, timeout=args.timeout)
                 if args.sleep > 0:
                     time.sleep(args.sleep)
                 parsed = parse_answer_json_for_type(raw, qtype, q_id=q_id)
@@ -363,9 +405,9 @@ def main() -> int:
                         MAX_LLM_RETRIES,
                         q_id,
                         e,
-                        RETRY_SLEEP_SECONDS,
+                        args.retry_sleep,
                     )
-                    time.sleep(RETRY_SLEEP_SECONDS)
+                    time.sleep(args.retry_sleep)
                 else:
                     break
 

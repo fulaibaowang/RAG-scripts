@@ -424,6 +424,24 @@ EOF
         python "$SCRIPT_DIR/generation/generate_answers.py" "${GENERATION_ARGS[@]}"
       fi
     done
+
+    # ----- Rescue: one pass over all generation outputs (in-place, save failed prompts to same folder) -----
+    for _tsv in "$RERANK_HYBRID_OUT/runs/"*.tsv; do
+      [ -f "$_tsv" ] || continue
+      _stem=$(basename "$_tsv" .tsv)
+      _split="${_stem#best_rrf_}"
+      _split="${_split%%_top*}"
+      [ -n "$_split" ] || continue
+      _gen_json="$WORKFLOW_OUTPUT_DIR/generation/${_split}_answers.json"
+      if [ -f "$_gen_json" ]; then
+        echo "[Rescue] $_split..."
+        RESCUE_ARGS=(--input "$_gen_json")
+        [ -n "${GENERATION_RESCUE_TIMEOUT:-}" ] && RESCUE_ARGS+=(--timeout "$GENERATION_RESCUE_TIMEOUT")
+        [ -n "${GENERATION_RESCUE_RETRY_SLEEP:-}" ] && RESCUE_ARGS+=(--retry-sleep "$GENERATION_RESCUE_RETRY_SLEEP")
+        [ -n "${GENERATION_MAX_CHARS_PER_CONTEXT:-}" ] && RESCUE_ARGS+=(--max-chars-per-context "$GENERATION_MAX_CHARS_PER_CONTEXT")
+        python "$SCRIPT_DIR/generation/rescue_failed_generation.py" "${RESCUE_ARGS[@]}"
+      fi
+    done
   fi
 
   echo "Done. Outputs: $WORKFLOW_OUTPUT_DIR (bm25/, dense/, hybrid/, rerank/, rerank_hybrid/)"
