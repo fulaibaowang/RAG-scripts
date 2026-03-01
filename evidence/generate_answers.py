@@ -83,20 +83,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--concurrency",
         type=int,
-        default=2,
-        help="Max parallel LLM calls (default: 2).",
+        default=1,
+        help="Max parallel LLM calls (default: 1).",
     )
     parser.add_argument(
         "--max-contexts",
         type=int,
-        default=8,
-        help="Cap on number of contexts in evidence block (default: 8).",
+        default=10,
+        help="Cap on number of contexts in evidence block (default: 10).",
     )
     parser.add_argument(
         "--max-chars-per-context",
         type=int,
-        default=2000,
-        help="Truncation length per context (default: 2000).",
+        default=1300,
+        help="Truncation length per context (default: 1300).",
     )
     parser.add_argument(
         "--sleep",
@@ -148,16 +148,11 @@ def format_evidence_block(
 ) -> str:
     lines: List[str] = []
     for ctx in contexts[:max_contexts]:
-        cid = str(ctx.get("id", ""))
+        cid = str(ctx.get("id", "")) or "(no id)"
         text = str(ctx.get("text", "")).strip()
         if len(text) > max_chars_per_context:
             text = text[:max_chars_per_context] + "..."
-        doc = str(ctx.get("doc", "")).strip()
-        header_parts = [cid]
-        if doc:
-            header_parts.append(doc)
-        header = " | ".join(header_parts) if header_parts else "(no id)"
-        block = f"[{header}]\n{text}" if text else f"[{header}]"
+        block = f"[{cid}],\n{text}" if text else f"[{cid}],"
         lines.append(block)
     return "\n\n".join(lines)
 
