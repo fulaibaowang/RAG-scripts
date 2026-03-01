@@ -389,19 +389,49 @@ def main() -> int:
     results_by_idx: Dict[int, Dict[str, Any]] = {}
     with ThreadPoolExecutor(max_workers=args.concurrency) as ex:
         futs = {
-            ex.submit(process_one, idx, obj): idx
+            ex.submit(process_one, idx, obj): (idx, obj)
             for idx, obj in enumerate(all_objs, start=1)
         }
         completed = as_completed(futs)
         if tqdm is not None:
             completed = tqdm(completed, total=total, desc="Generation")
         for fut in completed:
-            idx, rec = fut.result()
-            results_by_idx[idx] = rec
+            idx, obj = futs[fut]
+            try:
+                _, rec = fut.result()
+                results_by_idx[idx] = rec
+            except Exception as e:
+                logger.warning("Task failed for id=%s: %s; recording as error", obj.get("id"), e)
+                rec = dict(obj)
+                rec.setdefault("documents", obj.get("documents", []))
+                rec.setdefault("contexts", obj.get("contexts", []))
+                rec["ideal_answer"] = None
+                rec["evidence_ids"] = []
+                rec["error"] = str(e)
+                qtype = obj.get("type", "summary")
+                if qtype in ("yesno", "factoid", "list"):
+                    rec["exact_answer"] = None
+                results_by_idx[idx] = rec
             if not args.verbose and tqdm is None:
-                logger.info("Completed %d/%d (id=%s)", idx, total, rec.get("id"))
+                logger.info("Completed %d/%d (id=%s)", idx, total, results_by_idx[idx].get("id"))
 
-    records_out = [results_by_idx[i] for i in range(1, total + 1)]
+    # Ensure every input question has a record (fallback for any missing index)
+    records_out: List[Dict[str, Any]] = []
+    for i in range(1, total + 1):
+        if i in results_by_idx:
+            records_out.append(results_by_idx[i])
+        else:
+            obj = all_objs[i - 1]
+            rec = dict(obj)
+            rec.setdefault("documents", obj.get("documents", []))
+            rec.setdefault("contexts", obj.get("contexts", []))
+            rec["ideal_answer"] = None
+            rec["evidence_ids"] = []
+            rec["error"] = "missing_from_results"
+            if obj.get("type") in ("yesno", "factoid", "list"):
+                rec["exact_answer"] = None
+            records_out.append(rec)
+            logger.warning("No result for index %d (id=%s); added record with error", i, obj.get("id"))
 
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(records_out, f, ensure_ascii=False, indent=2)

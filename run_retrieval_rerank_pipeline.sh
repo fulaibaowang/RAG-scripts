@@ -421,7 +421,7 @@ EOF
         [ -n "${GENERATION_MAX_CONTEXTS:-}" ] && GENERATION_ARGS+=(--max-contexts "$GENERATION_MAX_CONTEXTS")
         [ -n "${GENERATION_MAX_CHARS_PER_CONTEXT:-}" ] && GENERATION_ARGS+=(--max-chars-per-context "$GENERATION_MAX_CHARS_PER_CONTEXT")
         [ -n "${GENERATION_SLEEP:-}" ] && GENERATION_ARGS+=(--sleep "$GENERATION_SLEEP")
-        python "$SCRIPT_DIR/evidence/generate_answers.py" "${GENERATION_ARGS[@]}"
+        python "$SCRIPT_DIR/generation/generate_answers.py" "${GENERATION_ARGS[@]}"
       fi
     done
   fi
