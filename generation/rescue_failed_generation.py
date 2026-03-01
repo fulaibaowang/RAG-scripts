@@ -102,10 +102,10 @@ def main() -> int:
         return 1
 
     with open(args.input, "r", encoding="utf-8") as f:
-        records: List[Dict[str, Any]] = json.load(f)
-
+        data = json.load(f)
+    records = data.get("questions", data) if isinstance(data, dict) else data
     if not isinstance(records, list):
-        logger.error("Input JSON must be a list of records")
+        logger.error("Input JSON must be a list of records or {\"questions\": [...]}")
         return 1
 
     # Find records with error; optionally only 504
@@ -171,7 +171,8 @@ def main() -> int:
             logger.error("Expected output not found: %s", rescued_path)
             return 1
         with open(rescued_path, "r", encoding="utf-8") as f:
-            rescued_list: List[Dict[str, Any]] = json.load(f)
+            rescued_data = json.load(f)
+        rescued_list = rescued_data.get("questions", rescued_data) if isinstance(rescued_data, dict) else rescued_data
 
     # Merge: build id -> rescued record, then replace in original list
     rescued_by_id = {r.get("id"): r for r in rescued_list if r.get("id") is not None}
@@ -189,7 +190,7 @@ def main() -> int:
     out_path = args.output if args.output is not None else args.input
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(merged, f, ensure_ascii=False, indent=2)
+        json.dump({"questions": merged}, f, ensure_ascii=False, indent=2)
     logger.info("Wrote %d records to %s", len(merged), out_path)
 
     # For records that still have an error after rescue, save full prompt to {id}.txt in same folder

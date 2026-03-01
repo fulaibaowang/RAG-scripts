@@ -476,7 +476,7 @@ def main() -> int:
             logger.warning("No result for index %d (id=%s); added record with error", i, obj.get("id"))
 
     with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(records_out, f, ensure_ascii=False, indent=2)
+        json.dump({"questions": records_out}, f, ensure_ascii=False, indent=2)
 
     logger.info("Wrote %d records to %s", len(records_out), json_path)
     return 0
