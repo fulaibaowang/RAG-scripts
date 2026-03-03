@@ -188,7 +188,10 @@ if [ -f "$BM25_OUT/metrics.csv" ] || [ -n "$(find "$BM25_OUT/runs" -maxdepth 1 -
   echo "[1/$TOTAL_STEPS] BM25... (skip: output exists)"
 else
   echo "[1/$TOTAL_STEPS] BM25..."
+  STEP_BM25_START=$(date +%s)
   python "$SCRIPT_DIR/retrieval/eval_bm25_rm3.py" "${BM25_ARGS[@]}"
+  STEP_BM25_END=$(date +%s)
+  echo "[timing] BM25 step: $((STEP_BM25_END-STEP_BM25_START))s"
 fi
 
 # ----- Dense -----
@@ -226,7 +229,10 @@ if [ -f "$DENSE_OUT/metrics.csv" ] || [ -n "$(find "$DENSE_OUT/runs" -maxdepth 1
   echo "[2/$TOTAL_STEPS] Dense... (skip: output exists)"
 else
   echo "[2/$TOTAL_STEPS] Dense..."
+  STEP_DENSE_START=$(date +%s)
   python "$SCRIPT_DIR/retrieval/eval_dense.py" "${DENSE_ARGS[@]}"
+  STEP_DENSE_END=$(date +%s)
+  echo "[timing] Dense step: $((STEP_DENSE_END-STEP_DENSE_START))s"
 fi
 
 # ----- Hybrid -----
@@ -256,12 +262,16 @@ if [ -f "$HYBRID_OUT/ranked_test_avg.csv" ] || [ -f "$HYBRID_OUT/results_all.csv
   echo "[3/$TOTAL_STEPS] Hybrid... (skip: output exists)"
 else
   echo "[3/$TOTAL_STEPS] Hybrid..."
+  STEP_HYBRID_START=$(date +%s)
   python "$SCRIPT_DIR/retrieval/eval_hybrid.py" "${HYBRID_ARGS[@]}"
+  STEP_HYBRID_END=$(date +%s)
+  echo "[timing] Hybrid step: $((STEP_HYBRID_END-STEP_HYBRID_START))s"
 fi
 
 # ----- Reranker (optional: only if DOCS_JSONL set and not --no-rerank) -----
 # Figures are named hybrid_reranker_recall_map10_{label}.png (one per dataset label)
 if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
+  STEP_RERANK_START=$(date +%s)
   RERANK_RESULTS_EXIST=0
   [ -f "$RERANK_OUT/metrics.csv" ] && RERANK_RESULTS_EXIST=1
   [ "$RERANK_RESULTS_EXIST" = "0" ] && [ -n "$(find "$RERANK_OUT" -maxdepth 2 -name '*.tsv' 2>/dev/null | head -1)" ] && RERANK_RESULTS_EXIST=1
@@ -316,9 +326,12 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
     [ -n "${RERANK_QUERY_FIELD:-}" ] && RERANK_ARGS+=(--query-field "$RERANK_QUERY_FIELD")
     python "$SCRIPT_DIR/rerank/rerank_stage2.py" "${RERANK_ARGS[@]}"
   fi
+  STEP_RERANK_END=$(date +%s)
+  echo "[timing] Reranker step: $((STEP_RERANK_END-STEP_RERANK_START))s"
 
   # ----- Step 5: RRF fusion (Hybrid + Rerank -> rerank_hybrid); only when RUN_RRF_FUSION=1 -----
   if [ "$RUN_RRF_FUSION" = "1" ] && [ "$TOTAL_STEPS" = "5" ]; then
+    STEP_RRF_START=$(date +%s)
     # Re-check RRF output in case we just ran reranker in step 4
     RRF_EXIST=0
     if [ -f "$RERANK_HYBRID_OUT/metrics.csv" ] || [ -n "$(find "$RERANK_HYBRID_OUT/runs" -maxdepth 1 -name '*.tsv' 2>/dev/null | head -1)" ]; then
@@ -355,10 +368,13 @@ EOF
       [ -n "${RERANK_KS_RECALL:-}" ] && RRF_ARGS+=(--ks-recall "$RERANK_KS_RECALL")
       python "$SCRIPT_DIR/rerank/rerank_rrf_hybrid.py" "${RRF_ARGS[@]}"
     fi
+    STEP_RRF_END=$(date +%s)
+    echo "[timing] Hybrid+Rerank RRF fusion step: $((STEP_RRF_END-STEP_RRF_START))s"
   fi
 
   # ----- Evidence (post-rerank JSON + contexts): build all splits first -----
   if [ -n "${DOCS_JSONL:-}" ] && [ -f "$DOCS_JSONL" ] && [ -d "$RERANK_HYBRID_OUT/runs" ]; then
+    STEP_EVIDENCE_GEN_START=$(date +%s)
     mkdir -p "$WORKFLOW_OUTPUT_DIR/evidence"
     for _tsv in "$RERANK_HYBRID_OUT/runs/"*.tsv; do
       [ -f "$_tsv" ] || continue
@@ -455,6 +471,8 @@ EOF
         python "$SCRIPT_DIR/generation/rescue_failed_generation.py" "${RESCUE_ARGS[@]}"
       fi
     done
+    STEP_EVIDENCE_GEN_END=$(date +%s)
+    echo "[timing] Evidence + Generation + Rescue step: $((STEP_EVIDENCE_GEN_END-STEP_EVIDENCE_GEN_START))s"
   fi
 
   echo "Done. Outputs: $WORKFLOW_OUTPUT_DIR (bm25/, dense/, hybrid/, rerank/, rerank_hybrid/)"
