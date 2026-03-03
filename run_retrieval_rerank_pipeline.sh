@@ -192,14 +192,27 @@ else
 fi
 
 # ----- Dense -----
-DENSE_ARGS=(
-  --index_dir "$DENSE_INDEX_DIR"
-  --out_dir "$DENSE_OUT"
-  --train-json "$TRAIN_JSON"
-  --test_batch_jsons $TEST_BATCH_JSONS
-  --topk "$DENSE_TOP_K"
-  --ks "$RECALL_KS"
-)
+# Support either a single dense index dir (DENSE_INDEX_DIR) or a sharded glob (DENSE_INDEX_GLOB).
+# Exactly one of these should normally be set in the config; if both are set, DENSE_INDEX_GLOB wins.
+if [ -n "${DENSE_INDEX_GLOB:-}" ]; then
+  DENSE_ARGS=(
+    --index_glob "$DENSE_INDEX_GLOB"
+    --out_dir "$DENSE_OUT"
+    --train-json "$TRAIN_JSON"
+    --test_batch_jsons $TEST_BATCH_JSONS
+    --topk "$DENSE_TOP_K"
+    --ks "$RECALL_KS"
+  )
+else
+  DENSE_ARGS=(
+    --index_dir "$DENSE_INDEX_DIR"
+    --out_dir "$DENSE_OUT"
+    --train-json "$TRAIN_JSON"
+    --test_batch_jsons $TEST_BATCH_JSONS
+    --topk "$DENSE_TOP_K"
+    --ks "$RECALL_KS"
+  )
+fi
 [ -n "${DENSE_EF_SEARCH:-}" ] && DENSE_ARGS+=(--ef_search "$DENSE_EF_SEARCH")
 [ -n "${DENSE_EF_CAP:-}" ] && DENSE_ARGS+=(--ef_cap "$DENSE_EF_CAP")
 [ -n "${DENSE_BATCH_SIZE:-}" ] && DENSE_ARGS+=(--batch_size "$DENSE_BATCH_SIZE")
