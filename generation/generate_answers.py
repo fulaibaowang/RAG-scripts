@@ -16,6 +16,7 @@ import argparse
 import json
 import logging
 import os
+import re
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -121,6 +122,24 @@ def parse_args() -> argparse.Namespace:
         default=5,
         help="Seconds to sleep between retries after a failed LLM call (default: 5).",
     )
+    parser.add_argument(
+        "--evidence-source",
+        choices=["contexts", "snippets"],
+        default="contexts",
+        help="Which evidence field to use for prompts: contexts or snippets (default: contexts).",
+    )
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=0.7,
+        help="LLM sampling temperature passed via Ollama 'options.temperature' (default: 0.7).",
+    )
+    parser.add_argument(
+        "--top-p",
+        type=float,
+        default=1.0,
+        help="Nucleus sampling top_p passed via Ollama 'options.top_p' (default: 1.0 = no truncation).",
+    )
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose logging.")
     return parser.parse_args()
 
@@ -139,12 +158,22 @@ def call_llm(
     system_prompt: str,
     user_prompt: str,
     timeout: int = 120,
+    temperature: float = 0.0,
+    top_p: float = 1.0,
 ) -> str:
     prompt = f"[SYSTEM]\n{system_prompt}\n\n[USER]\n{user_prompt}"
     r = requests.post(
         OLLAMA_URL,
         headers={"Authorization": f"Bearer {api_key}"},
-        json={"model": OLLAMA_MODEL, "stream": False, "prompt": prompt},
+        json={
+            "model": OLLAMA_MODEL,
+            "stream": False,
+            "prompt": prompt,
+            "options": {
+                "temperature": float(temperature),
+                "top_p": float(top_p),
+            },
+        },
         timeout=timeout,
     )
     r.raise_for_status()
@@ -166,6 +195,42 @@ def format_evidence_block(
         block = f"[{cid}],\n{text}" if text else f"[{cid}],"
         lines.append(block)
     return "\n\n".join(lines)
+
+
+def snippets_to_contexts(snippets: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Convert BioASQ golden `snippets` into `contexts` compatible with generation prompts.
+
+    Evidence ID scheme:
+    - If snippet["id"] exists and is non-empty, use it as the context id.
+    - Otherwise, extract PMID from snippet["document"] (PubMed URL); if offsetInBeginSection
+      is present and can be parsed as int, use "{pmid}-{offset}", else just "{pmid}".
+    - If no PMID can be extracted, fall back to a stable per-snippet index-based id.
+    """
+    pmid_re = re.compile(r"/pubmed/(\d+)")
+    contexts: List[Dict[str, Any]] = []
+    for idx, snip in enumerate(snippets):
+        raw_id = snip.get("id")
+        if raw_id:
+            cid = str(raw_id)
+        else:
+            doc_url = str(snip.get("document") or snip.get("doc") or "")
+            m = pmid_re.search(doc_url)
+            if m:
+                pmid = m.group(1)
+                offset_raw = snip.get("offsetInBeginSection")
+                cid = pmid
+                if offset_raw is not None:
+                    try:
+                        offset_int = int(offset_raw)
+                        cid = f"{pmid}-{offset_int}"
+                    except (TypeError, ValueError):
+                        cid = pmid
+            else:
+                cid = f"snippet-{idx}"
+        doc_url = str(snip.get("document") or snip.get("doc") or "")
+        text = str(snip.get("text", "")).strip()
+        contexts.append({"id": cid, "doc": doc_url, "text": text})
+    return contexts
 
 
 def build_full_prompt_for_record(
@@ -373,7 +438,11 @@ def main() -> int:
         q_id = obj.get("id")
         qtype = obj.get("type", "summary")
         question = obj.get("body", "") or ""
-        contexts = obj.get("contexts", []) or []
+        if args.evidence_source == "contexts":
+            contexts = obj.get("contexts") or []
+        else:
+            snippets = obj.get("snippets") or []
+            contexts = snippets_to_contexts(snippets) if snippets else []
         documents = obj.get("documents", [])
 
         out = dict(obj)
@@ -398,7 +467,14 @@ def main() -> int:
         last_error: Optional[Exception] = None
         for attempt in range(MAX_LLM_RETRIES):
             try:
-                raw = call_llm(api_key, system_text, user_prompt, timeout=args.timeout)
+                raw = call_llm(
+                    api_key,
+                    system_text,
+                    user_prompt,
+                    timeout=args.timeout,
+                    temperature=args.temperature,
+                    top_p=args.top_p,
+                )
                 if args.sleep > 0:
                     time.sleep(args.sleep)
                 parsed = parse_answer_json_for_type(raw, qtype, q_id=q_id)
