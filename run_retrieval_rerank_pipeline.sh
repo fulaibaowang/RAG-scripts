@@ -9,7 +9,7 @@
 #
 # Or: source my.env && ./run_retrieval_rerank_pipeline.sh 
 #
-# Config file sets: WORKFLOW_OUTPUT_DIR, TRAIN_JSON, TEST_BATCH_JSONS, TOP_K,
+# Config file sets: WORKFLOW_OUTPUT_DIR, TRAIN_JSON, TEST_BATCH_JSONS (optional), TOP_K,
 # RECALL_KS, BM25_INDEX_PATH, DENSE_INDEX_DIR, DOCS_JSONL (optional),
 # BM25_QUERY_FIELD / DENSE_QUERY_FIELD (body | body_expansion_synonyms | body_expansion_long),
 # and stage overrides (BM25_*, DENSE_*, HYBRID_*, RERANK_*). See workflow_config_full.env.
@@ -110,7 +110,6 @@ cd "$REPO_ROOT"
 # Required env (set by config file or by sourcing before run)
 : "${WORKFLOW_OUTPUT_DIR:?Set WORKFLOW_OUTPUT_DIR (e.g. output/workflow_run)}"
 : "${TRAIN_JSON:?Set TRAIN_JSON (path to training questions JSON)}"
-: "${TEST_BATCH_JSONS:?Set TEST_BATCH_JSONS (space-separated paths to test batch JSONs)}"
 : "${BM25_INDEX_PATH:?Set BM25_INDEX_PATH (Terrier index directory)}"
 : "${DENSE_INDEX_DIR:?Set DENSE_INDEX_DIR (Dense HNSW index directory)}"
 
@@ -165,11 +164,11 @@ export PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}"
 BM25_ARGS=(
   --index_path "$BM25_INDEX_PATH"
   --train_json "$TRAIN_JSON"
-  --test_batch_jsons $TEST_BATCH_JSONS
   --out_dir "$BM25_OUT"
   --k_eval "$BM25_TOP_K"
   --ks "$RECALL_KS"
 )
+[ -n "${TEST_BATCH_JSONS:-}" ] && BM25_ARGS+=(--test_batch_jsons $TEST_BATCH_JSONS)
 [ -n "${BM25_JAVA_MEM:-}" ] && BM25_ARGS+=(--java_mem "$BM25_JAVA_MEM")
 [ -n "${BM25_THREADS:-}" ] && BM25_ARGS+=(--threads "$BM25_THREADS")
 [ -n "${BM25_RM3_FEEDBACK_POOL:-}" ] && BM25_ARGS+=(--k_feedback "$BM25_RM3_FEEDBACK_POOL")
@@ -202,7 +201,6 @@ if [ -n "${DENSE_INDEX_GLOB:-}" ]; then
     --index_glob "$DENSE_INDEX_GLOB"
     --out_dir "$DENSE_OUT"
     --train-json "$TRAIN_JSON"
-    --test_batch_jsons $TEST_BATCH_JSONS
     --topk "$DENSE_TOP_K"
     --ks "$RECALL_KS"
   )
@@ -211,11 +209,11 @@ else
     --index_dir "$DENSE_INDEX_DIR"
     --out_dir "$DENSE_OUT"
     --train-json "$TRAIN_JSON"
-    --test_batch_jsons $TEST_BATCH_JSONS
     --topk "$DENSE_TOP_K"
     --ks "$RECALL_KS"
   )
 fi
+[ -n "${TEST_BATCH_JSONS:-}" ] && DENSE_ARGS+=(--test_batch_jsons $TEST_BATCH_JSONS)
 [ -n "${DENSE_EF_SEARCH:-}" ] && DENSE_ARGS+=(--ef_search "$DENSE_EF_SEARCH")
 [ -n "${DENSE_EF_CAP:-}" ] && DENSE_ARGS+=(--ef_cap "$DENSE_EF_CAP")
 [ -n "${DENSE_BATCH_SIZE:-}" ] && DENSE_ARGS+=(--batch_size "$DENSE_BATCH_SIZE")
@@ -241,12 +239,12 @@ HYBRID_ARGS=(
   --bm25_topk "$BM25_TOP_K"
   --dense_root "$DENSE_OUT"
   --train-json "$TRAIN_JSON"
-  --test_batch_jsons $TEST_BATCH_JSONS
   --out_dir "$HYBRID_OUT"
   --k_max_eval "$HYBRID_K_MAX_EVAL"
   --cap "$HYBRID_CAP"
   --ks "$RECALL_KS"
 )
+[ -n "${TEST_BATCH_JSONS:-}" ] && HYBRID_ARGS+=(--test_batch_jsons $TEST_BATCH_JSONS)
 [ -n "${HYBRID_MODE:-}" ] && HYBRID_ARGS+=(--mode "$HYBRID_MODE")
 [ -n "${HYBRID_K_RRF:-}" ] && HYBRID_ARGS+=(--k_rrf "$HYBRID_K_RRF")
 [ -n "${HYBRID_W_BM25:-}" ] && HYBRID_ARGS+=(--w_bm25 "$HYBRID_W_BM25")

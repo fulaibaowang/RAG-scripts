@@ -514,7 +514,12 @@ def main() -> None:
     ap.add_argument("--dense_root", required=True, help="Path to dense output folder (dense_*.parquet)")
 
     ap.add_argument("--train-json", dest="train_json", required=True)
-    ap.add_argument("--test_batch_jsons", nargs="+", required=True, help="List of 13B*_golden.json files")
+    ap.add_argument(
+        "--test_batch_jsons",
+        nargs="*",
+        default=[],
+        help="List of 13B*_golden.json files. Required when running with evaluation; optional in no-eval mode.",
+    )
 
     ap.add_argument("--out_dir", required=True)
 

@@ -255,7 +255,6 @@ def main():
     if args.test_batch_jsons:
         test_files = [Path(fp).resolve() for fp in args.test_batch_jsons]
     elif args.test_dir:
-        # Backward-compatible default behavior
         test_dir = Path(args.test_dir).resolve()
         test_files = [
             test_dir / "13B1_golden.json",
@@ -263,8 +262,6 @@ def main():
             test_dir / "13B3_golden.json",
             test_dir / "13B4_golden.json",
         ]
-    else:
-        raise ValueError("Provide --test_batch_jsons (preferred) or --test_dir (legacy).")
 
     for fp in test_files:
         if not fp.exists():
