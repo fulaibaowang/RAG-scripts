@@ -118,8 +118,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--w-hybrid",
         type=float,
-        default=0.2,
-        help="Weight for Hybrid scores in RRF.",
+        default=None,
+        help="Weight for Hybrid scores in RRF (default: 1 - w_bge when not set).",
     )
     p.add_argument(
         "--train-json",
@@ -182,10 +182,14 @@ def main() -> None:
             print(f"skip {rerank_path}: missing hybrid run {hybrid_path}")
             continue
 
+        # Resolve effective weights (w_hybrid defaults to 1 - w_bge when not set)
+        w_bge = float(args.w_bge)
+        w_hybrid = float(args.w_hybrid) if args.w_hybrid is not None else float(1.0 - w_bge)
+
         print(
             f"RRF fusion for split={split} using {rerank_path.name} "
             f"+ {hybrid_path.name} (pool_top={args.pool_top}, k_rrf={args.k_rrf}, "
-            f"w_bge={args.w_bge}, w_hybrid={args.w_hybrid})"
+            f"w_bge={w_bge}, w_hybrid={w_hybrid})"
         )
         bge_df = load_run_tsv(rerank_path)
         hyb_df = load_run_tsv(hybrid_path)
@@ -204,8 +208,8 @@ def main() -> None:
                 hybrid_docs=hybrid_docs,
                 pool_top=int(args.pool_top),
                 k_rrf=int(args.k_rrf),
-                w_bge=float(args.w_bge),
-                w_hybrid=float(args.w_hybrid),
+                w_bge=w_bge,
+                w_hybrid=w_hybrid,
             )
 
             for rank, docno in enumerate(fused_docs, start=1):
