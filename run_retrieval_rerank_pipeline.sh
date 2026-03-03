@@ -111,7 +111,9 @@ cd "$REPO_ROOT"
 : "${WORKFLOW_OUTPUT_DIR:?Set WORKFLOW_OUTPUT_DIR (e.g. output/workflow_run)}"
 : "${TRAIN_JSON:?Set TRAIN_JSON (path to training questions JSON)}"
 : "${BM25_INDEX_PATH:?Set BM25_INDEX_PATH (Terrier index directory)}"
-: "${DENSE_INDEX_DIR:?Set DENSE_INDEX_DIR (Dense HNSW index directory)}"
+if [ -z "${DENSE_INDEX_GLOB:-}" ]; then
+  : "${DENSE_INDEX_DIR:?Set DENSE_INDEX_DIR or DENSE_INDEX_GLOB (Dense HNSW index directory or shard glob)}"
+fi
 
 TOP_K="${TOP_K:-5000}"
 RECALL_KS="${RECALL_KS:-50,100,200,300,400,500,1000,2000,5000}"
