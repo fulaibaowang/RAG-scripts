@@ -9,6 +9,7 @@ JSON file {"questions": [...]} with the full question objects preserved.
 """
 
 import argparse
+import glob as glob_mod
 import json
 import logging
 import re
@@ -33,9 +34,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--corpus-path",
-        type=Path,
-        default=Path("output/subset_pubmed.jsonl"),
-        help="Path to subset_pubmed.jsonl (default: output/subset_pubmed.jsonl).",
+        type=str,
+        default="output/subset_pubmed.jsonl",
+        help="Path or glob pattern to corpus JSONL (e.g. /pubmed/*.jsonl).",
     )
     parser.add_argument(
         "--output-path",
@@ -71,38 +72,73 @@ def load_post_rerank_questions(post_rerank_path: Path) -> Tuple[List[dict], Set[
     return questions, needed_pmids
 
 
-def build_pmid_to_text(corpus_path: Path, needed_pmids: Set[str]) -> Dict[str, Tuple[str, str]]:
+def _resolve_corpus_paths(path_or_glob: str) -> List[Path]:
+    """Resolve a single file path or a glob pattern to a sorted list of JSONL files."""
+    if "*" in path_or_glob or "?" in path_or_glob:
+        paths = sorted(Path(p) for p in glob_mod.glob(path_or_glob) if Path(p).is_file())
+        if not paths:
+            raise FileNotFoundError(f"No files matched corpus glob: {path_or_glob}")
+        return paths
+    p = Path(path_or_glob)
+    if not p.exists():
+        raise FileNotFoundError(f"Corpus file not found: {p}")
+    return [p]
+
+
+def build_pmid_to_text(corpus_path: str, needed_pmids: Set[str]) -> Dict[str, Tuple[str, str]]:
     """
-    Stream subset_pubmed.jsonl and build pmid -> (title, abstract) only for needed PMIDs.
+    Stream JSONL file(s) and build pmid -> (title, abstract) only for needed PMIDs.
+    Accepts a single path or a glob pattern.
     """
+    paths = _resolve_corpus_paths(corpus_path)
+    n_files = len(paths)
+    if n_files > 1:
+        logger.info("Scanning %d JSONL files from glob: %s", n_files, corpus_path)
+
     pmid_to_text: Dict[str, Tuple[str, str]] = {}
     found = 0
 
-    with open(corpus_path, "r") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                obj = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            pmid_raw = obj.get("pmid")
-            if pmid_raw is None:
-                continue
-            pmid = str(pmid_raw).strip()
-            if pmid not in needed_pmids:
-                continue
-            title = obj.get("title") or ""
-            abstract = obj.get("abstract") or ""
-            if isinstance(title, list):
-                title = " ".join(str(t) for t in title)
-            if isinstance(abstract, list):
-                abstract = " ".join(str(a) for a in abstract)
-            pmid_to_text[pmid] = (str(title), str(abstract))
-            found += 1
-            if found == len(needed_pmids):
-                break
+    for fi, fp in enumerate(paths):
+        with open(fp, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                pmid_raw = obj.get("pmid")
+                if pmid_raw is None:
+                    continue
+                pmid = str(pmid_raw).strip()
+                if pmid not in needed_pmids:
+                    continue
+                title = obj.get("title") or ""
+                abstract = obj.get("abstract") or ""
+                if isinstance(title, list):
+                    title = " ".join(str(t) for t in title)
+                if isinstance(abstract, list):
+                    abstract = " ".join(str(a) for a in abstract)
+                pmid_to_text[pmid] = (str(title), str(abstract))
+                found += 1
+                if found == len(needed_pmids):
+                    break
+        if found == len(needed_pmids):
+            break
+        if n_files > 1:
+            logger.info("Scanned %d/%d files, found %d/%d PMIDs so far", fi + 1, n_files, found, len(needed_pmids))
+
+    missing = needed_pmids - set(pmid_to_text.keys())
+    if missing:
+        logger.warning(
+            "%d/%d PMIDs not found in corpus (%s). These documents will have no context.",
+            len(missing), len(needed_pmids), corpus_path,
+        )
+        if len(missing) <= 20:
+            logger.warning("  missing PMIDs: %s", sorted(missing))
+        else:
+            logger.warning("  missing PMIDs (first 20): %s", sorted(missing)[:20])
 
     return pmid_to_text
 
@@ -122,9 +158,6 @@ def main() -> int:
 
     if not args.post_rerank_json.exists():
         logger.error("Post-rerank JSON not found: %s", args.post_rerank_json)
-        return 1
-    if not args.corpus_path.exists():
-        logger.error("Corpus file not found: %s", args.corpus_path)
         return 1
 
     logger.info("Loading post-rerank JSON: %s", args.post_rerank_json)

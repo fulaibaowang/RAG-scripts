@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import glob as glob_mod
 import json
 import math
 import re
@@ -91,7 +92,12 @@ def parse_args() -> argparse.Namespace:
     inputs.add_argument("--runs-dir", type=Path, default=None, help="Directory with stage-1 run TSV files.")
     inputs.add_argument("--run-files", type=Path, nargs="*", default=None, help="Explicit run TSV files.")
     inputs.add_argument("--run-glob", type=str, default="*.tsv", help="Glob for run files under --runs-dir.")
-    inputs.add_argument("--docs-jsonl", type=Path, default=None, help="JSONL corpus with PubMed texts.")
+    inputs.add_argument(
+        "--docs-jsonl",
+        type=str,
+        default=None,
+        help="JSONL corpus path or glob pattern (e.g. /pubmed/*.jsonl).",
+    )
     inputs.add_argument(
         "--train-json",
         type=Path,
@@ -215,19 +221,53 @@ def extract_text(rec: dict) -> str:
     return " ".join([p for p in parts if p])
 
 
+def _resolve_jsonl_paths(path_or_glob: Path) -> List[Path]:
+    """Resolve a single file path or a glob pattern to a sorted list of JSONL files."""
+    s = str(path_or_glob)
+    if "*" in s or "?" in s:
+        paths = sorted(Path(p) for p in glob_mod.glob(s) if Path(p).is_file())
+        if not paths:
+            raise FileNotFoundError(f"No files matched JSONL glob: {s}")
+        return paths
+    if not path_or_glob.exists():
+        raise FileNotFoundError(f"JSONL file not found: {path_or_glob}")
+    return [path_or_glob]
+
+
 def load_doc_texts(docnos: Iterable[str], jsonl_path: Path) -> Dict[str, str]:
     wanted = set(map(str, docnos))
     out: Dict[str, str] = {}
-    with jsonl_path.open("r", encoding="utf-8") as f:
-        for line in f:
-            if not line.strip():
-                continue
-            rec = json.loads(line)
-            docno = extract_docno(rec)
-            if docno in wanted and docno not in out:
-                out[docno] = extract_text(rec)
-                if len(out) == len(wanted):
-                    break
+    paths = _resolve_jsonl_paths(jsonl_path)
+    n_files = len(paths)
+    if n_files > 1:
+        print(f"[docs] scanning {n_files} JSONL files from glob: {jsonl_path}")
+    for fi, fp in enumerate(paths):
+        with fp.open("r", encoding="utf-8") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                rec = json.loads(line)
+                docno = extract_docno(rec)
+                if docno in wanted and docno not in out:
+                    out[docno] = extract_text(rec)
+                    if len(out) == len(wanted):
+                        break
+        if len(out) == len(wanted):
+            break
+        if n_files > 1:
+            print(f"[docs] scanned {fi+1}/{n_files} files, found {len(out)}/{len(wanted)} docs so far")
+    missing = wanted - set(out.keys())
+    if missing:
+        print(
+            f"WARNING: {len(missing)}/{len(wanted)} candidate PMIDs not found in corpus "
+            f"({jsonl_path}). Reranker will use empty text for these documents.",
+            flush=True,
+        )
+        if len(missing) <= 20:
+            print(f"  missing PMIDs: {sorted(missing)}", flush=True)
+        else:
+            sample = sorted(missing)[:20]
+            print(f"  missing PMIDs (first 20): {sample}", flush=True)
     return out
 
 
@@ -373,7 +413,7 @@ def main() -> None:
         )
 
     runs_dir = args.runs_dir or root / "output" / "eval_hybrid_production_test" / "runs"
-    docs_jsonl = args.docs_jsonl or root / "output" / "subset_pubmed.jsonl"
+    docs_jsonl = Path(args.docs_jsonl) if args.docs_jsonl else root / "output" / "subset_pubmed.jsonl"
     train_json = args.train_json
     test_batch_jsons = args.test_batch_jsons or []
     output_dir = args.output_dir or root / "output" / "eval_stage2_rerank"

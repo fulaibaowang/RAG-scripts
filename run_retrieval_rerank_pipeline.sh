@@ -373,7 +373,16 @@ EOF
   fi
 
   # ----- Evidence (post-rerank JSON + contexts): build all splits first -----
-  if [ -n "${DOCS_JSONL:-}" ] && [ -f "$DOCS_JSONL" ] && [ -d "$RERANK_HYBRID_OUT/runs" ]; then
+  # DOCS_JSONL may be a single file or a glob pattern; check for file or non-empty glob expansion
+  _DOCS_JSONL_OK=0
+  if [ -n "${DOCS_JSONL:-}" ]; then
+    if [ -f "$DOCS_JSONL" ]; then
+      _DOCS_JSONL_OK=1
+    elif compgen -G "$DOCS_JSONL" > /dev/null 2>&1; then
+      _DOCS_JSONL_OK=1
+    fi
+  fi
+  if [ "$_DOCS_JSONL_OK" = "1" ] && [ -d "$RERANK_HYBRID_OUT/runs" ]; then
     STEP_EVIDENCE_GEN_START=$(date +%s)
     mkdir -p "$WORKFLOW_OUTPUT_DIR/evidence"
     for _tsv in "$RERANK_HYBRID_OUT/runs/"*.tsv; do
@@ -476,8 +485,8 @@ EOF
   fi
 
   echo "Done. Outputs: $WORKFLOW_OUTPUT_DIR (bm25/, dense/, hybrid/, rerank/, rerank_hybrid/)"
-  [ -n "${DOCS_JSONL:-}" ] && [ -f "$DOCS_JSONL" ] && echo "  Evidence: rerank_hybrid/post_rerank_*.json, evidence/*_contexts.json"
-  [ -n "${DOCS_JSONL:-}" ] && [ -f "$DOCS_JSONL" ] && echo "  Generation: generation/*_answers.json"
+  [ "$_DOCS_JSONL_OK" = "1" ] && echo "  Evidence: rerank_hybrid/post_rerank_*.json, evidence/*_contexts.json"
+  [ "$_DOCS_JSONL_OK" = "1" ] && echo "  Generation: generation/*_answers.json"
 else
   echo "Done. Outputs: $WORKFLOW_OUTPUT_DIR (bm25/, dense/, hybrid/)"
   if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "0" ]; then
