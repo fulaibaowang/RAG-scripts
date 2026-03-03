@@ -131,8 +131,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--temperature",
         type=float,
-        default=0.7,
-        help="LLM sampling temperature passed via Ollama 'options.temperature' (default: 0.7).",
+        default=0.0,
+        help="LLM sampling temperature passed via Ollama 'options.temperature' (default: 0.0).",
     )
     parser.add_argument(
         "--top-p",
