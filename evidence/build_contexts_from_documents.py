@@ -35,7 +35,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--corpus-path",
         type=str,
-        default="output/subset_pubmed.jsonl",
+        required=True,
         help="Path or glob pattern to corpus JSONL (e.g. /pubmed/*.jsonl).",
     )
     parser.add_argument(

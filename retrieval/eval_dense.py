@@ -636,10 +636,10 @@ def main():
     )
     ap.add_argument(
         "--out_dir",
-        default="../output/eval_dense_MedEmbed",
+        required=True,
         help="Output directory (dense_*.parquet, *_meta.json, *_run_map.json)",
     )
-    ap.add_argument("--train-json", dest="train_json", default="../example/training14b_10pct_sample.json")
+    ap.add_argument("--train-json", dest="train_json", required=True, help="Path to training questions JSON")
     ap.add_argument("--test_batch_jsons", nargs="*", default=[], help="List of 13B*_golden.json files")
 
     ap.add_argument("--topk", type=int, default=5000)

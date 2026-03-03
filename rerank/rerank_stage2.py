@@ -89,13 +89,13 @@ def parse_args() -> argparse.Namespace:
     )
 
     inputs = parser.add_argument_group("inputs")
-    inputs.add_argument("--runs-dir", type=Path, default=None, help="Directory with stage-1 run TSV files.")
+    inputs.add_argument("--runs-dir", type=Path, required=True, help="Directory with stage-1 run TSV files.")
     inputs.add_argument("--run-files", type=Path, nargs="*", default=None, help="Explicit run TSV files.")
     inputs.add_argument("--run-glob", type=str, default="*.tsv", help="Glob for run files under --runs-dir.")
     inputs.add_argument(
         "--docs-jsonl",
         type=str,
-        default=None,
+        required=True,
         help="JSONL corpus path or glob pattern (e.g. /pubmed/*.jsonl).",
     )
     inputs.add_argument(
@@ -151,7 +151,7 @@ def parse_args() -> argparse.Namespace:
     )
 
     output = parser.add_argument_group("output")
-    output.add_argument("--output-dir", type=Path, default=None, help="Base output directory.")
+    output.add_argument("--output-dir", type=Path, required=True, help="Base output directory.")
 
     return parser.parse_args()
 
@@ -412,11 +412,11 @@ def main() -> None:
             torch.cuda.device_count(),
         )
 
-    runs_dir = args.runs_dir or root / "output" / "eval_hybrid_production_test" / "runs"
-    docs_jsonl = Path(args.docs_jsonl) if args.docs_jsonl else root / "output" / "subset_pubmed.jsonl"
+    runs_dir = args.runs_dir
+    docs_jsonl = Path(args.docs_jsonl)
     train_json = args.train_json
     test_batch_jsons = args.test_batch_jsons or []
-    output_dir = args.output_dir or root / "output" / "eval_stage2_rerank"
+    output_dir = args.output_dir
 
     output_cfg = _build_output_config(output_dir)
 
