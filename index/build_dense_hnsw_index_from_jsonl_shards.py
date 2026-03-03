@@ -164,6 +164,15 @@ def main():
 
     os.makedirs(args.out_dir, exist_ok=True)
 
+    index_path = os.path.join(args.out_dir, "hnsw_index.bin")
+    map_path = os.path.join(args.out_dir, "rowid_to_pmid.tsv")
+    meta_path = os.path.join(args.out_dir, "meta.json")
+
+    # If all expected outputs are present, assume this index is already built and skip work.
+    if os.path.exists(index_path) and os.path.exists(map_path) and os.path.exists(meta_path):
+        print(f"[skip] Existing index found in {args.out_dir}; skipping rebuild.", flush=True)
+        return
+
     # 1) Count docs for max_elements (HNSW requires it)
     if args.max_elements is not None:
         n_docs_target = args.max_elements
@@ -303,10 +312,8 @@ def main():
     print(f"[done] rowid_to_pmid: {len(rowid_to_pmid):,}  hnsw_count: {index.get_current_count():,}")
 
     # 5) Save index + mapping + metadata
-    index_path = os.path.join(args.out_dir, "hnsw_index.bin")
     index.save_index(index_path)
 
-    map_path = os.path.join(args.out_dir, "rowid_to_pmid.tsv")
     with open(map_path, "w", encoding="utf-8") as f:
         for i, p in enumerate(rowid_to_pmid):
             f.write(f"{i}\t{p}\n")
@@ -330,7 +337,6 @@ def main():
         hnsw_ef_search=args.ef_search,
         batch_size=args.batch_size,
     )
-    meta_path = os.path.join(args.out_dir, "meta.json")
     with open(meta_path, "w", encoding="utf-8") as f:
         json.dump(asdict(meta), f, indent=2)
 
