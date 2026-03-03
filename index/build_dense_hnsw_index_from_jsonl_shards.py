@@ -287,11 +287,10 @@ def main():
             pbar.update(n_flushed)
 
             if args.save_every and next_id % args.save_every == 0:
-                # checkpoint
-                idx_path = os.path.join(args.out_dir, "hnsw_index.partial.bin")
-                index.save_index(idx_path)
-                map_path = os.path.join(args.out_dir, "rowid_to_pmid.partial.tsv")
-                with open(map_path, "w", encoding="utf-8") as f:
+                ckpt_idx = os.path.join(args.out_dir, "hnsw_index.partial.bin")
+                index.save_index(ckpt_idx)
+                ckpt_map = os.path.join(args.out_dir, "rowid_to_pmid.partial.tsv")
+                with open(ckpt_map, "w", encoding="utf-8") as f:
                     for i, p in enumerate(rowid_to_pmid):
                         f.write(f"{i}\t{p}\n")
 
