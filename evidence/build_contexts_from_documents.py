@@ -14,6 +14,7 @@ import json
 import logging
 import re
 import sys
+import unicodedata
 from pathlib import Path
 from typing import Dict, List, Set, Tuple
 
@@ -143,10 +144,32 @@ def build_pmid_to_text(corpus_path: str, needed_pmids: Set[str]) -> Dict[str, Tu
     return pmid_to_text
 
 
+def _normalize_unicode_whitespace(text: str) -> str:
+    """Replace exotic Unicode whitespace / separator codepoints with ASCII space.
+
+    PubMed abstracts sometimes contain characters like U+2029 (Paragraph
+    Separator), U+2009 (Thin Space), U+00A0 (No-Break Space), etc.  These
+    cause editor warnings (unusual line terminators) and may confuse
+    downstream LLM tokenizers.  We collapse them all to plain ASCII space and
+    then clean up any resulting multi-space runs.
+    """
+    out: list[str] = []
+    for ch in text:
+        cat = unicodedata.category(ch)
+        # Zs = space separator, Zl = line separator, Zp = paragraph separator
+        if cat in ("Zl", "Zp") or (cat == "Zs" and ch != " "):
+            out.append(" ")
+        else:
+            out.append(ch)
+    # collapse multi-space runs introduced by replacements
+    return re.sub(r"  +", " ", "".join(out))
+
+
 def build_context_text(title: str, abstract: str) -> str:
     """Combine title and abstract for context text."""
     parts = [s.strip() for s in (title, abstract) if s and s.strip()]
-    return ". ".join(parts) if parts else ""
+    text = ". ".join(parts) if parts else ""
+    return _normalize_unicode_whitespace(text)
 
 
 def main() -> int:
