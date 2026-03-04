@@ -359,6 +359,35 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
     echo "[timing] Hybrid+Rerank RRF fusion step: $((STEP_RRF_END-STEP_RRF_START))s"
   fi
 
+  # ----- Compare (Rerank vs Hybrid+Rerank): recall and MAP curves -----
+  COMPARE_KS="${COMPARE_KS:-10,20,30,50,100,200,300}"
+  if [ -d "$RERANK_OUT/runs" ] && [ -d "$RERANK_HYBRID_OUT/runs" ]; then
+    COMPARE_FIGS_EXIST=0
+    [ -n "$(find "$RERANK_HYBRID_OUT/figures" -maxdepth 1 -name 'compare_*.png' 2>/dev/null | head -1)" ] && COMPARE_FIGS_EXIST=1
+    if [ "$COMPARE_FIGS_EXIST" = "1" ]; then
+      echo "[Compare] Rerank vs Hybrid+Rerank... (skip: figures exist)"
+    else
+      echo "[Compare] Rerank vs Hybrid+Rerank (recall & MAP @ $COMPARE_KS)..."
+      STEP_COMPARE_START=$(date +%s)
+      COMPARE_ARGS=(
+        --dirs "$RERANK_OUT" "$RERANK_HYBRID_OUT"
+        --labels "Rerank" "Hybrid+Rerank"
+        --plot both
+        --map-ks "$COMPARE_KS"
+        --ks-recall "$COMPARE_KS"
+        --recall-k-max 300
+        --output-dir "$RERANK_HYBRID_OUT"
+        --force-from-runs
+        --plots-by-split
+      )
+      [ -n "${TRAIN_JSON:-}" ] && COMPARE_ARGS+=(--train-json "$TRAIN_JSON")
+      [ -n "${TEST_BATCH_JSONS:-}" ] && COMPARE_ARGS+=(--test-batch-jsons $TEST_BATCH_JSONS)
+      python "$SCRIPT_DIR/compare_result_dirs.py" "${COMPARE_ARGS[@]}"
+      STEP_COMPARE_END=$(date +%s)
+      echo "[timing] Compare step: $((STEP_COMPARE_END-STEP_COMPARE_START))s"
+    fi
+  fi
+
   # ----- Evidence (post-rerank JSON + contexts): build all splits first -----
   # DOCS_JSONL may be a single file or a glob pattern; check for file or non-empty glob expansion
   _DOCS_JSONL_OK=0

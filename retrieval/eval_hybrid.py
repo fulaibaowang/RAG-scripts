@@ -436,6 +436,7 @@ def _evaluate_single_config(
         "MRR@10": eval_summary.get("MRR@10", np.nan),
         "GMAP@10": eval_summary.get("GMAP@10", np.nan),
         "Success@10": eval_summary.get("Success@10", np.nan),
+        "MeanR@10": eval_summary.get("MeanR@10", np.nan),
     }
     for k in ks_eval:
         row[f"MeanR@{k}"] = metrics.get(f"MeanR@{k}", np.nan)

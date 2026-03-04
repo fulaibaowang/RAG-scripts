@@ -141,7 +141,7 @@ def evaluate_run(
         ks_recall = RECALL_KS
     qids = list(gold_map.keys())
 
-    ap10s, rr10s, succ10s = [], [], []
+    ap10s, rr10s, succ10s, r10s = [], [], [], []
     recalls = {k: [] for k in ks_recall}
     perq_rows = []
 
@@ -152,12 +152,14 @@ def evaluate_run(
         ap10 = ap_at_k(gold, ranked, k=10)
         rr10 = rr_at_k(gold, ranked, k=10)
         succ10 = success_at_k(gold, ranked, k=10)
+        rec10 = recall_at_k(gold, ranked, k=10)
 
         ap10s.append(ap10)
         rr10s.append(rr10)
         succ10s.append(succ10)
+        r10s.append(rec10)
 
-        row = {"qid": qid, "AP@10": ap10, "RR@10": rr10, "Success@10": succ10}
+        row = {"qid": qid, "AP@10": ap10, "RR@10": rr10, "Success@10": succ10, "R@10": rec10}
         for k in ks_recall:
             r = recall_at_k(gold, ranked, k=k)
             recalls[k].append(r)
@@ -171,6 +173,7 @@ def evaluate_run(
         "GMAP@10": float(gmap10),
         "MRR@10": float(np.mean(rr10s)) if rr10s else 0.0,
         "Success@10": float(np.mean(succ10s)) if succ10s else 0.0,
+        "MeanR@10": float(np.mean(r10s)) if r10s else 0.0,
     }
     for k in ks_recall:
         summary[f"MeanR@{k}"] = float(np.mean(recalls[k])) if recalls[k] else 0.0

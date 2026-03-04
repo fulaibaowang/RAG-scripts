@@ -156,9 +156,12 @@ def load_metrics_from_dirs(
     ks_recall: Optional[Tuple[int, ...]] = None,
     train_batch_stems: Optional[Tuple[str, ...]] = None,
     test_batch_stems: Optional[Tuple[str, ...]] = None,
+    force_from_runs: bool = False,
 ) -> Tuple[pd.DataFrame, List[str]]:
     """Load and concatenate metrics from each dir. If a dir has no metrics.csv but has runs/*.tsv,
     compute metrics from runs when gold_map (and ks_recall) are provided.
+    When force_from_runs=True, always recompute from runs/*.tsv (ignoring metrics.csv) so that
+    custom ks_recall values are honoured.
     train_batch_stems/test_batch_stems are used to set role (train/test) from run_id when building from runs."""
     if ks_recall is None:
         ks_recall = RECALL_KS
@@ -174,7 +177,8 @@ def load_metrics_from_dirs(
                 p = p_alt
         runs_dir = d / "runs"
         label = labels[i] if labels and i < len(labels) else d.name
-        if p.exists():
+        use_runs = force_from_runs and runs_dir.is_dir() and list(runs_dir.glob("*.tsv")) and gold_map
+        if p.exists() and not use_runs:
             df = pd.read_csv(p)
             df["result_dir"] = str(d)
             df["dir_label"] = label
@@ -339,6 +343,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--query-field", type=str, default="body", help="Query field in question JSONs.")
     parser.add_argument("--log-x", action="store_true", help="Use log scale for x-axis (K) in recall and MAP curves.")
     parser.add_argument("--plots-by-split", action="store_true", help="Output one recall and one MAP plot per split (train/test); uses 'role' from metrics, or 'label' if role missing.")
+    parser.add_argument("--force-from-runs", action="store_true", help="Recompute metrics from runs/*.tsv even when metrics.csv exists. Useful when --ks-recall differs from the K values in metrics.csv.")
     return parser.parse_args()
 
 
@@ -359,8 +364,11 @@ def main() -> None:
     figures_dir = output_dir / "figures"
     figures_dir.mkdir(parents=True, exist_ok=True)
 
-    # Dirs with runs/ but no metrics.csv need gold to build synthetic metrics
-    need_gold = any(
+    force_from_runs = getattr(args, "force_from_runs", False)
+
+    # Dirs with runs/ but no metrics.csv need gold to build synthetic metrics;
+    # also need gold when --force-from-runs is active.
+    need_gold = force_from_runs or any(
         not (d / "metrics.csv").exists() and (d / "runs").is_dir() and list((d / "runs").glob("*.tsv"))
         for d in dirs
     )
@@ -393,10 +401,11 @@ def main() -> None:
 
     combined, dir_labels = load_metrics_from_dirs(
         dirs, args.labels,
-        gold_map=gold_map if need_gold else None,
+        gold_map=gold_map if (need_gold or force_from_runs) else None,
         ks_recall=ks_recall,
         train_batch_stems=train_batch_stems,
         test_batch_stems=test_batch_stems,
+        force_from_runs=force_from_runs,
     )
 
     # Normalize role where possible so --plots-by-split can group curves sensibly.
