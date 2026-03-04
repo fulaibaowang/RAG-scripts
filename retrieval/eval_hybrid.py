@@ -642,7 +642,7 @@ def main() -> None:
             )
             runmap_to_tsv(best_run, runs_dir / f"best_rrf_{split}_top{k_out}.tsv")
         config = vars(args)
-        config.update({"ks_cap": list(ks_cap), "ks_eval": list(ks_eval)})
+        config.update({"ks_cap": list(fixed_ks), "ks_eval": list(ks_eval)})
         (out_dir / "config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
         print("No-eval mode: runs saved to", runs_dir)
         return
