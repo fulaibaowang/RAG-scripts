@@ -361,7 +361,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
 
   # ----- Compare (Rerank vs Hybrid+Rerank): recall and MAP curves -----
   COMPARE_KS="${COMPARE_KS:-10,20,30,50,100,200,300}"
-  if [ -d "$RERANK_OUT/runs" ] && [ -d "$RERANK_HYBRID_OUT/runs" ]; then
+  if [ "${HAVE_GROUND_TRUTH:-1}" != "0" ] && [ -d "$RERANK_OUT/runs" ] && [ -d "$RERANK_HYBRID_OUT/runs" ]; then
     COMPARE_FIGS_EXIST=0
     [ -n "$(find "$RERANK_HYBRID_OUT/figures" -maxdepth 1 -name 'compare_*.png' 2>/dev/null | head -1)" ] && COMPARE_FIGS_EXIST=1
     if [ "$COMPARE_FIGS_EXIST" = "1" ]; then
