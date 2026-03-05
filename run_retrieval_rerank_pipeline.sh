@@ -341,12 +341,25 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
       echo "[5/$TOTAL_STEPS] RRF fusion (Hybrid + Rerank, top-10)... (skip: output exists)"
     else
       echo "[5/$TOTAL_STEPS] RRF fusion (Hybrid + Rerank, top-10)..."
+      # Resolve per-list pool sizes (deprecated RRF_POOL_TOP sets both)
+      _RRF_POOL_RERANK="${RRF_POOL_TOP_RERANK:-${RRF_POOL_TOP:-50}}"
+      _RRF_POOL_HYBRID="${RRF_POOL_TOP_HYBRID:-${RRF_POOL_TOP:-50}}"
+
+      # Validate: pool sizes must not exceed upstream output sizes
+      if [ "$_RRF_POOL_RERANK" -gt "$RERANK_EFFECTIVE" ]; then
+        echo "WARNING: RRF_POOL_TOP_RERANK ($_RRF_POOL_RERANK) > RERANK_CANDIDATE_LIMIT ($RERANK_EFFECTIVE); reranker output will be silently truncated." >&2
+      fi
+      if [ "$_RRF_POOL_HYBRID" -gt "$HYBRID_CAP" ]; then
+        echo "WARNING: RRF_POOL_TOP_HYBRID ($_RRF_POOL_HYBRID) > HYBRID_CAP ($HYBRID_CAP); hybrid output will be silently truncated." >&2
+      fi
+
       RRF_ARGS=(
         --hybrid-runs-dir "$HYBRID_OUT/runs"
         --rerank-runs-dir "$RERANK_OUT/runs"
         --output-dir "$RERANK_HYBRID_OUT"
+        --pool-top-rerank "$_RRF_POOL_RERANK"
+        --pool-top-hybrid "$_RRF_POOL_HYBRID"
       )
-      [ -n "${RRF_POOL_TOP:-}" ] && RRF_ARGS+=(--pool-top "$RRF_POOL_TOP")
       [ -n "${RRF_K_RRF:-}" ] && RRF_ARGS+=(--k-rrf "$RRF_K_RRF")
       [ -n "${RRF_W_BGE:-}" ] && RRF_ARGS+=(--w-bge "$RRF_W_BGE")
       [ -n "${RRF_W_HYBRID:-}" ] && RRF_ARGS+=(--w-hybrid "$RRF_W_HYBRID")
