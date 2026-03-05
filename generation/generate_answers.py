@@ -141,6 +141,12 @@ def parse_args() -> argparse.Namespace:
         help="Nucleus sampling top_p passed via Ollama 'options.top_p' (default: 1.0 = no truncation).",
     )
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose logging.")
+    parser.add_argument(
+        "--progress-every",
+        type=int,
+        default=10,
+        help="Log generation progress every N questions (e.g. 10 -> 1/n, 10/n, 20/n, ...). 0 disables (default: 10).",
+    )
     return parser.parse_args()
 
 
@@ -516,6 +522,8 @@ def main() -> int:
         return idx, out
 
     results_by_idx: Dict[int, Dict[str, Any]] = {}
+    progress_every = args.progress_every if args.progress_every > 0 else 0
+    completed_count = 0
     with ThreadPoolExecutor(max_workers=args.concurrency) as ex:
         futs = {
             ex.submit(process_one, idx, obj): (idx, obj)
@@ -541,7 +549,10 @@ def main() -> int:
                 if qtype in ("yesno", "factoid", "list"):
                     rec["exact_answer"] = None
                 results_by_idx[idx] = rec
-            if not args.verbose and tqdm is None:
+            completed_count += 1
+            if progress_every and (completed_count == 1 or completed_count % progress_every == 0 or completed_count == total):
+                logger.info("Generation progress: %d/%d", completed_count, total)
+            elif not args.verbose and tqdm is None and not progress_every:
                 logger.info("Completed %d/%d (id=%s)", idx, total, results_by_idx[idx].get("id"))
 
     # Ensure every input question has a record (fallback for any missing index)
