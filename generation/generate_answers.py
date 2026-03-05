@@ -524,13 +524,15 @@ def main() -> int:
     results_by_idx: Dict[int, Dict[str, Any]] = {}
     progress_every = args.progress_every if args.progress_every > 0 else 0
     completed_count = 0
+    use_tqdm = tqdm is not None and sys.stderr.isatty()
+
     with ThreadPoolExecutor(max_workers=args.concurrency) as ex:
         futs = {
             ex.submit(process_one, idx, obj): (idx, obj)
             for idx, obj in enumerate(all_objs, start=1)
         }
         completed = as_completed(futs)
-        if tqdm is not None:
+        if use_tqdm:
             completed = tqdm(completed, total=total, desc="Generation")
         for fut in completed:
             idx, obj = futs[fut]
