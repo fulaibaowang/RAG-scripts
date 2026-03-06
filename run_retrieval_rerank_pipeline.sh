@@ -665,7 +665,11 @@ _DOCS_JSONL_OK=0
           --output-dir "$WORKFLOW_OUTPUT_DIR/$_GEN_SUBDIR"
         )
         [ -n "${GENERATION_CONCURRENCY:-}" ] && GENERATION_ARGS+=(--concurrency "$GENERATION_CONCURRENCY")
-        [ -n "${GENERATION_MAX_CONTEXTS:-}" ] && GENERATION_ARGS+=(--max-contexts "$GENERATION_MAX_CONTEXTS")
+        if [ "$_route" = "baseline" ]; then
+          _max_ctx="${GENERATION_MAX_CONTEXTS_BASELINE:-${GENERATION_MAX_CONTEXTS:-8}}"
+        else
+          _max_ctx="${GENERATION_MAX_CONTEXTS_SNIPPET:-${GENERATION_MAX_CONTEXTS:-10}}"
+        fi
         [ -n "${GENERATION_MAX_CHARS_PER_CONTEXT:-}" ] && GENERATION_ARGS+=(--max-chars-per-context "$GENERATION_MAX_CHARS_PER_CONTEXT")
         [ -n "${GENERATION_SLEEP:-}" ] && GENERATION_ARGS+=(--sleep "$GENERATION_SLEEP")
         python "$SCRIPT_DIR/generation/generate_answers.py" "${GENERATION_ARGS[@]}"
