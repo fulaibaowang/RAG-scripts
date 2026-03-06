@@ -119,7 +119,9 @@ def load_doc_title_sentences(
         if len(out) == len(wanted):
             break
         if n_files > 1:
-            print(f"[docs] scanned {fi+1}/{n_files} files, found {len(out)}/{len(wanted)} docs")
+            step = 50
+            if (fi + 1) % step == 0 or (fi + 1) == n_files:
+                print(f"[docs] scanned {fi+1}/{n_files} files, found {len(out)}/{len(wanted)} docs", flush=True)
     missing = wanted - set(out.keys())
     if missing:
         print(f"WARNING: {len(missing)}/{len(wanted)} docs not found in corpus. Using empty text.")

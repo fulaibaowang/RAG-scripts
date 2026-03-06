@@ -255,7 +255,9 @@ def load_doc_texts(docnos: Iterable[str], jsonl_path: Path) -> Dict[str, str]:
         if len(out) == len(wanted):
             break
         if n_files > 1:
-            print(f"[docs] scanned {fi+1}/{n_files} files, found {len(out)}/{len(wanted)} docs so far")
+            step = 50
+            if (fi + 1) % step == 0 or (fi + 1) == n_files:
+                print(f"[docs] scanned {fi+1}/{n_files} files, found {len(out)}/{len(wanted)} docs", flush=True)
     missing = wanted - set(out.keys())
     if missing:
         print(

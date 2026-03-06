@@ -128,7 +128,9 @@ def build_pmid_to_text(corpus_path: str, needed_pmids: Set[str]) -> Dict[str, Tu
         if found == len(needed_pmids):
             break
         if n_files > 1:
-            logger.info("Scanned %d/%d files, found %d/%d PMIDs so far", fi + 1, n_files, found, len(needed_pmids))
+            step = 50
+            if (fi + 1) % step == 0 or (fi + 1) == n_files:
+                logger.info("Scanned %d/%d files, found %d/%d PMIDs so far", fi + 1, n_files, found, len(needed_pmids))
 
     missing = needed_pmids - set(pmid_to_text.keys())
     if missing:
