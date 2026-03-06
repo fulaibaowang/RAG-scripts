@@ -19,11 +19,12 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-# Parse -c / --config, --no-rerank, --no-rrf-fusion, --snippet-rrf, --bm25-query-field, etc., -h / --help
+# Parse -c / --config, --no-rerank, --no-rrf-fusion, --snippet-rrf, --run-both-routes, etc., -h / --help
 CONFIG_FILE=""
 RUN_RERANK=1
 RUN_RRF_FUSION=1
 SNIPPET_RRF=0
+RUN_BOTH_ROUTES=0
 BM25_QUERY_FIELD_ARG=""
 DENSE_QUERY_FIELD_ARG=""
 RERANK_QUERY_FIELD_ARG=""
@@ -46,6 +47,11 @@ while [ $# -gt 0 ]; do
       SNIPPET_RRF=1
       shift
       ;;
+    --run-both-routes)
+      RUN_BOTH_ROUTES=1
+      SNIPPET_RRF=1
+      shift
+      ;;
     --bm25-query-field)
       [ -z "${2:-}" ] && { echo "Error: --bm25-query-field requires a value." >&2; exit 1; }
       BM25_QUERY_FIELD_ARG="$2"
@@ -62,11 +68,12 @@ while [ $# -gt 0 ]; do
       shift 2
       ;;
     -h|--help)
-      echo "Usage: $0 [--config|-c <config.env>] [--no-rerank] [--no-rrf-fusion] [--snippet-rrf] [--bm25-query-field F] [--dense-query-field F] [--rerank-query-field F]"
+      echo "Usage: $0 [--config|-c <config.env>] [--no-rerank] [--no-rrf-fusion] [--snippet-rrf] [--run-both-routes] [--bm25-query-field F] ..."
       echo "  -c, --config PATH       Source PATH as config (env vars) before running."
       echo "  --no-rerank             Run only BM25, Dense, Hybrid; skip reranker even if DOCS_JSONL is set."
       echo "  --no-rrf-fusion         Disable RRF fusion (Hybrid + Rerank) step after reranker."
-      echo "  --snippet-rrf           Use snippet RRF route: upstream pool=200, snippet extraction, final RRF (0.8 docs + 0.2 snippet), snippet-based contexts."
+      echo "  --snippet-rrf           Use snippet RRF route: upstream pool=200, snippet extraction, final RRF, snippet-based contexts (writes evidence/, generation/)."
+      echo "  --run-both-routes        Run baseline and snippet routes; write evidence_baseline/, evidence_snippet/, generation_baseline/, generation_snippet/ (no overwrite)."
       echo "  --bm25-query-field F    Use F as query text for BM25 (overrides env; e.g. body, body_expansion_long)."
       echo "  --dense-query-field F   Use F as query text for Dense (overrides env)."
       echo "  --rerank-query-field F  Use F as query text for reranker (overrides env; e.g. body, body_expansion_long)."
@@ -151,6 +158,7 @@ DENSE_OUT="$WORKFLOW_OUTPUT_DIR/dense"
 HYBRID_OUT="$WORKFLOW_OUTPUT_DIR/hybrid"
 RERANK_OUT="$WORKFLOW_OUTPUT_DIR/rerank"
 RERANK_HYBRID_OUT="$WORKFLOW_OUTPUT_DIR/rerank_hybrid"
+RERANK_HYBRID_200_OUT="$WORKFLOW_OUTPUT_DIR/rerank_hybrid_200"
 SNIPPET_RERANK_OUT="$WORKFLOW_OUTPUT_DIR/snippet_rerank"
 SNIPPET_RRF_OUT="$WORKFLOW_OUTPUT_DIR/snippet_rrf"
 
@@ -352,9 +360,9 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
       echo "[5/$TOTAL_STEPS] RRF fusion (Hybrid + Rerank, top-10)... (skip: output exists)"
     else
       echo "[5/$TOTAL_STEPS] RRF fusion (Hybrid + Rerank, top-10)..."
-      # Resolve per-list pool sizes; snippet-rrf route defaults to 200
+      # Resolve per-list pool sizes; snippet-rrf (only) defaults to 200; --run-both-routes keeps 50 for baseline
       _RRF_DEFAULT=50
-      [ "${SNIPPET_RRF:-0}" = "1" ] && _RRF_DEFAULT=200
+      [ "${SNIPPET_RRF:-0}" = "1" ] && [ "${RUN_BOTH_ROUTES:-0}" != "1" ] && _RRF_DEFAULT=200
       _RRF_POOL_RERANK="${RRF_POOL_TOP_RERANK:-${RRF_POOL_TOP:-$_RRF_DEFAULT}}"
       _RRF_POOL_HYBRID="${RRF_POOL_TOP_HYBRID:-${RRF_POOL_TOP:-$_RRF_DEFAULT}}"
 
@@ -385,6 +393,33 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
     echo "[timing] Hybrid+Rerank RRF fusion step: $((STEP_RRF_END-STEP_RRF_START))s"
   fi
 
+  # ----- Step 5b: RRF pool=200 for snippet route (only when --run-both-routes) -----
+  if [ "${RUN_BOTH_ROUTES:-0}" = "1" ] && [ "$TOTAL_STEPS" = "7" ]; then
+    RRF_200_EXIST=0
+    [ -f "$RERANK_HYBRID_200_OUT/metrics.csv" ] || [ -n "$(find "$RERANK_HYBRID_200_OUT/runs" -maxdepth 1 -name '*.tsv' 2>/dev/null | head -1)" ] && RRF_200_EXIST=1
+    if [ "$RRF_200_EXIST" = "1" ]; then
+      echo "[5b] RRF fusion pool=200 (for snippet)... (skip: output exists)"
+    else
+      echo "[5b] RRF fusion pool=200 (for snippet route)..."
+      _RRF_POOL_RERANK_200="${RRF_POOL_TOP_RERANK:-${RRF_POOL_TOP:-200}}"
+      _RRF_POOL_HYBRID_200="${RRF_POOL_TOP_HYBRID:-${RRF_POOL_TOP:-200}}"
+      [ "$_RRF_POOL_RERANK_200" -lt 200 ] && _RRF_POOL_RERANK_200=200
+      [ "$_RRF_POOL_HYBRID_200" -lt 200 ] && _RRF_POOL_HYBRID_200=200
+      python "$SCRIPT_DIR/rerank/rerank_rrf_hybrid.py" \
+        --hybrid-runs-dir "$HYBRID_OUT/runs" \
+        --rerank-runs-dir "$RERANK_OUT/runs" \
+        --output-dir "$RERANK_HYBRID_200_OUT" \
+        --pool-top-rerank "$_RRF_POOL_RERANK_200" \
+        --pool-top-hybrid "$_RRF_POOL_HYBRID_200" \
+        ${RRF_K_RRF:+--k-rrf "$RRF_K_RRF"} \
+        ${RRF_W_BGE:+--w-bge "$RRF_W_BGE"} \
+        ${RRF_W_HYBRID:+--w-hybrid "$RRF_W_HYBRID"} \
+        ${TRAIN_JSON:+--train-json "$TRAIN_JSON"} \
+        ${TEST_BATCH_JSONS:+--test-batch-jsons $TEST_BATCH_JSONS} \
+        ${RERANK_KS_RECALL:+--ks-recall "$RERANK_KS_RECALL"}
+    fi
+  fi
+
   # ----- Step 6: Snippet extraction + CE reranking (only when --snippet-rrf) -----
   if [ "${SNIPPET_RRF:-0}" = "1" ] && [ "$TOTAL_STEPS" = "7" ]; then
     STEP_SNIPPET_START=$(date +%s)
@@ -397,8 +432,10 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
     else
       echo "[6/$TOTAL_STEPS] Snippet extraction + CE rerank..."
       mkdir -p "$SNIPPET_RERANK_OUT"
+      _SNIPPET_RRF_INPUT="$RERANK_HYBRID_OUT/runs"
+      [ "${RUN_BOTH_ROUTES:-0}" = "1" ] && _SNIPPET_RRF_INPUT="$RERANK_HYBRID_200_OUT/runs"
       SNIPPET_ARGS=(
-        --runs-dir "$RERANK_HYBRID_OUT/runs"
+        --runs-dir "$_SNIPPET_RRF_INPUT"
         --docs-jsonl "$DOCS_JSONL"
         --output-dir "$SNIPPET_RERANK_OUT"
         --n-docs "${SNIPPET_N_DOCS:-100}"
@@ -436,7 +473,8 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
       echo "[7/$TOTAL_STEPS] Final RRF (docs 0.8 + snippet 0.2)... (skip: output exists)"
     else
       echo "[7/$TOTAL_STEPS] Final RRF (docs 0.8 + snippet 0.2)..."
-      _SNIP_POOL="${SNIPPET_FINAL_POOL:-50}"
+      # Pool size default: SNIPPET_FINAL_POOL, falling back to SNIPPET_N_DOCS (and then 100)
+      _SNIP_POOL="${SNIPPET_FINAL_POOL:-${SNIPPET_N_DOCS:-100}}"
       python "$SCRIPT_DIR/rerank/rerank_rrf_hybrid.py" \
         --hybrid-runs-dir "$RERANK_HYBRID_OUT/runs" \
         --rerank-runs-dir "$SNIPPET_RERANK_OUT/runs" \
@@ -484,7 +522,8 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
   fi
 
   # ----- Evidence (post-rerank JSON + contexts): build all splits first -----
-  # When --snippet-rrf: use snippet_rrf runs and build_contexts_from_snippets; else rerank_hybrid and build_contexts_from_documents
+  # Always use separate dirs: evidence_baseline/generation_baseline (from rerank_hybrid), evidence_snippet/generation_snippet (from snippet_rrf).
+  # Baseline first then snippet-rrf in same folder: both run without overwrite.
   _DOCS_JSONL_OK=0
   if [ -n "${DOCS_JSONL:-}" ]; then
     if [ -f "$DOCS_JSONL" ]; then
@@ -493,13 +532,32 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
       _DOCS_JSONL_OK=1
     fi
   fi
-  _EVIDENCE_RUNS_DIR="$RERANK_HYBRID_OUT/runs"
-  [ "${SNIPPET_RRF:-0}" = "1" ] && [ -d "$SNIPPET_RRF_OUT/runs" ] && _EVIDENCE_RUNS_DIR="$SNIPPET_RRF_OUT/runs"
-  _EVIDENCE_POST_DIR="$RERANK_HYBRID_OUT"
-  [ "${SNIPPET_RRF:-0}" = "1" ] && _EVIDENCE_POST_DIR="$SNIPPET_RRF_OUT"
-  if [ "$_DOCS_JSONL_OK" = "1" ] && [ -d "$_EVIDENCE_RUNS_DIR" ]; then
+  if [ "$_DOCS_JSONL_OK" = "1" ]; then
     STEP_EVIDENCE_GEN_START=$(date +%s)
-    mkdir -p "$WORKFLOW_OUTPUT_DIR/evidence"
+    if [ "${RUN_BOTH_ROUTES:-0}" = "1" ]; then
+      _ROUTES_LIST="baseline snippet"
+    elif [ "${SNIPPET_RRF:-0}" = "1" ]; then
+      _ROUTES_LIST="snippet"
+    else
+      _ROUTES_LIST="baseline"
+    fi
+    for _route in $_ROUTES_LIST; do
+      if [ "$_route" = "baseline" ]; then
+        _EVIDENCE_RUNS_DIR="$RERANK_HYBRID_OUT/runs"
+        _EVIDENCE_POST_DIR="$RERANK_HYBRID_OUT"
+        _EVIDENCE_SUBDIR="evidence_baseline"
+        _GEN_SUBDIR="generation_baseline"
+        _USE_SNIPPET_CTX=0
+      else
+        _EVIDENCE_RUNS_DIR="$SNIPPET_RRF_OUT/runs"
+        _EVIDENCE_POST_DIR="$SNIPPET_RRF_OUT"
+        _EVIDENCE_SUBDIR="evidence_snippet"
+        _GEN_SUBDIR="generation_snippet"
+        _USE_SNIPPET_CTX=1
+      fi
+      [ ! -d "$_EVIDENCE_RUNS_DIR" ] && continue
+      mkdir -p "$WORKFLOW_OUTPUT_DIR/$_EVIDENCE_SUBDIR"
+      echo "[Evidence] Route: $_route -> $_EVIDENCE_SUBDIR, $_GEN_SUBDIR"
     for _tsv in "$_EVIDENCE_RUNS_DIR/"*.tsv; do
       [ -f "$_tsv" ] || continue
       _stem=$(basename "$_tsv" .tsv)
@@ -537,9 +595,9 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
         echo "[Evidence] Post-rerank JSON ($_split)... (skip: output exists)"
       fi
 
-      _ctx_json="$WORKFLOW_OUTPUT_DIR/evidence/${_split}_contexts.json"
+      _ctx_json="$WORKFLOW_OUTPUT_DIR/$_EVIDENCE_SUBDIR/${_split}_contexts.json"
       if [ ! -f "$_ctx_json" ]; then
-        if [ "${SNIPPET_RRF:-0}" = "1" ]; then
+        if [ "$_USE_SNIPPET_CTX" = "1" ]; then
           echo "[Evidence] Contexts from snippets ($_split)..."
           python "$SCRIPT_DIR/evidence/build_contexts_from_snippets.py" \
             --post-rerank-json "$_post_json" \
@@ -562,7 +620,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
     done
 
     # ----- Generation (LLM answers from contexts JSON): run after all evidence is built -----
-    mkdir -p "$WORKFLOW_OUTPUT_DIR/generation"
+    mkdir -p "$WORKFLOW_OUTPUT_DIR/$_GEN_SUBDIR"
     for _tsv in "$_EVIDENCE_RUNS_DIR/"*.tsv; do
       [ -f "$_tsv" ] || continue
       _stem=$(basename "$_tsv" .tsv)
@@ -570,8 +628,8 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
       _split="${_split%%_top*}"
       [ -n "$_split" ] || continue
 
-      _ctx_json="$WORKFLOW_OUTPUT_DIR/evidence/${_split}_contexts.json"
-      _gen_json="$WORKFLOW_OUTPUT_DIR/generation/${_split}_answers.json"
+      _ctx_json="$WORKFLOW_OUTPUT_DIR/$_EVIDENCE_SUBDIR/${_split}_contexts.json"
+      _gen_json="$WORKFLOW_OUTPUT_DIR/$_GEN_SUBDIR/${_split}_answers.json"
       if [ -f "$_gen_json" ]; then
         echo "[Generation] $_split... (skip: output exists)"
       elif [ ! -f "$_ctx_json" ]; then
@@ -580,7 +638,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
         echo "[Generation] $_split..."
         GENERATION_ARGS=(
           --input-path "$_ctx_json"
-          --output-dir "$WORKFLOW_OUTPUT_DIR/generation"
+          --output-dir "$WORKFLOW_OUTPUT_DIR/$_GEN_SUBDIR"
         )
         [ -n "${GENERATION_CONCURRENCY:-}" ] && GENERATION_ARGS+=(--concurrency "$GENERATION_CONCURRENCY")
         [ -n "${GENERATION_MAX_CONTEXTS:-}" ] && GENERATION_ARGS+=(--max-contexts "$GENERATION_MAX_CONTEXTS")
@@ -597,7 +655,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
       _split="${_stem#best_rrf_}"
       _split="${_split%%_top*}"
       [ -n "$_split" ] || continue
-      _gen_json="$WORKFLOW_OUTPUT_DIR/generation/${_split}_answers.json"
+      _gen_json="$WORKFLOW_OUTPUT_DIR/$_GEN_SUBDIR/${_split}_answers.json"
       if [ -f "$_gen_json" ]; then
         echo "[Rescue] $_split..."
         RESCUE_ARGS=(--input "$_gen_json")
@@ -607,14 +665,14 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
         python "$SCRIPT_DIR/generation/rescue_failed_generation.py" "${RESCUE_ARGS[@]}"
       fi
     done
+    done
     STEP_EVIDENCE_GEN_END=$(date +%s)
     echo "[timing] Evidence + Generation + Rescue step: $((STEP_EVIDENCE_GEN_END-STEP_EVIDENCE_GEN_START))s"
   fi
 
   echo "Done. Outputs: $WORKFLOW_OUTPUT_DIR (bm25/, dense/, hybrid/, rerank/, rerank_hybrid/)"
   [ "${SNIPPET_RRF:-0}" = "1" ] && echo "  Snippet RRF: snippet_rerank/, snippet_rrf/"
-  [ "$_DOCS_JSONL_OK" = "1" ] && echo "  Evidence: $_EVIDENCE_POST_DIR/post_rerank_*.json, evidence/*_contexts.json"
-  [ "$_DOCS_JSONL_OK" = "1" ] && echo "  Generation: generation/*_answers.json"
+  [ "$_DOCS_JSONL_OK" = "1" ] && echo "  Evidence/Generation: evidence_baseline/, generation_baseline/ (baseline); evidence_snippet/, generation_snippet/ (when --snippet-rrf)"
 else
   echo "Done. Outputs: $WORKFLOW_OUTPUT_DIR (bm25/, dense/, hybrid/)"
   if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "0" ]; then
