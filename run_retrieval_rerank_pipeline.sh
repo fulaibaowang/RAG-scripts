@@ -549,7 +549,10 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
 
   # ----- Compare (Snippet RRF vs Hybrid+Rerank): recall and MAP up to SNIPPET_N_DOCS -----
   # Compares snippet_rrf run to the doc-side run (rerank_hybrid_200); eval k capped at SNIPPET_N_DOCS.
-  if [ "${HAVE_GROUND_TRUTH:-1}" != "0" ] && [ "${DO_SNIPPET_RRF:-0}" = "1" ] && [ -d "$SNIPPET_RRF_OUT/runs" ] && [ -d "$RERANK_HYBRID_200_OUT/runs" ]; then
+  # Only run when snippet_rrf actually has run files (step 7 may skip all if stems don't match).
+  _SNIPPET_RRF_HAS_RUNS=0
+  [ -n "$(find "$SNIPPET_RRF_OUT/runs" -maxdepth 1 -name '*.tsv' 2>/dev/null | head -1)" ] && _SNIPPET_RRF_HAS_RUNS=1
+  if [ "${HAVE_GROUND_TRUTH:-1}" != "0" ] && [ "${DO_SNIPPET_RRF:-0}" = "1" ] && [ "$_SNIPPET_RRF_HAS_RUNS" = "1" ] && [ -d "$RERANK_HYBRID_200_OUT/runs" ]; then
     _SNIP_N="${SNIPPET_N_DOCS:-100}"
     COMPARE_KS_SNIPPET="${COMPARE_KS_SNIPPET:-10,20,30,50,100}"
     [ "$_SNIP_N" -gt 100 ] && COMPARE_KS_SNIPPET="${COMPARE_KS_SNIPPET},200"

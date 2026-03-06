@@ -26,11 +26,16 @@ def _parse_split_from_run_stem(run_stem: str) -> Optional[str]:
     """
     Extract the split name from a best_rrf_* run stem.
 
-    Supports both:
+    Supports:
       - best_rrf_<split>_top5000
       - best_rrf_<split>_top5000_rrf_pool50_k60
+      - best_rrf_<split>_top5000_rrf_poolR200_poolH200_k60  (rerank_hybrid / snippet_rerank output)
     """
-    m = re.fullmatch(r"best_rrf_(.+)_top\d+(?:_rrf_pool\d+_k\d+)?", run_stem)
+    # Optional suffix: _rrf_pool50_k60 (legacy) or _rrf_poolR\d+_poolH\d+_k\d+
+    m = re.fullmatch(
+        r"best_rrf_(.+)_top\d+(?:_rrf_pool(?:\d+_k\d+|R\d+_poolH\d+_k\d+))?",
+        run_stem,
+    )
     return m.group(1) if m else None
 
 
