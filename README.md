@@ -55,7 +55,6 @@ All stages write runs as TSV with columns: `qid`, `docno`, `rank`, `score`. No p
 
 1. Use or copy an example config:
    - `workflow_config_baseline.env` – baseline defaults (in this folder)
-   - `workflow_config_small.env` – small dataset (TOP_K=1000) (in this folder)
    - `workflow_config_full.env` – full parameter list and comments (in this folder)
    - `scripts/private_scripts/config.env` – local paths (edit `REPO_ROOT` and index paths)
 
