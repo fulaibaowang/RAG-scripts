@@ -358,23 +358,28 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
   echo "[timing] Reranker step: $((STEP_RERANK_END-STEP_RERANK_START))s"
 
   # ----- Step 5: RRF fusion (Hybrid + Rerank -> rerank_hybrid); only when RUN_RRF_FUSION=1 -----
+  # Snippet-only (no run-both): write pool=200 to rerank_hybrid_200 so snippet always gets 200-pool runs.
+  # Baseline or run-both: write pool=50 to rerank_hybrid; step 5b (run-both only) writes pool=200 to rerank_hybrid_200.
   if [ "$RUN_RRF_FUSION" = "1" ] && { [ "$TOTAL_STEPS" = "5" ] || [ "$TOTAL_STEPS" = "7" ]; }; then
     STEP_RRF_START=$(date +%s)
-    # Re-check RRF output in case we just ran reranker in step 4
+    # Resolve where step 5 writes and with which pool
+    _RRF_DEFAULT=50
+    [ "${SNIPPET_RRF:-0}" = "1" ] && [ "${RUN_BOTH_ROUTES:-0}" != "1" ] && _RRF_DEFAULT=200
+    _RRF_POOL_RERANK="${RRF_POOL_TOP_RERANK:-${RRF_POOL_TOP:-$_RRF_DEFAULT}}"
+    _RRF_POOL_HYBRID="${RRF_POOL_TOP_HYBRID:-${RRF_POOL_TOP:-$_RRF_DEFAULT}}"
+    if [ "${SNIPPET_RRF:-0}" = "1" ] && [ "${RUN_BOTH_ROUTES:-0}" != "1" ]; then
+      _RRF_STEP5_OUT="$RERANK_HYBRID_200_OUT"
+    else
+      _RRF_STEP5_OUT="$RERANK_HYBRID_OUT"
+    fi
     RRF_EXIST=0
-    if [ -f "$RERANK_HYBRID_OUT/metrics.csv" ] || [ -n "$(find "$RERANK_HYBRID_OUT/runs" -maxdepth 1 -name '*.tsv' 2>/dev/null | head -1)" ]; then
+    if [ -f "$_RRF_STEP5_OUT/metrics.csv" ] || [ -n "$(find "$_RRF_STEP5_OUT/runs" -maxdepth 1 -name '*.tsv' 2>/dev/null | head -1)" ]; then
       RRF_EXIST=1
     fi
     if [ "$RRF_EXIST" = "1" ]; then
-      echo "[5/$TOTAL_STEPS] RRF fusion (Hybrid + Rerank, top-10)... (skip: output exists)"
+      echo "[5/$TOTAL_STEPS] RRF fusion (Hybrid + Rerank, top-10)... (skip: output exists in $_RRF_STEP5_OUT)"
     else
-      echo "[5/$TOTAL_STEPS] RRF fusion (Hybrid + Rerank, top-10)..."
-      # Resolve per-list pool sizes; snippet-rrf (only) defaults to 200; --run-both-routes keeps 50 for baseline
-      _RRF_DEFAULT=50
-      [ "${SNIPPET_RRF:-0}" = "1" ] && [ "${RUN_BOTH_ROUTES:-0}" != "1" ] && _RRF_DEFAULT=200
-      _RRF_POOL_RERANK="${RRF_POOL_TOP_RERANK:-${RRF_POOL_TOP:-$_RRF_DEFAULT}}"
-      _RRF_POOL_HYBRID="${RRF_POOL_TOP_HYBRID:-${RRF_POOL_TOP:-$_RRF_DEFAULT}}"
-
+      echo "[5/$TOTAL_STEPS] RRF fusion (Hybrid + Rerank, top-10)... (pool R=$_RRF_POOL_RERANK H=$_RRF_POOL_HYBRID -> $_RRF_STEP5_OUT)"
       # Validate: pool sizes must not exceed upstream output sizes
       if [ "$_RRF_POOL_RERANK" -gt "$RERANK_EFFECTIVE" ]; then
         echo "WARNING: RRF_POOL_TOP_RERANK ($_RRF_POOL_RERANK) > RERANK_CANDIDATE_LIMIT ($RERANK_EFFECTIVE); reranker output will be silently truncated." >&2
@@ -386,7 +391,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
       RRF_ARGS=(
         --hybrid-runs-dir "$HYBRID_OUT/runs"
         --rerank-runs-dir "$RERANK_OUT/runs"
-        --output-dir "$RERANK_HYBRID_OUT"
+        --output-dir "$_RRF_STEP5_OUT"
         --pool-top-rerank "$_RRF_POOL_RERANK"
         --pool-top-hybrid "$_RRF_POOL_HYBRID"
       )
@@ -441,8 +446,8 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
     else
       echo "[6/$TOTAL_STEPS] Snippet extraction + CE rerank..."
       mkdir -p "$SNIPPET_RERANK_OUT"
-      _SNIPPET_RRF_INPUT="$RERANK_HYBRID_OUT/runs"
-      [ "${RUN_BOTH_ROUTES:-0}" = "1" ] && _SNIPPET_RRF_INPUT="$RERANK_HYBRID_200_OUT/runs"
+      # Snippet route always uses pool=200 runs (from rerank_hybrid_200: step 5 snippet-only or step 5b run-both)
+      _SNIPPET_RRF_INPUT="$RERANK_HYBRID_200_OUT/runs"
       SNIPPET_ARGS=(
         --runs-dir "$_SNIPPET_RRF_INPUT"
         --docs-jsonl "$DOCS_JSONL"
@@ -451,12 +456,13 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
         --window-size "${SNIPPET_WINDOW_SIZE:-3}"
         --window-stride "${SNIPPET_WINDOW_STRIDE:-1}"
         --top-w "${SNIPPET_TOP_W:-8}"
-        --dense-model "${SNIPPET_DENSE_MODEL:-BAAI/bge-base-en-v1.5}"
+        --dense-model "${SNIPPET_DENSE_MODEL:-abhinand/MedEmbed-small-v0.1}"
         --ce-model "${SNIPPET_CE_MODEL:-BAAI/bge-reranker-v2-m3}"
       )
       [ -n "${TRAIN_JSON:-}" ] && SNIPPET_ARGS+=(--train-json "$TRAIN_JSON")
       [ -n "${TEST_BATCH_JSONS:-}" ] && SNIPPET_ARGS+=(--test-batch-jsons $TEST_BATCH_JSONS)
       [ -n "${SNIPPET_DENSE_DEVICE:-}" ] && SNIPPET_ARGS+=(--dense-device "$SNIPPET_DENSE_DEVICE")
+      [ -n "${SNIPPET_DENSE_BATCH:-}" ] && SNIPPET_ARGS+=(--dense-batch "$SNIPPET_DENSE_BATCH")
       [ -n "${SNIPPET_CE_DEVICE:-}" ] && SNIPPET_ARGS+=(--ce-device "$SNIPPET_CE_DEVICE")
       [ -n "${SNIPPET_CE_BATCH:-}" ] && SNIPPET_ARGS+=(--ce-batch "$SNIPPET_CE_BATCH")
       [ -n "${SNIPPET_CE_MAX_LENGTH:-}" ] && SNIPPET_ARGS+=(--ce-max-length "$SNIPPET_CE_MAX_LENGTH")

@@ -21,6 +21,24 @@ try:
 except Exception as e:  # pragma: no cover
     raise ImportError("Missing dependency 'sentence-transformers' (pip install sentence-transformers).") from e
 
+try:
+    import torch  # type: ignore
+except ImportError:
+    torch = None  # type: ignore
+
+
+def _resolve_device(device: str) -> str:
+    """Resolve 'auto' to cuda/mps/cpu; pass through other values."""
+    if device != "auto":
+        return device
+    if torch is None:
+        return "cpu"
+    if torch.cuda.is_available():
+        return "cuda"
+    if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
+
 
 # Allow importing retrieval_eval from public scripts root
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -664,7 +682,7 @@ def main():
     )
     ap.add_argument("--batch_size", type=int, default=256)
 
-    ap.add_argument("--device", type=str, default="cpu", help='"cpu", "cuda", or "mps"')
+    ap.add_argument("--device", type=str, default="auto", help='"auto" (cuda/mps/cpu when available), "cpu", "cuda", or "mps"')
     ap.add_argument("--model_name", type=str, default="", help="Override SentenceTransformer model name")
 
     ap.add_argument("--notes", type=str, default="")
@@ -678,6 +696,7 @@ def main():
     )
 
     args = ap.parse_args()
+    args.device = _resolve_device(args.device)
 
     has_dir = bool((args.index_dir or "").strip())
     has_glob = bool((args.index_glob or "").strip())
