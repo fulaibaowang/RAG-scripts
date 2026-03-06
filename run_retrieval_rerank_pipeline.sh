@@ -578,6 +578,17 @@ _DOCS_JSONL_OK=0
       _split="${_split%%_top*}"
       [ -n "$_split" ] || continue
 
+      # For snippet evidence we will need a separate windows stem derived from the run stem
+      # so that we can look up the original snippet_rerank windows file.  The run stem may
+      # include a suffix like "_rrf_poolR100_poolH100_k60" that doesn't exist on the
+      # windows filenames.  Strip everything starting with _rrf_poolR if present.
+      if [ "$_USE_SNIPPET_CTX" = "1" ]; then
+        # _windows_stem falls back to _stem when no suffix is present
+        _windows_stem="${_stem%%_rrf_poolR*}"
+      else
+        _windows_stem=""
+      fi
+
       # Resolve query JSON for this split: match split to basename (no .json) of TRAIN_JSON or any TEST_BATCH_JSONS
       _query_json=""
       if [ -f "${TRAIN_JSON:-}" ] && [ "$(basename "$TRAIN_JSON" .json)" = "$_split" ]; then
@@ -615,7 +626,7 @@ _DOCS_JSONL_OK=0
           python "$SCRIPT_DIR/evidence/build_contexts_from_snippets.py" \
             --post-rerank-json "$_post_json" \
             --snippet-windows-dir "$SNIPPET_RERANK_OUT/windows" \
-            --split-name "$_stem" \
+            --split-name "${_windows_stem:-$_stem}" \
             --corpus-path "$DOCS_JSONL" \
             --output-path "$_ctx_json" \
             --window-size "${SNIPPET_WINDOW_SIZE:-3}" \
