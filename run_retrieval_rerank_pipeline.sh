@@ -222,6 +222,7 @@ BM25_ARGS=(
 
 if [ -f "$BM25_OUT/metrics.csv" ] || [ -n "$(find "$BM25_OUT/runs" -maxdepth 1 -name '*.tsv' 2>/dev/null | head -1)" ]; then
   echo "[1/$TOTAL_STEPS] BM25... (skip: output exists)"
+  _log_run "step" "1" "BM25" "skip"
 else
   echo "[1/$TOTAL_STEPS] BM25..."
   STEP_BM25_START=$(date +%s)
@@ -229,8 +230,6 @@ else
   STEP_BM25_END=$(date +%s)
   echo "[timing] BM25 step: $((STEP_BM25_END-STEP_BM25_START))s"
   _log_run "step" "1" "BM25" "$((STEP_BM25_END-STEP_BM25_START))s"
-else
-  _log_run "step" "1" "BM25" "skip"
 fi
 
 # ----- Dense -----
@@ -265,6 +264,7 @@ fi
 
 if [ -f "$DENSE_OUT/metrics.csv" ] || [ -n "$(find "$DENSE_OUT/runs" -maxdepth 1 -name '*.tsv' 2>/dev/null | head -1)" ]; then
   echo "[2/$TOTAL_STEPS] Dense... (skip: output exists)"
+  _log_run "step" "2" "Dense" "skip"
 else
   echo "[2/$TOTAL_STEPS] Dense..."
   STEP_DENSE_START=$(date +%s)
@@ -272,8 +272,6 @@ else
   STEP_DENSE_END=$(date +%s)
   echo "[timing] Dense step: $((STEP_DENSE_END-STEP_DENSE_START))s"
   _log_run "step" "2" "Dense" "$((STEP_DENSE_END-STEP_DENSE_START))s"
-else
-  _log_run "step" "2" "Dense" "skip"
 fi
 
 # ----- Hybrid -----
@@ -301,6 +299,7 @@ HYBRID_ARGS=(
 
 if [ -f "$HYBRID_OUT/ranked_test_avg.csv" ] || [ -f "$HYBRID_OUT/results_all.csv" ]; then
   echo "[3/$TOTAL_STEPS] Hybrid... (skip: output exists)"
+  _log_run "step" "3" "Hybrid" "skip"
 else
   echo "[3/$TOTAL_STEPS] Hybrid..."
   STEP_HYBRID_START=$(date +%s)
@@ -308,8 +307,6 @@ else
   STEP_HYBRID_END=$(date +%s)
   echo "[timing] Hybrid step: $((STEP_HYBRID_END-STEP_HYBRID_START))s"
   _log_run "step" "3" "Hybrid" "$((STEP_HYBRID_END-STEP_HYBRID_START))s"
-else
-  _log_run "step" "3" "Hybrid" "skip"
 fi
 
 # ----- Reranker (optional: only if DOCS_JSONL set and not --no-rerank) -----
