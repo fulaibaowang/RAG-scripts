@@ -670,7 +670,13 @@ _DOCS_JSONL_OK=0
         else
           _max_ctx="${GENERATION_MAX_CONTEXTS_SNIPPET:-${GENERATION_MAX_CONTEXTS:-10}}"
         fi
-        [ -n "${GENERATION_MAX_CHARS_PER_CONTEXT:-}" ] && GENERATION_ARGS+=(--max-chars-per-context "$GENERATION_MAX_CHARS_PER_CONTEXT")
+        [ -n "$_max_ctx" ] && GENERATION_ARGS+=(--max-contexts "$_max_ctx")
+        if [ "$_route" = "baseline" ]; then
+          _max_chars="${GENERATION_MAX_CHARS_PER_CONTEXT_BASELINE:-${GENERATION_MAX_CHARS_PER_CONTEXT:-1300}}"
+        else
+          _max_chars="${GENERATION_MAX_CHARS_PER_CONTEXT_SNIPPET:-${GENERATION_MAX_CHARS_PER_CONTEXT:-1000}}"
+        fi
+        [ -n "$_max_chars" ] && GENERATION_ARGS+=(--max-chars-per-context "$_max_chars")
         [ -n "${GENERATION_SLEEP:-}" ] && GENERATION_ARGS+=(--sleep "$GENERATION_SLEEP")
         python "$SCRIPT_DIR/generation/generate_answers.py" "${GENERATION_ARGS[@]}"
       fi
