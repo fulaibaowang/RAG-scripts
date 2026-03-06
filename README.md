@@ -1,6 +1,9 @@
 # Public scripts (retrieval pipeline)
 
-Run the retrieval pipeline (BM25 → Dense → Hybrid, optionally Reranker) via the workflow script and config env.
+Run the pipeline via the workflow script and a config env. It supports:
+
+- **Baseline route**: BM25 → Dense → Hybrid → Reranker → RRF fusion (`rerank_hybrid/`) → evidence + generation
+- **Optional snippet-RRF route**: snippet window rerank (`snippet_rerank/`) → final fusion (`snippet_rrf/`) → snippet-based evidence + generation
 
 ## Workflow globals and naming
 
@@ -18,6 +21,8 @@ Required and common env (set by sourcing a config):
 | `BM25_INDEX_PATH` | Terrier index directory | Path to index |
 | `DENSE_INDEX_DIR` | Dense HNSW index directory | Path to index |
 | `DOCS_JSONL` | JSONL corpus for reranker (optional) | Path to docs |
+| `RUN_BASELINE` | Build baseline evidence/generation (`evidence_baseline/`, `generation_baseline/`) | `1` |
+| `RUN_SNIPPET_RRF` | Enable snippet-RRF route (steps 6–7 + `evidence_snippet/`, `generation_snippet/`) | `0` |
 
 **Full options:** `workflow_config_full.env` lists every parameter with comments, including stage-specific overrides:
 
@@ -25,6 +30,7 @@ Required and common env (set by sourcing a config):
 - **Dense:** `DENSE_TOP_K`, `DENSE_EF_SEARCH`, `DENSE_EF_CAP`, `DENSE_BATCH_SIZE`, `DENSE_DEVICE`, `DENSE_MODEL_NAME`, `DENSE_NO_EVAL`, `DENSE_SAVE_PER_QUERY`
 - **Hybrid:** `HYBRID_CAP`, `HYBRID_K_MAX_EVAL`, `HYBRID_MODE`, `HYBRID_K_RRF`, `HYBRID_W_BM25`, `HYBRID_W_DENSE`, `HYBRID_WEIGHTS`, `HYBRID_JOBS`, `HYBRID_NO_EVAL`, `HYBRID_NO_PLOTS`, …
 - **Reranker:** `RERANK_CANDIDATE_LIMIT`, `RERANK_KS_RECALL`, `RERANK_MODEL`, `RERANK_MODEL_DEVICE`, `RERANK_MODEL_BATCH`, `RERANK_DISABLE_METRICS`, …
+- **Snippet-RRF:** `SNIPPET_N_DOCS`, `SNIPPET_WINDOW_SIZE`, `SNIPPET_WINDOW_STRIDE`, `SNIPPET_TOP_W`, `SNIPPET_DENSE_MODEL`, `SNIPPET_DENSE_DEVICE`, `SNIPPET_CE_MODEL`, `SNIPPET_CE_DEVICE`, `SNIPPET_CE_BATCH`, `SNIPPET_CE_MAX_LENGTH`, `SNIPPET_FINAL_POOL`, `SNIPPET_RRF_K`, `SNIPPET_RRF_W_DOCS`, `SNIPPET_RRF_W_SNIPPET`, `SNIPPET_CONTEXT_TOP_WINDOWS`
 
 **Local config:** For machine-specific paths, use `scripts/private_scripts/config.env` (edit `REPO_ROOT` and paths there; same variable names as above).
 
@@ -66,6 +72,14 @@ All stages write runs as TSV with columns: `qid`, `docno`, `rank`, `score`. No p
    ```
 
    You can still source then run: `source scripts/public/shared_scripts/workflow_config_baseline.env && ./scripts/public/shared_scripts/run_retrieval_rerank_pipeline.sh`
+
+4. Enable snippet-RRF (optional):
+   - CLI: add `--snippet-rrf`
+   - Or set in your config: `RUN_SNIPPET_RRF=1`
+   - Outputs:
+     - `snippet_rerank/` (snippet window rerank outputs)
+     - `snippet_rrf/` (final fusion outputs)
+     - `evidence_snippet/`, `generation_snippet/` (snippet-based evidence/generation)
 
 3. Outputs appear under `$WORKFLOW_OUTPUT_DIR/bm25/`, `dense/`, `hybrid/`. If `DOCS_JSONL` is set and you do not pass `--no-rerank`, the reranker step runs and writes to `rerank/`. Set `RERANK_DISABLE_METRICS=1` when you have no ground truth. If a stage's key output already exists (e.g. hybrid's `ranked_test_avg.csv`), that stage is skipped; when hybrid is done, the reranker uses hybrid results and does not rerun earlier stages.
 
