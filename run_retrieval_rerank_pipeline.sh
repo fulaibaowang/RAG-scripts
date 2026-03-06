@@ -414,6 +414,9 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
       [ -n "${SNIPPET_CE_DEVICE:-}" ] && SNIPPET_ARGS+=(--ce-device "$SNIPPET_CE_DEVICE")
       [ -n "${SNIPPET_CE_BATCH:-}" ] && SNIPPET_ARGS+=(--ce-batch "$SNIPPET_CE_BATCH")
       [ -n "${SNIPPET_CE_MAX_LENGTH:-}" ] && SNIPPET_ARGS+=(--ce-max-length "$SNIPPET_CE_MAX_LENGTH")
+      # Snippet CE multi-GPU defaults to reranker settings when not set
+      [ "${SNIPPET_CE_USE_MULTI_GPU:-${RERANK_USE_MULTI_GPU:-0}}" = "1" ] && SNIPPET_ARGS+=(--ce-use-multi-gpu)
+      [ -n "${SNIPPET_CE_NUM_GPUS:-${RERANK_NUM_GPUS:-}}" ] && SNIPPET_ARGS+=(--ce-num-gpus "${SNIPPET_CE_NUM_GPUS:-$RERANK_NUM_GPUS}")
       [ -n "${RERANK_QUERY_FIELD:-}" ] && SNIPPET_ARGS+=(--query-field "$RERANK_QUERY_FIELD")
       [ "${RERANK_DISABLE_METRICS:-0}" = "1" ] && SNIPPET_ARGS+=(--disable-metrics)
       python "$SCRIPT_DIR/evidence/snippet_rerank.py" "${SNIPPET_ARGS[@]}"

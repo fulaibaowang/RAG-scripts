@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import glob as glob_mod
 import json
+import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -262,6 +263,65 @@ def select_top_windows(
 
 
 # ---------------------------------------------------------------------------
+# Stage B multi-GPU helpers
+# ---------------------------------------------------------------------------
+def _chunk_ce_items(
+    items: List[Tuple[str, List[Tuple[str, int, str]]]],
+    n: int,
+) -> List[List[Tuple[str, List[Tuple[str, int, str]]]]]:
+    """Split (qid, win_list) items into n chunks for multi-GPU."""
+    if n <= 1:
+        return [items]
+    chunk_size = max(1, math.ceil(len(items) / n))
+    return [
+        items[i * chunk_size : (i + 1) * chunk_size]
+        for i in range(n)
+        if items[i * chunk_size : (i + 1) * chunk_size]
+    ]
+
+
+def _ce_worker(
+    gpu_id: int,
+    items: List[Tuple[str, List[Tuple[str, int, str]]]],
+    topics: Dict[str, str],
+    model_name: str,
+    batch_size: int,
+    max_length: int,
+    return_dict,
+) -> None:
+    """Run CE rerank on a chunk of (qid, win_list) on one GPU."""
+    from sentence_transformers import CrossEncoder
+
+    device = f"cuda:{gpu_id}" if torch and torch.cuda.is_available() else "cpu"
+    model = CrossEncoder(
+        model_name,
+        device=device,
+        max_length=None if max_length <= 0 else max_length,
+    )
+    local_out: Dict[str, List[Tuple[str, int, str, float]]] = {}
+    total = len(items)
+    t0 = time()
+    for idx, (qid, win_list) in enumerate(items, 1):
+        query = topics.get(qid, "").strip()
+        if not win_list or not query:
+            local_out[qid] = [(d, wi, wt, 0.0) for d, wi, wt in win_list]
+            continue
+        pairs = [(query, wt) for _, _, wt in win_list]
+        scores = model.predict(pairs, batch_size=batch_size, show_progress_bar=False)
+        scores = np.asarray(scores, dtype=np.float64)
+        scored = [
+            (docno, wi, wt, float(sc))
+            for (docno, wi, wt), sc in zip(win_list, scores)
+        ]
+        scored.sort(key=lambda x: x[3], reverse=True)
+        local_out[qid] = scored
+        if idx == 1 or idx % 10 == 0 or idx == total:
+            elapsed = max(1e-9, time() - t0)
+            print(f"[Stage B gpu {gpu_id}] {idx}/{total} queries | {idx/elapsed:.2f} q/s")
+    return_dict[gpu_id] = local_out
+
+
+# ---------------------------------------------------------------------------
 # Output helpers
 # ---------------------------------------------------------------------------
 @dataclass
@@ -346,6 +406,8 @@ def parse_args() -> argparse.Namespace:
     stageB.add_argument("--ce-device", type=str, default="cuda")
     stageB.add_argument("--ce-batch", type=int, default=64)
     stageB.add_argument("--ce-max-length", type=int, default=512)
+    stageB.add_argument("--ce-use-multi-gpu", action="store_true", help="Enable multi-GPU for Stage B CE rerank.")
+    stageB.add_argument("--ce-num-gpus", type=int, default=0, help="Max GPUs for CE (0 = all).")
 
     ev = p.add_argument_group("evaluation")
     ev.add_argument("--disable-metrics", action="store_true")
@@ -398,19 +460,30 @@ def main() -> None:
     normalize_emb = True
     print(f"[init] dense model loaded: {args.dense_model} on {args.dense_device}")
 
-    # --- load CE model (Stage B) ---
+    # --- load CE model (Stage B); skip when multi-GPU (each worker loads its own) ---
     from sentence_transformers import CrossEncoder
-    ce_device = args.ce_device
-    if ce_device == "auto":
-        if torch and torch.cuda.is_available():
-            ce_device = "cuda"
-        else:
-            ce_device = "cpu"
-    ce_model = CrossEncoder(
-        args.ce_model, device=ce_device,
-        max_length=None if args.ce_max_length <= 0 else args.ce_max_length,
-    )
-    print(f"[init] CE model loaded: {args.ce_model} on {ce_device}")
+
+    ce_model = None
+    if not args.ce_use_multi_gpu:
+        ce_device = args.ce_device
+        if ce_device == "auto":
+            if torch and torch.cuda.is_available():
+                ce_device = "cuda"
+            else:
+                ce_device = "cpu"
+        ce_model = CrossEncoder(
+            args.ce_model, device=ce_device,
+            max_length=None if args.ce_max_length <= 0 else args.ce_max_length,
+        )
+        print(f"[init] CE model loaded: {args.ce_model} on {ce_device}")
+    else:
+        if not torch or not torch.cuda.is_available():
+            raise RuntimeError("CE multi-GPU requested but CUDA is not available.")
+        n_dev = torch.cuda.device_count()
+        if n_dev < 2:
+            raise RuntimeError("CE multi-GPU requested but fewer than 2 CUDA devices found.")
+        use_n = n_dev if not args.ce_num_gpus or args.ce_num_gpus < 1 else min(args.ce_num_gpus, n_dev)
+        print(f"[init] CE multi-GPU: {use_n} GPUs (model loaded per worker)")
 
     from rank_bm25 import BM25Okapi
 
@@ -490,32 +563,52 @@ def main() -> None:
         print(f"[{split_name}][Stage A] done – {total_kept} windows across {n_queries} queries")
 
         # ----------------------------------------------------------------
-        # Stage B: CE rerank windows
+        # Stage B: CE rerank windows (single- or multi-GPU)
         # ----------------------------------------------------------------
         # ce_results[qid] = [(docno, window_idx, window_text, ce_score), ...]
         ce_results: Dict[str, List[Tuple[str, int, str, float]]] = {}
-        t0 = time()
-        for qi, (qid, win_list) in enumerate(kept_windows.items(), 1):
-            query = topics.get(qid, "").strip()
-            if not win_list or not query:
-                ce_results[qid] = [(d, wi, wt, 0.0) for d, wi, wt in win_list]
-                continue
-            pairs = [(query, wt) for _, _, wt in win_list]
-            scores = ce_model.predict(pairs, batch_size=args.ce_batch, show_progress_bar=False)
-            scores = np.asarray(scores, dtype=np.float64)
-            scored = [
-                (docno, wi, wt, float(sc))
-                for (docno, wi, wt), sc in zip(win_list, scores)
-            ]
-            scored.sort(key=lambda x: x[3], reverse=True)
-            ce_results[qid] = scored
-
-            if qi % 10 == 0 or qi == n_queries:
-                elapsed = max(1e-9, time() - t0)
-                print(
-                    f"[{split_name}][Stage B] {qi}/{n_queries} queries "
-                    f"| {qi/elapsed:.2f} q/s"
+        items = list(kept_windows.items())
+        if args.ce_use_multi_gpu:
+            use_n = torch.cuda.device_count() if not args.ce_num_gpus or args.ce_num_gpus < 1 else min(args.ce_num_gpus, torch.cuda.device_count())
+            chunks = _chunk_ce_items(items, use_n)
+            ctx = torch.multiprocessing.get_context("spawn")
+            manager = ctx.Manager()
+            return_dict = manager.dict()
+            procs = []
+            for gpu_id, chunk in enumerate(chunks):
+                p = ctx.Process(
+                    target=_ce_worker,
+                    args=(gpu_id, chunk, topics, args.ce_model, args.ce_batch, args.ce_max_length, return_dict),
                 )
+                p.start()
+                procs.append(p)
+            for p in procs:
+                p.join()
+            for part in return_dict.values():
+                ce_results.update(part)
+        else:
+            t0 = time()
+            for qi, (qid, win_list) in enumerate(items, 1):
+                query = topics.get(qid, "").strip()
+                if not win_list or not query:
+                    ce_results[qid] = [(d, wi, wt, 0.0) for d, wi, wt in win_list]
+                    continue
+                pairs = [(query, wt) for _, _, wt in win_list]
+                scores = ce_model.predict(pairs, batch_size=args.ce_batch, show_progress_bar=False)
+                scores = np.asarray(scores, dtype=np.float64)
+                scored = [
+                    (docno, wi, wt, float(sc))
+                    for (docno, wi, wt), sc in zip(win_list, scores)
+                ]
+                scored.sort(key=lambda x: x[3], reverse=True)
+                ce_results[qid] = scored
+
+                if qi % 10 == 0 or qi == n_queries:
+                    elapsed = max(1e-9, time() - t0)
+                    print(
+                        f"[{split_name}][Stage B] {qi}/{n_queries} queries "
+                        f"| {qi/elapsed:.2f} q/s"
+                    )
 
         # ----------------------------------------------------------------
         # Save reranked windows (JSONL)
