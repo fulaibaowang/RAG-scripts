@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import warnings
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -257,7 +258,9 @@ def plot_recall_curves(
     ax.set_title("Recall curve comparison")
     ax.legend(bbox_to_anchor=(1.02, 1), loc="upper left", fontsize=8)
     ax.grid(True, alpha=0.3)
-    plt.tight_layout()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        plt.tight_layout()
     plt.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close()
     print("Saved:", output_path)
@@ -313,7 +316,9 @@ def plot_map_curve(
     ax.set_title("MAP@K curve comparison")
     ax.legend(bbox_to_anchor=(1.02, 1), loc="upper left", fontsize=8)
     ax.grid(True, alpha=0.3)
-    plt.tight_layout()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        plt.tight_layout()
     plt.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close()
     print("Saved:", output_path)

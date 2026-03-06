@@ -631,13 +631,14 @@ _DOCS_JSONL_OK=0
       _split="${_split%%_top*}"
       [ -n "$_split" ] || continue
 
-      # For snippet evidence we will need a separate windows stem derived from the run stem
-      # so that we can look up the original snippet_rerank windows file.  The run stem may
-      # include a suffix like "_rrf_poolR100_poolH100_k60" that doesn't exist on the
-      # windows filenames.  Strip everything starting with _rrf_poolR if present.
+      # For snippet evidence we need the windows stem: snippet_rerank writes windows named
+      # after its input run stem (e.g. best_rrf_13B1_golden_top5000_rrf_poolR200_poolH200_k60).
+      # snippet_rrf run stems add a final RRF suffix (e.g. _rrf_poolR100_poolH100_k60). Strip
+      # only that last suffix so we get the stem that matches the windows file.
       if [ "$_USE_SNIPPET_CTX" = "1" ]; then
-        # _windows_stem falls back to _stem when no suffix is present
-        _windows_stem="${_stem%%_rrf_poolR*}"
+        # Strip only the final _rrf_poolR*_poolH*_k* (step 7 suffix); result matches snippet_rerank windows filename.
+        _windows_stem="${_stem%_rrf_poolR*_poolH*_k*}"
+        [ -z "$_windows_stem" ] && _windows_stem="$_stem"  # fallback to full stem if pattern stripped everything
       else
         _windows_stem=""
       fi
