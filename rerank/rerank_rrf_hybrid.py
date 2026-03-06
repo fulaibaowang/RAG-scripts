@@ -23,7 +23,14 @@ from retrieval_eval.common import (  # type: ignore
 
 
 def _parse_split_from_run_stem(run_stem: str) -> Optional[str]:
-    m = re.fullmatch(r"best_rrf_(.+)_top\d+", run_stem)
+    """
+    Extract the split name from a best_rrf_* run stem.
+
+    Supports both:
+      - best_rrf_<split>_top5000
+      - best_rrf_<split>_top5000_rrf_pool50_k60
+    """
+    m = re.fullmatch(r"best_rrf_(.+)_top\d+(?:_rrf_pool\d+_k\d+)?", run_stem)
     return m.group(1) if m else None
 
 
