@@ -111,6 +111,10 @@ fi
 RUN_BASELINE="${RUN_BASELINE:-1}"
 RUN_SNIPPET_RRF="${RUN_SNIPPET_RRF:-${SNIPPET_RRF:-0}}"
 DO_SNIPPET_RRF="${RUN_SNIPPET_RRF}"
+# When both routes are requested, enable both RRF outputs (step 5 -> rerank_hybrid, step 5b -> rerank_hybrid_200) so baseline and snippet evidence both have runs
+if [ "$RUN_BASELINE" = "1" ] && [ "$DO_SNIPPET_RRF" = "1" ]; then
+  RUN_BOTH_ROUTES=1
+fi
 
 # Explicit args override env (used by run_query_field_sweep.sh so query fields are never lost)
 [ -n "$BM25_QUERY_FIELD_ARG" ] && export BM25_QUERY_FIELD="$BM25_QUERY_FIELD_ARG"
