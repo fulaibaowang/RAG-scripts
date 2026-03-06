@@ -350,7 +350,11 @@ def _build_output_config(base_dir: Path) -> OutputConfig:
 
 
 def _parse_split_from_run_stem(run_stem: str) -> Optional[str]:
-    m = re.fullmatch(r"best_rrf_(.+)_top\d+(?:_rrf_pool\d+_k\d+)?", run_stem)
+    """Extract split from run stem; supports legacy _rrf_pool50_k60 and _rrf_poolR*_poolH*_k* (align with rerank_rrf_hybrid)."""
+    m = re.fullmatch(
+        r"best_rrf_(.+)_top\d+(?:_rrf_pool(?:\d+_k\d+|R\d+_poolH\d+_k\d+))?",
+        run_stem,
+    )
     return m.group(1) if m else None
 
 
@@ -613,9 +617,11 @@ def main() -> None:
                     )
 
         # ----------------------------------------------------------------
-        # Save reranked windows (JSONL)
+        # Save reranked windows (JSONL); name by split so evidence can use _split
         # ----------------------------------------------------------------
-        win_path = output_cfg.windows_dir / f"{split_name}.jsonl"
+        split = _parse_split_from_run_stem(split_name)
+        windows_basename = f"{split}.jsonl" if split else f"{split_name}.jsonl"
+        win_path = output_cfg.windows_dir / windows_basename
         with win_path.open("w", encoding="utf-8") as wf:
             for qid, scored_list in ce_results.items():
                 for docno, wi, wt, sc in scored_list:

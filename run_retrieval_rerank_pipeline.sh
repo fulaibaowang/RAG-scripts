@@ -190,6 +190,13 @@ fi
 
 export PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}"
 
+# Run log and optional Python log file (set LOG_LEVEL=DEBUG etc. to tune)
+PIPELINE_RUN_LOG="${PIPELINE_RUN_LOG:-$WORKFLOW_OUTPUT_DIR/pipeline_run.log}"
+export LOG_FILE="${LOG_FILE:-$WORKFLOW_OUTPUT_DIR/pipeline.log}"
+_log_run() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >> "$PIPELINE_RUN_LOG"; }
+# Config snapshot at start
+_log_run "start" "steps=$TOTAL_STEPS" "out=$WORKFLOW_OUTPUT_DIR" "config=${CONFIG_FILE:-}" "RUN_SNIPPET_RRF=${DO_SNIPPET_RRF:-0}"
+
 # ----- BM25 -----
 BM25_ARGS=(
   --index_path "$BM25_INDEX_PATH"
@@ -221,6 +228,9 @@ else
   python "$SCRIPT_DIR/retrieval/eval_bm25_rm3.py" "${BM25_ARGS[@]}"
   STEP_BM25_END=$(date +%s)
   echo "[timing] BM25 step: $((STEP_BM25_END-STEP_BM25_START))s"
+  _log_run "step" "1" "BM25" "$((STEP_BM25_END-STEP_BM25_START))s"
+else
+  _log_run "step" "1" "BM25" "skip"
 fi
 
 # ----- Dense -----
@@ -261,6 +271,9 @@ else
   python "$SCRIPT_DIR/retrieval/eval_dense.py" "${DENSE_ARGS[@]}"
   STEP_DENSE_END=$(date +%s)
   echo "[timing] Dense step: $((STEP_DENSE_END-STEP_DENSE_START))s"
+  _log_run "step" "2" "Dense" "$((STEP_DENSE_END-STEP_DENSE_START))s"
+else
+  _log_run "step" "2" "Dense" "skip"
 fi
 
 # ----- Hybrid -----
@@ -294,6 +307,9 @@ else
   python "$SCRIPT_DIR/retrieval/eval_hybrid.py" "${HYBRID_ARGS[@]}"
   STEP_HYBRID_END=$(date +%s)
   echo "[timing] Hybrid step: $((STEP_HYBRID_END-STEP_HYBRID_START))s"
+  _log_run "step" "3" "Hybrid" "$((STEP_HYBRID_END-STEP_HYBRID_START))s"
+else
+  _log_run "step" "3" "Hybrid" "skip"
 fi
 
 # ----- Reranker (optional: only if DOCS_JSONL set and not --no-rerank) -----
@@ -356,6 +372,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
   fi
   STEP_RERANK_END=$(date +%s)
   echo "[timing] Reranker step: $((STEP_RERANK_END-STEP_RERANK_START))s"
+  _log_run "step" "4" "Reranker" "$((STEP_RERANK_END-STEP_RERANK_START))s"
 
   # ----- Step 5: RRF fusion (Hybrid + Rerank -> rerank_hybrid); only when RUN_RRF_FUSION=1 -----
   # Snippet-only (no run-both): write pool=200 to rerank_hybrid_200 so snippet always gets 200-pool runs.
@@ -406,6 +423,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
     fi
     STEP_RRF_END=$(date +%s)
     echo "[timing] Hybrid+Rerank RRF fusion step: $((STEP_RRF_END-STEP_RRF_START))s"
+    _log_run "step" "5" "RRF" "$((STEP_RRF_END-STEP_RRF_START))s"
   fi
 
   # ----- Step 5b: RRF pool=200 for snippet route (only when --run-both-routes) -----
@@ -476,6 +494,11 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
     fi
     STEP_SNIPPET_END=$(date +%s)
     echo "[timing] Snippet extraction + CE rerank step: $((STEP_SNIPPET_END-STEP_SNIPPET_START))s"
+    if [ "$SNIPPET_EXIST" = "1" ]; then
+      _log_run "step" "6" "Snippet" "skip"
+    else
+      _log_run "step" "6" "Snippet" "$((STEP_SNIPPET_END-STEP_SNIPPET_START))s"
+    fi
   fi
 
   # ----- Step 7: Final RRF fusion (rerank_hybrid 0.8 + snippet_rerank 0.2 -> snippet_rrf); only when --snippet-rrf -----
@@ -509,6 +532,11 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
     fi
     STEP_FINAL_RRF_END=$(date +%s)
     echo "[timing] Final RRF (snippet_rrf) step: $((STEP_FINAL_RRF_END-STEP_FINAL_RRF_START))s"
+    if [ "$SNIPPET_RRF_EXIST" = "1" ]; then
+      _log_run "step" "7" "FinalRRF" "skip"
+    else
+      _log_run "step" "7" "FinalRRF" "$((STEP_FINAL_RRF_END-STEP_FINAL_RRF_START))s"
+    fi
   fi
 
   # ----- Compare (Rerank vs Hybrid+Rerank): recall and MAP curves -----
@@ -525,6 +553,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
     [ -n "$(find "$RERANK_HYBRID_OUT/figures" -maxdepth 1 -name 'compare_*.png' 2>/dev/null | head -1)" ] && COMPARE_FIGS_EXIST=1
     if [ "$COMPARE_FIGS_EXIST" = "1" ]; then
       echo "[Compare] Rerank vs Hybrid+Rerank... (skip: figures exist)"
+      _log_run "step" "Compare" "skip"
     else
       echo "[Compare] Rerank vs Hybrid+Rerank (recall & MAP @ $COMPARE_KS, recall-k-max $_COMPARE_RECALL_MAX)..."
       STEP_COMPARE_START=$(date +%s)
@@ -544,6 +573,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
       python "$SCRIPT_DIR/compare_result_dirs.py" "${COMPARE_ARGS[@]}"
       STEP_COMPARE_END=$(date +%s)
       echo "[timing] Compare step: $((STEP_COMPARE_END-STEP_COMPARE_START))s"
+      _log_run "step" "Compare" "$((STEP_COMPARE_END-STEP_COMPARE_START))s"
     fi
   fi
 
@@ -561,6 +591,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
     [ -n "$(find "$SNIPPET_RRF_OUT/figures" -maxdepth 1 -name 'compare_*.png' 2>/dev/null | head -1)" ] && SNIPPET_COMPARE_FIGS=1
     if [ "$SNIPPET_COMPARE_FIGS" = "1" ]; then
       echo "[Compare] Snippet RRF vs Hybrid+Rerank... (skip: figures exist in snippet_rrf/figures)"
+      _log_run "step" "SnippetCompare" "skip"
     else
       echo "[Compare] Snippet RRF vs Hybrid+Rerank (recall & MAP up to k=$_SNIP_N)..."
       STEP_SNIPPET_COMPARE_START=$(date +%s)
@@ -580,6 +611,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
       python "$SCRIPT_DIR/compare_result_dirs.py" "${SNIPPET_COMPARE_ARGS[@]}"
       STEP_SNIPPET_COMPARE_END=$(date +%s)
       echo "[timing] Snippet compare step: $((STEP_SNIPPET_COMPARE_END-STEP_SNIPPET_COMPARE_START))s"
+      _log_run "step" "SnippetCompare" "$((STEP_SNIPPET_COMPARE_END-STEP_SNIPPET_COMPARE_START))s"
     fi
   fi
 
@@ -631,18 +663,7 @@ _DOCS_JSONL_OK=0
       _split="${_split%%_top*}"
       [ -n "$_split" ] || continue
 
-      # For snippet evidence we need the windows stem: snippet_rerank writes windows named
-      # after its input run stem (e.g. best_rrf_13B1_golden_top5000_rrf_poolR200_poolH200_k60).
-      # snippet_rrf run stems add a final RRF suffix (e.g. _rrf_poolR100_poolH100_k60). Strip
-      # only that last suffix so we get the stem that matches the windows file.
-      if [ "$_USE_SNIPPET_CTX" = "1" ]; then
-        # Strip only the final _rrf_poolR*_poolH*_k* (step 7 suffix); result matches snippet_rerank windows filename.
-        _windows_stem="${_stem%_rrf_poolR*_poolH*_k*}"
-        [ -z "$_windows_stem" ] && _windows_stem="$_stem"  # fallback to full stem if pattern stripped everything
-      else
-        _windows_stem=""
-      fi
-
+      # Snippet evidence: windows are named by split (snippet_rerank writes {split}.jsonl).
       # Resolve query JSON for this split: match split to basename (no .json) of TRAIN_JSON or any TEST_BATCH_JSONS
       _query_json=""
       if [ -f "${TRAIN_JSON:-}" ] && [ "$(basename "$TRAIN_JSON" .json)" = "$_split" ]; then
@@ -680,7 +701,7 @@ _DOCS_JSONL_OK=0
           python "$SCRIPT_DIR/evidence/build_contexts_from_snippets.py" \
             --post-rerank-json "$_post_json" \
             --snippet-windows-dir "$SNIPPET_RERANK_OUT/windows" \
-            --split-name "${_windows_stem:-$_stem}" \
+            --split-name "$_split" \
             --corpus-path "$DOCS_JSONL" \
             --output-path "$_ctx_json" \
             --window-size "${SNIPPET_WINDOW_SIZE:-3}" \
@@ -756,6 +777,7 @@ _DOCS_JSONL_OK=0
     done
     STEP_EVIDENCE_GEN_END=$(date +%s)
     echo "[timing] Evidence + Generation + Rescue step: $((STEP_EVIDENCE_GEN_END-STEP_EVIDENCE_GEN_START))s"
+    _log_run "step" "EvidenceGen" "$((STEP_EVIDENCE_GEN_END-STEP_EVIDENCE_GEN_START))s"
   fi
 
   echo "Done. Outputs: $WORKFLOW_OUTPUT_DIR (bm25/, dense/, hybrid/, rerank/, rerank_hybrid/)"
@@ -769,3 +791,4 @@ else
     echo "Optional: set DOCS_JSONL and re-run to add reranker step."
   fi
 fi
+_log_run "end"

@@ -175,6 +175,15 @@ def build_context_text(title: str, abstract: str) -> str:
 
 
 def main() -> int:
+    import sys
+    _shared = Path(__file__).resolve().parents[1]
+    if str(_shared) not in sys.path:
+        sys.path.insert(0, str(_shared))
+    try:
+        from logging_config import configure_logging_from_env
+        configure_logging_from_env()
+    except ImportError:
+        pass
     args = parse_args()
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,

@@ -122,7 +122,7 @@ def parse_args() -> argparse.Namespace:
     )
 
     model = parser.add_argument_group("model")
-    model.add_argument("--model", type=str, default="cross-encoder/ms-marco-MiniLM-L-12-v2")
+    model.add_argument("--model", type=str, default="BAAI/bge-reranker-v2-m3")
     model.add_argument(
         "--model-device",
         type=str,
