@@ -110,6 +110,7 @@ fi
 # Route toggles (can be set in env; defaults are baseline on, snippet off unless --snippet-rrf was passed)
 RUN_BASELINE="${RUN_BASELINE:-1}"
 RUN_SNIPPET_RRF="${RUN_SNIPPET_RRF:-${SNIPPET_RRF:-0}}"
+DO_SNIPPET_RRF="${RUN_SNIPPET_RRF}"
 
 # Explicit args override env (used by run_query_field_sweep.sh so query fields are never lost)
 [ -n "$BM25_QUERY_FIELD_ARG" ] && export BM25_QUERY_FIELD="$BM25_QUERY_FIELD_ARG"
@@ -294,9 +295,6 @@ else
   STEP_HYBRID_END=$(date +%s)
   echo "[timing] Hybrid step: $((STEP_HYBRID_END-STEP_HYBRID_START))s"
 fi
-
-# Determine whether snippet-rrf route is active (from flag or env)
-DO_SNIPPET_RRF="${RUN_SNIPPET_RRF}"
 
 # ----- Reranker (optional: only if DOCS_JSONL set and not --no-rerank) -----
 # Figures are named hybrid_reranker_recall_map10_{label}.png (one per dataset label)
