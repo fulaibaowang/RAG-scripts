@@ -56,6 +56,7 @@ All stages write runs as TSV with columns: `qid`, `docno`, `rank`, `score`. No p
 - **Snippet windows:** Snippet evidence uses windows written by **split** (logical id, e.g. `13B1_golden`). Files live under `snippet_rerank/windows/` as `{split}.jsonl`. The pipeline and `build_contexts_from_snippets.py` use this name; no separate "windows stem" is used.
 - **Pipeline run log:** The script appends a run log to `$WORKFLOW_OUTPUT_DIR/pipeline_run.log` (override with `PIPELINE_RUN_LOG`). Each line has timestamp, step name, and duration or `skip`. A short config snapshot (steps, output dir, config file, `RUN_SNIPPET_RRF`) is written at start; an `end` line is written when the pipeline finishes.
 - **Logging config:** Pipeline Python scripts (snippet_rerank, build_contexts_from_snippets, post_rerank_json, generation, etc.) read `LOG_LEVEL` (default `INFO`) and `LOG_FILE`. When `LOG_FILE` is set (default: `$WORKFLOW_OUTPUT_DIR/pipeline.log`), they add a file handler so script logs go there. Set `LOG_LEVEL=DEBUG` or unset `LOG_FILE` to change behaviour.
+- **Model-loading progress:** The pipeline sets `HF_HUB_DISABLE_PROGRESS_BARS=1` and `TRANSFORMERS_VERBOSITY=error` so Hugging Face “Loading weights” / “Materializing param” lines do not flood sbatch `.err` or console. Override with `HF_HUB_DISABLE_PROGRESS_BARS=0` or `TRANSFORMERS_VERBOSITY=info` if you want progress output.
 
 ## Running the pipeline
 

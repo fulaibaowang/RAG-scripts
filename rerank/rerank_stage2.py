@@ -4,11 +4,16 @@ import argparse
 import glob as glob_mod
 import json
 import math
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from time import time
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+
+# Suppress Hugging Face "Loading weights" progress in logs (e.g. sbatch .err)
+os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
 
 import numpy as np
 import pandas as pd

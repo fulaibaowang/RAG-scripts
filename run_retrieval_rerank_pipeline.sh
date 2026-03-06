@@ -193,6 +193,9 @@ else
 fi
 
 export PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}"
+# Suppress Hugging Face model-loading progress (Loading weights / Materializing param) in .err logs
+export HF_HUB_DISABLE_PROGRESS_BARS="${HF_HUB_DISABLE_PROGRESS_BARS:-1}"
+export TRANSFORMERS_VERBOSITY="${TRANSFORMERS_VERBOSITY:-error}"
 
 # Run log and optional Python log file (set LOG_LEVEL=DEBUG etc. to tune)
 PIPELINE_RUN_LOG="${PIPELINE_RUN_LOG:-$WORKFLOW_OUTPUT_DIR/pipeline_run.log}"

@@ -23,6 +23,11 @@ except Exception:
     _FAST_JSON = False
 
 import hnswlib
+
+# Suppress Hugging Face "Loading weights" progress in logs (e.g. sbatch .err)
+os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
+
 from sentence_transformers import SentenceTransformer
 
 
