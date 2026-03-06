@@ -359,15 +359,16 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
 
   # ----- Step 5: RRF fusion (Hybrid + Rerank -> rerank_hybrid); only when RUN_RRF_FUSION=1 -----
   # Snippet-only (no run-both): write pool=200 to rerank_hybrid_200 so snippet always gets 200-pool runs.
+  # Use DO_SNIPPET_RRF (from config RUN_SNIPPET_RRF or flag --snippet-rrf) so config-only snippet route works.
   # Baseline or run-both: write pool=50 to rerank_hybrid; step 5b (run-both only) writes pool=200 to rerank_hybrid_200.
   if [ "$RUN_RRF_FUSION" = "1" ] && { [ "$TOTAL_STEPS" = "5" ] || [ "$TOTAL_STEPS" = "7" ]; }; then
     STEP_RRF_START=$(date +%s)
     # Resolve where step 5 writes and with which pool
     _RRF_DEFAULT=50
-    [ "${SNIPPET_RRF:-0}" = "1" ] && [ "${RUN_BOTH_ROUTES:-0}" != "1" ] && _RRF_DEFAULT=200
+    [ "${DO_SNIPPET_RRF:-0}" = "1" ] && [ "${RUN_BOTH_ROUTES:-0}" != "1" ] && _RRF_DEFAULT=200
     _RRF_POOL_RERANK="${RRF_POOL_TOP_RERANK:-${RRF_POOL_TOP:-$_RRF_DEFAULT}}"
     _RRF_POOL_HYBRID="${RRF_POOL_TOP_HYBRID:-${RRF_POOL_TOP:-$_RRF_DEFAULT}}"
-    if [ "${SNIPPET_RRF:-0}" = "1" ] && [ "${RUN_BOTH_ROUTES:-0}" != "1" ]; then
+    if [ "${DO_SNIPPET_RRF:-0}" = "1" ] && [ "${RUN_BOTH_ROUTES:-0}" != "1" ]; then
       _RRF_STEP5_OUT="$RERANK_HYBRID_200_OUT"
     else
       _RRF_STEP5_OUT="$RERANK_HYBRID_OUT"
