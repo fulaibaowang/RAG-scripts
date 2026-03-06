@@ -220,7 +220,7 @@ def fuse_rrf(
                 r = int(row["rank"])
                 scores[doc] = scores.get(doc, 0.0) + (float(w_dense) / (float(k_rrf) + r))
 
-        ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+        ranked = sorted(scores.items(), key=lambda x: (-x[1], x[0]))
         run[str(qid)] = [doc for doc, _ in ranked[: int(k_out)]]
 
     return run

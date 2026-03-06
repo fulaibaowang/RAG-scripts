@@ -81,7 +81,7 @@ def _rrf_fuse_docs(
         if rh is not None:
             s += w_hybrid / (k_rrf + rh)
         scores.append((d, s))
-    scores.sort(key=lambda x: -x[1])
+    scores.sort(key=lambda x: (-x[1], x[0]))
     return [d for d, _ in scores]
 
 
