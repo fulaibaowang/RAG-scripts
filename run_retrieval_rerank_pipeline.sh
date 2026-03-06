@@ -337,12 +337,14 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
   if [ "$RERANK_RESULTS_EXIST" = "1" ]; then
     if [ "$RERANK_FIGS_EXIST" = "1" ]; then
       echo "[4/$TOTAL_STEPS] Reranker... (skip: output exists)"
-    else
+    elif [ -f "$RERANK_OUT/metrics.csv" ]; then
       echo "[4/$TOTAL_STEPS] Reranker... (generating eval plots from existing results)"
       PLOT_ARGS=(--output-dir "$RERANK_OUT" --runs-dir "$HYBRID_OUT/runs")
       [ -n "${TRAIN_JSON:-}" ] && PLOT_ARGS+=(--train-json "$TRAIN_JSON")
       [ -n "${TEST_BATCH_JSONS:-}" ] && PLOT_ARGS+=(--test_batch_jsons $TEST_BATCH_JSONS)
       python "$SCRIPT_DIR/rerank/plot_rerank_eval.py" "${PLOT_ARGS[@]}"
+    else
+      echo "[4/$TOTAL_STEPS] Reranker... (skip: run TSVs exist but no metrics.csv; plots require metrics, e.g. HAVE_GROUND_TRUTH=1)"
     fi
   else
     echo "[4/$TOTAL_STEPS] Reranker..."
