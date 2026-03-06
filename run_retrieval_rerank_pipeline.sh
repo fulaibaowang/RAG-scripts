@@ -489,10 +489,13 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
       echo "[7/$TOTAL_STEPS] Final RRF (docs 0.8 + snippet 0.2)... (skip: output exists)"
     else
       echo "[7/$TOTAL_STEPS] Final RRF (docs 0.8 + snippet 0.2)..."
+      # Doc side: rerank_hybrid_200 when snippet route (pool 200); else rerank_hybrid
+      _STEP7_DOCS_DIR="$RERANK_HYBRID_OUT"
+      [ "${DO_SNIPPET_RRF:-0}" = "1" ] && _STEP7_DOCS_DIR="$RERANK_HYBRID_200_OUT"
       # Pool size default: SNIPPET_FINAL_POOL, falling back to SNIPPET_N_DOCS (and then 100)
       _SNIP_POOL="${SNIPPET_FINAL_POOL:-${SNIPPET_N_DOCS:-100}}"
       python "$SCRIPT_DIR/rerank/rerank_rrf_hybrid.py" \
-        --hybrid-runs-dir "$RERANK_HYBRID_OUT/runs" \
+        --hybrid-runs-dir "$_STEP7_DOCS_DIR/runs" \
         --rerank-runs-dir "$SNIPPET_RERANK_OUT/runs" \
         --output-dir "$SNIPPET_RRF_OUT" \
         --pool-top-rerank "$_SNIP_POOL" \
@@ -509,14 +512,21 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
   fi
 
   # ----- Compare (Rerank vs Hybrid+Rerank): recall and MAP curves -----
+  # Recall curve capped at RRF pool sum when RRF_POOL_TOP_* set; else COMPARE_RECALL_K_MAX or 300.
   COMPARE_KS="${COMPARE_KS:-10,20,30,50,100,200,300}"
+  _COMPARE_RECALL_MAX=300
+  if [ -n "${COMPARE_RECALL_K_MAX:-}" ]; then
+    _COMPARE_RECALL_MAX="$COMPARE_RECALL_K_MAX"
+  elif [ -n "${RRF_POOL_TOP_RERANK:-}" ] && [ -n "${RRF_POOL_TOP_HYBRID:-}" ]; then
+    _COMPARE_RECALL_MAX="$((RRF_POOL_TOP_RERANK + RRF_POOL_TOP_HYBRID))"
+  fi
   if [ "${HAVE_GROUND_TRUTH:-1}" != "0" ] && [ -d "$RERANK_OUT/runs" ] && [ -d "$RERANK_HYBRID_OUT/runs" ]; then
     COMPARE_FIGS_EXIST=0
     [ -n "$(find "$RERANK_HYBRID_OUT/figures" -maxdepth 1 -name 'compare_*.png' 2>/dev/null | head -1)" ] && COMPARE_FIGS_EXIST=1
     if [ "$COMPARE_FIGS_EXIST" = "1" ]; then
       echo "[Compare] Rerank vs Hybrid+Rerank... (skip: figures exist)"
     else
-      echo "[Compare] Rerank vs Hybrid+Rerank (recall & MAP @ $COMPARE_KS)..."
+      echo "[Compare] Rerank vs Hybrid+Rerank (recall & MAP @ $COMPARE_KS, recall-k-max $_COMPARE_RECALL_MAX)..."
       STEP_COMPARE_START=$(date +%s)
       COMPARE_ARGS=(
         --dirs "$RERANK_OUT" "$RERANK_HYBRID_OUT"
@@ -524,7 +534,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
         --plot both
         --map-ks "$COMPARE_KS"
         --ks-recall "$COMPARE_KS"
-        --recall-k-max 300
+        --recall-k-max "$_COMPARE_RECALL_MAX"
         --output-dir "$RERANK_HYBRID_OUT"
         --force-from-runs
         --plots-by-split
@@ -534,6 +544,39 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
       python "$SCRIPT_DIR/compare_result_dirs.py" "${COMPARE_ARGS[@]}"
       STEP_COMPARE_END=$(date +%s)
       echo "[timing] Compare step: $((STEP_COMPARE_END-STEP_COMPARE_START))s"
+    fi
+  fi
+
+  # ----- Compare (Snippet RRF vs Hybrid+Rerank): recall and MAP up to SNIPPET_N_DOCS -----
+  # Compares snippet_rrf run to the doc-side run (rerank_hybrid_200); eval k capped at SNIPPET_N_DOCS.
+  if [ "${HAVE_GROUND_TRUTH:-1}" != "0" ] && [ "${DO_SNIPPET_RRF:-0}" = "1" ] && [ -d "$SNIPPET_RRF_OUT/runs" ] && [ -d "$RERANK_HYBRID_200_OUT/runs" ]; then
+    _SNIP_N="${SNIPPET_N_DOCS:-100}"
+    COMPARE_KS_SNIPPET="${COMPARE_KS_SNIPPET:-10,20,30,50,100}"
+    [ "$_SNIP_N" -gt 100 ] && COMPARE_KS_SNIPPET="${COMPARE_KS_SNIPPET},200"
+    [ "$_SNIP_N" -gt 200 ] && COMPARE_KS_SNIPPET="${COMPARE_KS_SNIPPET},$_SNIP_N"
+    SNIPPET_COMPARE_FIGS=0
+    [ -n "$(find "$SNIPPET_RRF_OUT/figures" -maxdepth 1 -name 'compare_*.png' 2>/dev/null | head -1)" ] && SNIPPET_COMPARE_FIGS=1
+    if [ "$SNIPPET_COMPARE_FIGS" = "1" ]; then
+      echo "[Compare] Snippet RRF vs Hybrid+Rerank... (skip: figures exist in snippet_rrf/figures)"
+    else
+      echo "[Compare] Snippet RRF vs Hybrid+Rerank (recall & MAP up to k=$_SNIP_N)..."
+      STEP_SNIPPET_COMPARE_START=$(date +%s)
+      SNIPPET_COMPARE_ARGS=(
+        --dirs "$RERANK_HYBRID_200_OUT" "$SNIPPET_RRF_OUT"
+        --labels "Hybrid+Rerank (docs)" "Snippet RRF (docs+CE)"
+        --plot both
+        --map-ks "$COMPARE_KS_SNIPPET"
+        --ks-recall "$COMPARE_KS_SNIPPET"
+        --recall-k-max "$_SNIP_N"
+        --output-dir "$SNIPPET_RRF_OUT"
+        --force-from-runs
+        --plots-by-split
+      )
+      [ -n "${TRAIN_JSON:-}" ] && SNIPPET_COMPARE_ARGS+=(--train-json "$TRAIN_JSON")
+      [ -n "${TEST_BATCH_JSONS:-}" ] && SNIPPET_COMPARE_ARGS+=(--test-batch-jsons $TEST_BATCH_JSONS)
+      python "$SCRIPT_DIR/compare_result_dirs.py" "${SNIPPET_COMPARE_ARGS[@]}"
+      STEP_SNIPPET_COMPARE_END=$(date +%s)
+      echo "[timing] Snippet compare step: $((STEP_SNIPPET_COMPARE_END-STEP_SNIPPET_COMPARE_START))s"
     fi
   fi
 
