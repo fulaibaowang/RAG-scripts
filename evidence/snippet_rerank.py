@@ -415,7 +415,7 @@ def parse_args() -> argparse.Namespace:
     stageB = p.add_argument_group("stage-B (CE rerank)")
     stageB.add_argument("--ce-model", type=str, default="BAAI/bge-reranker-v2-m3")
     stageB.add_argument("--ce-device", type=str, default="cuda")
-    stageB.add_argument("--ce-batch", type=int, default=64)
+    stageB.add_argument("--ce-batch", type=int, default=84)
     stageB.add_argument("--ce-max-length", type=int, default=512)
     stageB.add_argument("--ce-use-multi-gpu", action="store_true", help="Enable multi-GPU for Stage B CE rerank.")
     stageB.add_argument("--ce-num-gpus", type=int, default=0, help="Max GPUs for CE (0 = all).")

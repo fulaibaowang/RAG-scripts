@@ -461,6 +461,82 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
     fi
   fi
 
+  # ----- Compare (independent checkpoints: run when inputs exist and figures missing; not tied to 5/5b) -----
+  # (1) Rerank vs Hybrid+Rerank (pool 50): output in rerank_hybrid/figures
+  COMPARE_KS="${COMPARE_KS:-10,20,30,50,100,200,300}"
+  _COMPARE_RECALL_MAX=300
+  if [ -n "${COMPARE_RECALL_K_MAX:-}" ]; then
+    _COMPARE_RECALL_MAX="$COMPARE_RECALL_K_MAX"
+  elif [ -n "${RRF_POOL_TOP_RERANK:-}" ] && [ -n "${RRF_POOL_TOP_HYBRID:-}" ]; then
+    _COMPARE_RECALL_MAX="$((RRF_POOL_TOP_RERANK + RRF_POOL_TOP_HYBRID))"
+  fi
+  if [ "${HAVE_GROUND_TRUTH:-1}" != "0" ] && [ -d "$RERANK_OUT/runs" ] && [ -d "$RERANK_HYBRID_OUT/runs" ]; then
+    COMPARE_FIGS_EXIST=0
+    [ -n "$(find "$RERANK_HYBRID_OUT/figures" -maxdepth 1 -name 'compare_*.png' 2>/dev/null | head -1)" ] && COMPARE_FIGS_EXIST=1
+    if [ "$COMPARE_FIGS_EXIST" = "1" ]; then
+      echo "[Compare] Rerank vs Hybrid+Rerank... (skip: figures exist)"
+      _log_run "step" "Compare" "skip"
+    else
+      echo "[Compare] Rerank vs Hybrid+Rerank (recall & MAP @ $COMPARE_KS, recall-k-max $_COMPARE_RECALL_MAX)..."
+      STEP_COMPARE_START=$(date +%s)
+      COMPARE_ARGS=(
+        --dirs "$RERANK_OUT" "$RERANK_HYBRID_OUT"
+        --labels "Rerank" "Hybrid+Rerank"
+        --plot both
+        --map-ks "$COMPARE_KS"
+        --ks-recall "$COMPARE_KS"
+        --recall-k-max "$_COMPARE_RECALL_MAX"
+        --output-dir "$RERANK_HYBRID_OUT"
+        --force-from-runs
+        --plots-by-split
+      )
+      [ -n "${TRAIN_JSON:-}" ] && COMPARE_ARGS+=(--train-json "$TRAIN_JSON")
+      [ -n "${TEST_BATCH_JSONS:-}" ] && COMPARE_ARGS+=(--test-batch-jsons $TEST_BATCH_JSONS)
+      python "$SCRIPT_DIR/compare_result_dirs.py" "${COMPARE_ARGS[@]}"
+      STEP_COMPARE_END=$(date +%s)
+      echo "[timing] Compare step: $((STEP_COMPARE_END-STEP_COMPARE_START))s"
+      _log_run "step" "Compare" "$((STEP_COMPARE_END-STEP_COMPARE_START))s"
+    fi
+  else
+    echo "[Compare] Rerank vs Hybrid+Rerank... (skip: HAVE_GROUND_TRUTH=0 or rerank/runs or rerank_hybrid/runs missing)"
+    _log_run "step" "Compare" "skip (condition)"
+  fi
+
+  # (2) Rerank vs Hybrid+Rerank pool=200: output in rerank_hybrid_200/figures (when that dir exists)
+  _COMPARE_RECALL_MAX_200=400
+  [ -n "${COMPARE_RECALL_K_MAX:-}" ] && _COMPARE_RECALL_MAX_200="$COMPARE_RECALL_K_MAX"
+  if [ "${HAVE_GROUND_TRUTH:-1}" != "0" ] && [ -d "$RERANK_OUT/runs" ] && [ -d "$RERANK_HYBRID_200_OUT/runs" ]; then
+    COMPARE_200_FIGS_EXIST=0
+    [ -n "$(find "$RERANK_HYBRID_200_OUT/figures" -maxdepth 1 -name 'compare_*.png' 2>/dev/null | head -1)" ] && COMPARE_200_FIGS_EXIST=1
+    if [ "$COMPARE_200_FIGS_EXIST" = "1" ]; then
+      echo "[Compare] Rerank vs Hybrid+Rerank (pool=200)... (skip: figures exist)"
+      _log_run "step" "Compare200" "skip"
+    else
+      echo "[Compare] Rerank vs Hybrid+Rerank (pool=200) (recall & MAP @ $COMPARE_KS, recall-k-max $_COMPARE_RECALL_MAX_200)..."
+      STEP_COMPARE_200_START=$(date +%s)
+      COMPARE_200_ARGS=(
+        --dirs "$RERANK_OUT" "$RERANK_HYBRID_200_OUT"
+        --labels "Rerank" "Hybrid+Rerank (pool=200)"
+        --plot both
+        --map-ks "$COMPARE_KS"
+        --ks-recall "$COMPARE_KS"
+        --recall-k-max "$_COMPARE_RECALL_MAX_200"
+        --output-dir "$RERANK_HYBRID_200_OUT"
+        --force-from-runs
+        --plots-by-split
+      )
+      [ -n "${TRAIN_JSON:-}" ] && COMPARE_200_ARGS+=(--train-json "$TRAIN_JSON")
+      [ -n "${TEST_BATCH_JSONS:-}" ] && COMPARE_200_ARGS+=(--test-batch-jsons $TEST_BATCH_JSONS)
+      python "$SCRIPT_DIR/compare_result_dirs.py" "${COMPARE_200_ARGS[@]}"
+      STEP_COMPARE_200_END=$(date +%s)
+      echo "[timing] Compare (pool=200) step: $((STEP_COMPARE_200_END-STEP_COMPARE_200_START))s"
+      _log_run "step" "Compare200" "$((STEP_COMPARE_200_END-STEP_COMPARE_200_START))s"
+    fi
+  else
+    echo "[Compare] Rerank vs Hybrid+Rerank (pool=200)... (skip: HAVE_GROUND_TRUTH=0 or rerank/runs or rerank_hybrid_200/runs missing)"
+    _log_run "step" "Compare200" "skip (condition)"
+  fi
+
   # ----- Step 6: Snippet extraction + CE reranking (only when --snippet-rrf) -----
   if [ "${DO_SNIPPET_RRF:-0}" = "1" ] && [ "$TOTAL_STEPS" = "7" ]; then
     STEP_SNIPPET_START=$(date +%s)
@@ -545,44 +621,6 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
       _log_run "step" "7" "FinalRRF" "skip"
     else
       _log_run "step" "7" "FinalRRF" "$((STEP_FINAL_RRF_END-STEP_FINAL_RRF_START))s"
-    fi
-  fi
-
-  # ----- Compare (Rerank vs Hybrid+Rerank): recall and MAP curves -----
-  # Recall curve capped at RRF pool sum when RRF_POOL_TOP_* set; else COMPARE_RECALL_K_MAX or 300.
-  COMPARE_KS="${COMPARE_KS:-10,20,30,50,100,200,300}"
-  _COMPARE_RECALL_MAX=300
-  if [ -n "${COMPARE_RECALL_K_MAX:-}" ]; then
-    _COMPARE_RECALL_MAX="$COMPARE_RECALL_K_MAX"
-  elif [ -n "${RRF_POOL_TOP_RERANK:-}" ] && [ -n "${RRF_POOL_TOP_HYBRID:-}" ]; then
-    _COMPARE_RECALL_MAX="$((RRF_POOL_TOP_RERANK + RRF_POOL_TOP_HYBRID))"
-  fi
-  if [ "${HAVE_GROUND_TRUTH:-1}" != "0" ] && [ -d "$RERANK_OUT/runs" ] && [ -d "$RERANK_HYBRID_OUT/runs" ]; then
-    COMPARE_FIGS_EXIST=0
-    [ -n "$(find "$RERANK_HYBRID_OUT/figures" -maxdepth 1 -name 'compare_*.png' 2>/dev/null | head -1)" ] && COMPARE_FIGS_EXIST=1
-    if [ "$COMPARE_FIGS_EXIST" = "1" ]; then
-      echo "[Compare] Rerank vs Hybrid+Rerank... (skip: figures exist)"
-      _log_run "step" "Compare" "skip"
-    else
-      echo "[Compare] Rerank vs Hybrid+Rerank (recall & MAP @ $COMPARE_KS, recall-k-max $_COMPARE_RECALL_MAX)..."
-      STEP_COMPARE_START=$(date +%s)
-      COMPARE_ARGS=(
-        --dirs "$RERANK_OUT" "$RERANK_HYBRID_OUT"
-        --labels "Rerank" "Hybrid+Rerank"
-        --plot both
-        --map-ks "$COMPARE_KS"
-        --ks-recall "$COMPARE_KS"
-        --recall-k-max "$_COMPARE_RECALL_MAX"
-        --output-dir "$RERANK_HYBRID_OUT"
-        --force-from-runs
-        --plots-by-split
-      )
-      [ -n "${TRAIN_JSON:-}" ] && COMPARE_ARGS+=(--train-json "$TRAIN_JSON")
-      [ -n "${TEST_BATCH_JSONS:-}" ] && COMPARE_ARGS+=(--test-batch-jsons $TEST_BATCH_JSONS)
-      python "$SCRIPT_DIR/compare_result_dirs.py" "${COMPARE_ARGS[@]}"
-      STEP_COMPARE_END=$(date +%s)
-      echo "[timing] Compare step: $((STEP_COMPARE_END-STEP_COMPARE_START))s"
-      _log_run "step" "Compare" "$((STEP_COMPARE_END-STEP_COMPARE_START))s"
     fi
   fi
 

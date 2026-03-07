@@ -120,6 +120,20 @@ def _infer_role_from_run_id(
     return "unknown"
 
 
+def _short_run_label(run_id: str) -> str:
+    """Extract split name from run_id for compact legend (e.g. best_rrf_13B1_golden_top5000_... -> 13B1_golden)."""
+    if not run_id or len(run_id) <= 28:
+        return run_id
+    s = run_id
+    if s.startswith("best_rrf_"):
+        s = s[len("best_rrf_"):]
+    for sep in ("_top", "_rrf_"):
+        if sep in s:
+            s = s.split(sep)[0]
+            break
+    return s if s else run_id
+
+
 def _metrics_from_runs_dir(
     runs_dir: Path,
     gold_map: Dict[str, List[str]],
@@ -233,7 +247,7 @@ def plot_recall_curves(
     k_max: Optional[int] = None,
     log_x: bool = False,
 ) -> None:
-    """Plot recall (MeanR@k) curves: one line per (dir_label, run), x = k."""
+    """Plot recall (MeanR@k) curves: one line per (dir_label, run), x = k. Legend uses short split names when run_id is long."""
     if plt is None:
         return
     k_list = _meanr_columns_to_k_list(combined)
@@ -242,14 +256,18 @@ def plot_recall_curves(
     if not k_list:
         return
     metric_cols = [f"MeanR@{k}" for k in k_list]
-    fig, ax = plt.subplots(figsize=(8, 5))
+    fig, ax = plt.subplots(figsize=(11, 5))
     colors = plt.cm.tab10(np.linspace(0, 1, max(len(dir_labels), 1)))
     for (dir_lbl, run_id), grp in combined.groupby(["dir_label", "run"], sort=False):
         if grp.shape[0] != 1:
             vals = grp[metric_cols].mean().values
         else:
             vals = grp[metric_cols].iloc[0].values
-        label = f"{dir_lbl}: {run_id}" if len(dir_labels) > 1 or len(combined["run"].unique()) > 1 else run_id
+        short_run = _short_run_label(run_id)
+        if len(dir_labels) > 1 or len(combined["run"].unique()) > 1:
+            label = f"{dir_lbl}: {short_run}"
+        else:
+            label = short_run
         ax.plot(k_list, vals, marker="o", label=label, markersize=4)
     if log_x:
         ax.set_xscale("log")
@@ -300,14 +318,15 @@ def plot_map_curve(
     output_path: Path,
     log_x: bool = False,
 ) -> None:
-    """Plot MAP@k curve: one line per (dir_label, run_id), x = k."""
+    """Plot MAP@k curve: one line per (dir_label, run_id), x = k. Legend uses short split names when run_id is long."""
     if plt is None:
         return
-    fig, ax = plt.subplots(figsize=(8, 5))
+    fig, ax = plt.subplots(figsize=(11, 5))
     for (dir_lbl, run_id), map_vals in map_by_run.items():
         xs = [k for k in ks if k in map_vals]
         ys = [map_vals[k] for k in xs]
-        label = f"{dir_lbl}: {run_id}"
+        short_run = _short_run_label(run_id)
+        label = f"{dir_lbl}: {short_run}"
         ax.plot(xs, ys, marker="o", label=label, markersize=5)
     if log_x:
         ax.set_xscale("log")
