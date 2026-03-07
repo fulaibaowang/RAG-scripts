@@ -87,7 +87,7 @@ All stages write runs as TSV with columns: `qid`, `docno`, `rank`, `score`. No p
      - `snippet_rrf/` (final fusion outputs)
      - `evidence_snippet/`, `generation_snippet/` (snippet-based evidence/generation)
 
-3. Outputs appear under `$WORKFLOW_OUTPUT_DIR/bm25/`, `dense/`, `hybrid/`. If `DOCS_JSONL` is set and you do not pass `--no-rerank`, the reranker step runs and writes to `rerank/`. Set `RERANK_DISABLE_METRICS=1` when you have no ground truth. If a stage's key output already exists (e.g. hybrid's `ranked_test_avg.csv`), that stage is skipped; when hybrid is done, the reranker uses hybrid results and does not rerun earlier stages.
+3. Outputs appear under `$WORKFLOW_OUTPUT_DIR/bm25/`, `dense/`, `hybrid/`. If `DOCS_JSONL` is set and you do not pass `--no-rerank`, the reranker step runs and writes to `rerank/`. Set `RERANK_DISABLE_METRICS=1` when you have no ground truth. If a stage's key output already exists (e.g. hybrid's `ranked_test_avg.csv` or `metrics.csv`), that stage is skipped; when hybrid is done, the reranker uses hybrid results and does not rerun earlier stages.
 
 ## Prerequisites
 

@@ -691,7 +691,7 @@ def main() -> None:
                     print(f"Error evaluating task {idx}: {e}")
 
     results_df = pd.DataFrame(rows)
-    results_df.to_csv(out_dir / "results_all.csv", index=False)
+    results_df.to_csv(out_dir / "metrics.csv", index=False)
 
     test_splits = [fp.stem for fp in test_files]
     if not test_splits:
