@@ -425,6 +425,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
       [ -n "${TRAIN_JSON:-}" ] && RRF_ARGS+=(--train-json "$TRAIN_JSON")
       [ -n "${TEST_BATCH_JSONS:-}" ] && RRF_ARGS+=(--test-batch-jsons $TEST_BATCH_JSONS)
       [ -n "${RERANK_KS_RECALL:-}" ] && RRF_ARGS+=(--ks-recall "$RERANK_KS_RECALL")
+      [ "${RERANK_DISABLE_METRICS:-0}" = "1" ] && RRF_ARGS+=(--disable-metrics)
       python "$SCRIPT_DIR/rerank/rerank_rrf_hybrid.py" "${RRF_ARGS[@]}"
     fi
     STEP_RRF_END=$(date +%s)
@@ -455,7 +456,8 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
         ${RRF_W_HYBRID:+--w-hybrid "$RRF_W_HYBRID"} \
         ${TRAIN_JSON:+--train-json "$TRAIN_JSON"} \
         ${TEST_BATCH_JSONS:+--test-batch-jsons $TEST_BATCH_JSONS} \
-        ${RERANK_KS_RECALL:+--ks-recall "$RERANK_KS_RECALL"}
+        ${RERANK_KS_RECALL:+--ks-recall "$RERANK_KS_RECALL"} \
+        $([ "${RERANK_DISABLE_METRICS:-0}" = "1" ] && echo --disable-metrics)
     fi
   fi
 
@@ -534,7 +536,8 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
         --w-hybrid "${SNIPPET_RRF_W_DOCS:-0.8}" \
         ${TRAIN_JSON:+--train-json "$TRAIN_JSON"} \
         ${TEST_BATCH_JSONS:+--test-batch-jsons $TEST_BATCH_JSONS} \
-        ${RERANK_KS_RECALL:+--ks-recall "$RERANK_KS_RECALL"}
+        ${RERANK_KS_RECALL:+--ks-recall "$RERANK_KS_RECALL"} \
+        $([ "${RERANK_DISABLE_METRICS:-0}" = "1" ] && echo --disable-metrics)
     fi
     STEP_FINAL_RRF_END=$(date +%s)
     echo "[timing] Final RRF (snippet_rrf) step: $((STEP_FINAL_RRF_END-STEP_FINAL_RRF_START))s"
