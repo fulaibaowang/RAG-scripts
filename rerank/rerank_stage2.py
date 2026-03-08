@@ -306,6 +306,7 @@ def _rerank_worker(
         max_length=None if max_length <= 0 else max_length,
         trust_remote_code=True,
     )
+    print(f"[gpu {gpu_id}] model loaded on {device}, reranking {len(items)} queries", flush=True)
     local_out: Dict[str, List[Tuple[str, float]]] = {}
     total = len(items)
     start = time()
@@ -322,7 +323,7 @@ def _rerank_worker(
         if idx == 1 or idx % 10 == 0 or idx == total:
             elapsed = max(1e-9, time() - start)
             rate = idx / elapsed
-            print(f"[gpu {gpu_id}] {idx}/{total} queries | {rate:.2f} q/s")
+            print(f"[gpu {gpu_id}] {idx}/{total} queries | {rate:.2f} q/s", flush=True)
     return_dict[gpu_id] = local_out
 
 
@@ -355,8 +356,8 @@ def rerank_run(
                 target=_rerank_worker,
                 args=(gpu_id, chunk, topics, doc_texts, model_name, batch_size, max_length, return_dict),
             )
-        p.start()
-        procs.append(p)
+            p.start()
+            procs.append(p)
         for p in procs:
             p.join()
         # Fail fast if any worker crashed (e.g. model load error); avoid silently using partial results.
