@@ -399,6 +399,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
     fi
     [ "${RERANK_LLM_USE_FP16:-1}" = "0" ] && RERANK_ARGS+=(--no-llm-use-fp16)
     [ "${RERANK_LLM_USE_BF16:-0}" = "1" ] && RERANK_ARGS+=(--llm-use-bf16)
+    [ -n "${RERANK_PROGRESS_EVERY:-}" ] && RERANK_ARGS+=(--progress-every "$RERANK_PROGRESS_EVERY")
     python "$SCRIPT_DIR/rerank/rerank_stage2.py" "${RERANK_ARGS[@]}"
   fi
   STEP_RERANK_END=$(date +%s)

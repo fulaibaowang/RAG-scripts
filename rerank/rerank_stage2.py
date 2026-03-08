@@ -173,6 +173,12 @@ def parse_args() -> argparse.Namespace:
     runtime = parser.add_argument_group("runtime")
     runtime.add_argument("--use-multi-gpu", action="store_true", help="Enable multi-GPU reranking.")
     runtime.add_argument("--num-gpus", type=int, default=0, help="Max GPUs to use (0 = all).")
+    runtime.add_argument(
+        "--progress-every",
+        type=int,
+        default=10,
+        help="Log rerank progress every N queries (0 = no per-query progress, only start/end). Default: 10.",
+    )
 
     evaluation = parser.add_argument_group("evaluation")
     evaluation.add_argument("--disable-metrics", action="store_true", help="Skip metrics (no ground truth).")
@@ -337,6 +343,7 @@ def _rerank_worker(
     model_name: str,
     batch_size: int,
     max_length: int,
+    progress_every: int,
     return_dict,
 ) -> None:
     device = f"cuda:{gpu_id}" if torch and torch.cuda.is_available() else "cpu"
@@ -360,7 +367,7 @@ def _rerank_worker(
         scored = [(doc, float(score)) for doc, score in zip(docs, scores)]
         scored.sort(key=lambda x: x[1], reverse=True)
         local_out[qid] = scored
-        if idx == 1 or idx % 10 == 0 or idx == total:
+        if progress_every and (idx == 1 or idx % progress_every == 0 or idx == total):
             elapsed = max(1e-9, time() - start)
             rate = idx / elapsed
             print(f"[gpu {gpu_id}] {idx}/{total} queries | {rate:.2f} q/s", flush=True)
@@ -380,6 +387,7 @@ def rerank_run(
     reranker_type: str = "cross_encoder",
     llm_use_fp16: bool = True,
     llm_use_bf16: bool = False,
+    progress_every: int = 10,
 ) -> Dict[str, List[Tuple[str, float]]]:
     items = list(run_map.items())
     if use_multi_gpu and reranker_type == "cross_encoder":
@@ -397,7 +405,7 @@ def rerank_run(
         for gpu_id, chunk in enumerate(chunks):
             p = ctx.Process(
                 target=_rerank_worker,
-                args=(gpu_id, chunk, topics, doc_texts, model_name, batch_size, max_length, return_dict),
+                args=(gpu_id, chunk, topics, doc_texts, model_name, batch_size, max_length, progress_every, return_dict),
             )
             p.start()
             procs.append(p)
@@ -449,6 +457,7 @@ def rerank_run(
                     batch_size,
                     llm_use_fp16,
                     llm_use_bf16,
+                    progress_every,
                     return_dict,
                 ),
             )
@@ -501,7 +510,7 @@ def rerank_run(
         scored = [(doc, float(score)) for doc, score in zip(docs, scores)]
         scored.sort(key=lambda x: x[1], reverse=True)
         out[qid] = scored
-        if idx == 1 or idx % 10 == 0 or idx == total:
+        if progress_every and (idx == 1 or idx % progress_every == 0 or idx == total):
             elapsed = max(1e-9, time() - start)
             rate = idx / elapsed
             print(f"[rerank] {idx}/{total} queries | {rate:.2f} q/s")
@@ -533,6 +542,7 @@ def _llm_rerank_worker_pairs(
     batch_size: int,
     llm_use_fp16: bool,
     llm_use_bf16: bool,
+    progress_every: int,
     return_dict: Any,
 ) -> None:
     """CE-style: one process per GPU, score a chunk of (qid, docs) items with FlagLLMReranker.
@@ -567,7 +577,7 @@ def _llm_rerank_worker_pairs(
         scored = [(doc, float(score)) for doc, score in zip(docs, scores_list)]
         scored.sort(key=lambda x: x[1], reverse=True)
         local_out[qid] = scored
-        if idx == 1 or idx % 10 == 0 or idx == total:
+        if progress_every and (idx == 1 or idx % progress_every == 0 or idx == total):
             elapsed = max(1e-9, time() - start)
             rate = idx / elapsed
             print(f"[gpu {gpu_id}] {idx}/{total} queries | {rate:.2f} q/s", flush=True)
@@ -798,6 +808,7 @@ def main() -> None:
             reranker_type=args.reranker_type,
             llm_use_fp16=args.llm_use_fp16,
             llm_use_bf16=args.llm_use_bf16,
+            progress_every=args.progress_every,
         )
         reranked_runs[name] = reranked
         print("reranked", name, "queries:", len(reranked))
