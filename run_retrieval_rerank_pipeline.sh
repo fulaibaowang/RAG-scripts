@@ -829,6 +829,8 @@ _DOCS_JSONL_OK=0
           fi
           [ -n "$_max_chars" ] && GENERATION_ARGS+=(--max-chars-per-context "$_max_chars")
           [ -n "${GENERATION_SLEEP:-}" ] && GENERATION_ARGS+=(--sleep "$GENERATION_SLEEP")
+          [ -n "${GENERATION_MODEL:-}" ] && GENERATION_ARGS+=(--model "$GENERATION_MODEL")
+          [ "${GENERATION_NO_PROGRESS:-1}" = "1" ] && GENERATION_ARGS+=(--no-progress)
           python "$SCRIPT_DIR/generation/generate_answers.py" "${GENERATION_ARGS[@]}"
         fi
       done

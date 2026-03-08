@@ -129,6 +129,12 @@ def parse_args() -> argparse.Namespace:
         help="Which evidence field to use for prompts: contexts or snippets (default: contexts).",
     )
     parser.add_argument(
+        "--model",
+        type=str,
+        default=OLLAMA_MODEL,
+        help=f"Ollama model name for generation (default: {OLLAMA_MODEL}).",
+    )
+    parser.add_argument(
         "--temperature",
         type=float,
         default=0.0,
@@ -141,6 +147,11 @@ def parse_args() -> argparse.Namespace:
         help="Nucleus sampling top_p passed via Ollama 'options.top_p' (default: 1.0 = no truncation).",
     )
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose logging.")
+    parser.add_argument(
+        "--no-progress",
+        action="store_true",
+        help="Disable progress bar and per-question progress logs (use for batch/sbatch).",
+    )
     parser.add_argument(
         "--progress-every",
         type=int,
@@ -163,6 +174,7 @@ def call_llm(
     api_key: str,
     system_prompt: str,
     user_prompt: str,
+    model: str = OLLAMA_MODEL,
     timeout: int = 120,
     temperature: float = 0.0,
     top_p: float = 1.0,
@@ -172,7 +184,7 @@ def call_llm(
         OLLAMA_URL,
         headers={"Authorization": f"Bearer {api_key}"},
         json={
-            "model": OLLAMA_MODEL,
+            "model": model,
             "stream": False,
             "prompt": prompt,
             "options": {
@@ -486,6 +498,7 @@ def main() -> int:
                     api_key,
                     system_text,
                     user_prompt,
+                    model=args.model,
                     timeout=args.timeout,
                     temperature=args.temperature,
                     top_p=args.top_p,
@@ -531,9 +544,9 @@ def main() -> int:
         return idx, out
 
     results_by_idx: Dict[int, Dict[str, Any]] = {}
-    progress_every = args.progress_every if args.progress_every > 0 else 0
+    progress_every = 0 if args.no_progress else (args.progress_every if args.progress_every > 0 else 0)
     completed_count = 0
-    use_tqdm = tqdm is not None and sys.stderr.isatty()
+    use_tqdm = not args.no_progress and tqdm is not None and sys.stderr.isatty()
 
     with ThreadPoolExecutor(max_workers=args.concurrency) as ex:
         futs = {
@@ -563,8 +576,6 @@ def main() -> int:
             completed_count += 1
             if progress_every and (completed_count == 1 or completed_count % progress_every == 0 or completed_count == total):
                 logger.info("Generation progress: %d/%d", completed_count, total)
-            elif not args.verbose and tqdm is None and not progress_every:
-                logger.info("Completed %d/%d (id=%s)", idx, total, results_by_idx[idx].get("id"))
 
     # Ensure every input question has a record (fallback for any missing index)
     records_out: List[Dict[str, Any]] = []
