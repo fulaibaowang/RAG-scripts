@@ -471,9 +471,24 @@ def main() -> None:
     run_maps = {name: run_df_to_run_map(df) for name, df in run_dfs.items()}
     run_names = list(run_maps.keys())
 
+    # Resume: skip splits that already have output; load them from disk for metrics later
+    runs_dir_out = output_cfg.runs_dir
+    run_names_done = [n for n in run_names if (runs_dir_out / f"{n}.tsv").is_file()]
+    run_names_todo = [n for n in run_names if n not in run_names_done]
+    reranked_runs: Dict[str, List[Tuple[str, float]]] = {}
+    if run_names_done:
+        print("resume: skipping", len(run_names_done), "existing run(s):", run_names_done)
+        for name in run_names_done:
+            df = load_run_tsv(runs_dir_out / f"{name}.tsv")
+            reranked = {}
+            for qid, grp in df.groupby("qid", sort=False):
+                grp = grp.sort_values("rank")
+                reranked[str(qid)] = list(zip(grp["docno"].astype(str), grp["score"].astype(float)))
+            reranked_runs[name] = reranked
+
     candidate_docnos = set()
-    for docs in run_maps.values():
-        for doc_list in docs.values():
+    for name in run_names_todo:
+        for doc_list in run_maps[name].values():
             candidate_docnos.update(doc_list)
 
     print("candidate docnos:", len(candidate_docnos))
@@ -512,8 +527,7 @@ def main() -> None:
             trust_remote_code=True,
         )
 
-    reranked_runs: Dict[str, List[Tuple[str, float]]] = {}
-    for name in run_names:
+    for name in run_names_todo:
         reranked = rerank_run(
             run_maps[name],
             topics=topics_map,

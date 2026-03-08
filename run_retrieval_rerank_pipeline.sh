@@ -19,12 +19,14 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-# Parse -c / --config, --no-rerank, --no-rrf-fusion, --snippet-rrf, --run-both-routes, etc., -h / --help
+# Parse -c / --config, --no-rerank, --no-rrf-fusion, --snippet-rrf, --run-both-routes, --no-generation*, -h / --help
 CONFIG_FILE=""
 RUN_RERANK=1
 RUN_RRF_FUSION=1
 SNIPPET_RRF=0
 RUN_BOTH_ROUTES=0
+RUN_GENERATION_BASELINE="${RUN_GENERATION_BASELINE:-1}"
+RUN_GENERATION_SNIPPET="${RUN_GENERATION_SNIPPET:-1}"
 BM25_QUERY_FIELD_ARG=""
 DENSE_QUERY_FIELD_ARG=""
 RERANK_QUERY_FIELD_ARG=""
@@ -67,13 +69,29 @@ while [ $# -gt 0 ]; do
       RERANK_QUERY_FIELD_ARG="$2"
       shift 2
       ;;
+    --no-generation)
+      RUN_GENERATION_BASELINE=0
+      RUN_GENERATION_SNIPPET=0
+      shift
+      ;;
+    --no-generation-baseline)
+      RUN_GENERATION_BASELINE=0
+      shift
+      ;;
+    --no-generation-snippet)
+      RUN_GENERATION_SNIPPET=0
+      shift
+      ;;
     -h|--help)
-      echo "Usage: $0 [--config|-c <config.env>] [--no-rerank] [--no-rrf-fusion] [--snippet-rrf] [--run-both-routes] [--bm25-query-field F] ..."
+      echo "Usage: $0 [--config|-c <config.env>] [--no-rerank] [--no-rrf-fusion] [--snippet-rrf] [--run-both-routes] [--no-generation] [--bm25-query-field F] ..."
       echo "  -c, --config PATH       Source PATH as config (env vars) before running."
       echo "  --no-rerank             Run only BM25, Dense, Hybrid; skip reranker even if DOCS_JSONL is set."
       echo "  --no-rrf-fusion         Disable RRF fusion (Hybrid + Rerank) step after reranker."
       echo "  --snippet-rrf           Use snippet RRF route: upstream pool=200, snippet extraction, final RRF, snippet-based contexts (writes evidence/, generation/)."
       echo "  --run-both-routes        Run baseline and snippet routes; write evidence_baseline/, evidence_snippet/, generation_baseline/, generation_snippet/ (no overwrite)."
+      echo "  --no-generation          Skip LLM generation (and rescue) for both baseline and snippet routes."
+      echo "  --no-generation-baseline  Skip LLM generation for baseline route only (evidence still built)."
+      echo "  --no-generation-snippet   Skip LLM generation for snippet route only (evidence still built)."
       echo "  --bm25-query-field F    Use F as query text for BM25 (overrides env; e.g. body, body_expansion_long)."
       echo "  --dense-query-field F   Use F as query text for Dense (overrides env)."
       echo "  --rerank-query-field F  Use F as query text for reranker (overrides env; e.g. body, body_expansion_long)."
@@ -82,6 +100,8 @@ while [ $# -gt 0 ]; do
       echo "Env toggles:"
       echo "  RUN_BASELINE=0|1        Control baseline evidence/generation route (default 1)."
       echo "  RUN_SNIPPET_RRF=0|1     Control snippet-rrf route (steps 6–7, evidence_snippet/, generation_snippet/)."
+      echo "  RUN_GENERATION_BASELINE=0|1   Run generation for baseline route (default 1)."
+      echo "  RUN_GENERATION_SNIPPET=0|1    Run generation for snippet route (default 1)."
       echo ""
       echo "Example: $0 --config scripts/private_scripts/config.env"
       echo "Example: $0 -c config.env --no-rerank --bm25-query-field body_expansion_long --dense-query-field body"
@@ -320,9 +340,9 @@ fi
 # Figures are named hybrid_reranker_recall_map10_{label}.png (one per dataset label)
 if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
   STEP_RERANK_START=$(date +%s)
+  # Only consider rerank "complete" when metrics.csv exists; partial TSVs allow resume in rerank_stage2.py
   RERANK_RESULTS_EXIST=0
   [ -f "$RERANK_OUT/metrics.csv" ] && RERANK_RESULTS_EXIST=1
-  [ "$RERANK_RESULTS_EXIST" = "0" ] && [ -n "$(find "$RERANK_OUT" -maxdepth 2 -name '*.tsv' 2>/dev/null | head -1)" ] && RERANK_RESULTS_EXIST=1
 
   RERANK_FIGS_EXIST=0
   [ -n "$(find "$RERANK_OUT/figures" -maxdepth 1 -name 'hybrid_reranker_recall_map10_*.png' 2>/dev/null | head -1)" ] && RERANK_FIGS_EXIST=1
@@ -766,61 +786,68 @@ _DOCS_JSONL_OK=0
     done
 
     # ----- Generation (LLM answers from contexts JSON): run after all evidence is built -----
-    mkdir -p "$WORKFLOW_OUTPUT_DIR/$_GEN_SUBDIR"
-    for _tsv in "$_EVIDENCE_RUNS_DIR/"*.tsv; do
-      [ -f "$_tsv" ] || continue
-      _stem=$(basename "$_tsv" .tsv)
-      _split="${_stem#best_rrf_}"
-      _split="${_split%%_top*}"
-      [ -n "$_split" ] || continue
+    _RUN_GEN=0
+    [ "$_route" = "baseline" ] && [ "${RUN_GENERATION_BASELINE:-1}" = "1" ] && _RUN_GEN=1
+    [ "$_route" = "snippet" ] && [ "${RUN_GENERATION_SNIPPET:-1}" = "1" ] && _RUN_GEN=1
+    if [ "$_RUN_GEN" = "1" ]; then
+      mkdir -p "$WORKFLOW_OUTPUT_DIR/$_GEN_SUBDIR"
+      for _tsv in "$_EVIDENCE_RUNS_DIR/"*.tsv; do
+        [ -f "$_tsv" ] || continue
+        _stem=$(basename "$_tsv" .tsv)
+        _split="${_stem#best_rrf_}"
+        _split="${_split%%_top*}"
+        [ -n "$_split" ] || continue
 
-      _ctx_json="$WORKFLOW_OUTPUT_DIR/$_EVIDENCE_SUBDIR/${_split}_contexts.json"
-      _gen_json="$WORKFLOW_OUTPUT_DIR/$_GEN_SUBDIR/${_split}_answers.json"
-      if [ -f "$_gen_json" ]; then
-        echo "[Generation] $_split... (skip: output exists)"
-      elif [ ! -f "$_ctx_json" ]; then
-        echo "[Generation] Skip $_split: evidence not found ($_ctx_json)"
-      else
-        echo "[Generation] $_split..."
-        GENERATION_ARGS=(
-          --input-path "$_ctx_json"
-          --output-dir "$WORKFLOW_OUTPUT_DIR/$_GEN_SUBDIR"
-        )
-        [ -n "${GENERATION_CONCURRENCY:-}" ] && GENERATION_ARGS+=(--concurrency "$GENERATION_CONCURRENCY")
-        if [ "$_route" = "baseline" ]; then
-          _max_ctx="${GENERATION_MAX_CONTEXTS_BASELINE:-${GENERATION_MAX_CONTEXTS:-8}}"
+        _ctx_json="$WORKFLOW_OUTPUT_DIR/$_EVIDENCE_SUBDIR/${_split}_contexts.json"
+        _gen_json="$WORKFLOW_OUTPUT_DIR/$_GEN_SUBDIR/${_split}_answers.json"
+        if [ -f "$_gen_json" ]; then
+          echo "[Generation] $_split... (skip: output exists)"
+        elif [ ! -f "$_ctx_json" ]; then
+          echo "[Generation] Skip $_split: evidence not found ($_ctx_json)"
         else
-          _max_ctx="${GENERATION_MAX_CONTEXTS_SNIPPET:-${GENERATION_MAX_CONTEXTS:-10}}"
+          echo "[Generation] $_split..."
+          GENERATION_ARGS=(
+            --input-path "$_ctx_json"
+            --output-dir "$WORKFLOW_OUTPUT_DIR/$_GEN_SUBDIR"
+          )
+          [ -n "${GENERATION_CONCURRENCY:-}" ] && GENERATION_ARGS+=(--concurrency "$GENERATION_CONCURRENCY")
+          if [ "$_route" = "baseline" ]; then
+            _max_ctx="${GENERATION_MAX_CONTEXTS_BASELINE:-${GENERATION_MAX_CONTEXTS:-8}}"
+          else
+            _max_ctx="${GENERATION_MAX_CONTEXTS_SNIPPET:-${GENERATION_MAX_CONTEXTS:-10}}"
+          fi
+          [ -n "$_max_ctx" ] && GENERATION_ARGS+=(--max-contexts "$_max_ctx")
+          if [ "$_route" = "baseline" ]; then
+            _max_chars="${GENERATION_MAX_CHARS_PER_CONTEXT_BASELINE:-${GENERATION_MAX_CHARS_PER_CONTEXT:-1300}}"
+          else
+            _max_chars="${GENERATION_MAX_CHARS_PER_CONTEXT_SNIPPET:-${GENERATION_MAX_CHARS_PER_CONTEXT:-1000}}"
+          fi
+          [ -n "$_max_chars" ] && GENERATION_ARGS+=(--max-chars-per-context "$_max_chars")
+          [ -n "${GENERATION_SLEEP:-}" ] && GENERATION_ARGS+=(--sleep "$GENERATION_SLEEP")
+          python "$SCRIPT_DIR/generation/generate_answers.py" "${GENERATION_ARGS[@]}"
         fi
-        [ -n "$_max_ctx" ] && GENERATION_ARGS+=(--max-contexts "$_max_ctx")
-        if [ "$_route" = "baseline" ]; then
-          _max_chars="${GENERATION_MAX_CHARS_PER_CONTEXT_BASELINE:-${GENERATION_MAX_CHARS_PER_CONTEXT:-1300}}"
-        else
-          _max_chars="${GENERATION_MAX_CHARS_PER_CONTEXT_SNIPPET:-${GENERATION_MAX_CHARS_PER_CONTEXT:-1000}}"
-        fi
-        [ -n "$_max_chars" ] && GENERATION_ARGS+=(--max-chars-per-context "$_max_chars")
-        [ -n "${GENERATION_SLEEP:-}" ] && GENERATION_ARGS+=(--sleep "$GENERATION_SLEEP")
-        python "$SCRIPT_DIR/generation/generate_answers.py" "${GENERATION_ARGS[@]}"
-      fi
-    done
+      done
 
-    # ----- Rescue: one pass over all generation outputs (in-place, save failed prompts to same folder) -----
-    for _tsv in "$_EVIDENCE_RUNS_DIR/"*.tsv; do
-      [ -f "$_tsv" ] || continue
-      _stem=$(basename "$_tsv" .tsv)
-      _split="${_stem#best_rrf_}"
-      _split="${_split%%_top*}"
-      [ -n "$_split" ] || continue
-      _gen_json="$WORKFLOW_OUTPUT_DIR/$_GEN_SUBDIR/${_split}_answers.json"
-      if [ -f "$_gen_json" ]; then
-        echo "[Rescue] $_split..."
-        RESCUE_ARGS=(--input "$_gen_json")
-        [ -n "${GENERATION_RESCUE_TIMEOUT:-}" ] && RESCUE_ARGS+=(--timeout "$GENERATION_RESCUE_TIMEOUT")
-        [ -n "${GENERATION_RESCUE_RETRY_SLEEP:-}" ] && RESCUE_ARGS+=(--retry-sleep "$GENERATION_RESCUE_RETRY_SLEEP")
-        [ -n "${GENERATION_MAX_CHARS_PER_CONTEXT:-}" ] && RESCUE_ARGS+=(--max-chars-per-context "$GENERATION_MAX_CHARS_PER_CONTEXT")
-        python "$SCRIPT_DIR/generation/rescue_failed_generation.py" "${RESCUE_ARGS[@]}"
-      fi
-    done
+      # ----- Rescue: one pass over all generation outputs (in-place, save failed prompts to same folder) -----
+      for _tsv in "$_EVIDENCE_RUNS_DIR/"*.tsv; do
+        [ -f "$_tsv" ] || continue
+        _stem=$(basename "$_tsv" .tsv)
+        _split="${_stem#best_rrf_}"
+        _split="${_split%%_top*}"
+        [ -n "$_split" ] || continue
+        _gen_json="$WORKFLOW_OUTPUT_DIR/$_GEN_SUBDIR/${_split}_answers.json"
+        if [ -f "$_gen_json" ]; then
+          echo "[Rescue] $_split..."
+          RESCUE_ARGS=(--input "$_gen_json")
+          [ -n "${GENERATION_RESCUE_TIMEOUT:-}" ] && RESCUE_ARGS+=(--timeout "$GENERATION_RESCUE_TIMEOUT")
+          [ -n "${GENERATION_RESCUE_RETRY_SLEEP:-}" ] && RESCUE_ARGS+=(--retry-sleep "$GENERATION_RESCUE_RETRY_SLEEP")
+          [ -n "${GENERATION_MAX_CHARS_PER_CONTEXT:-}" ] && RESCUE_ARGS+=(--max-chars-per-context "$GENERATION_MAX_CHARS_PER_CONTEXT")
+          python "$SCRIPT_DIR/generation/rescue_failed_generation.py" "${RESCUE_ARGS[@]}"
+        fi
+      done
+    else
+      echo "[Generation] Skip $_route (generation disabled for this route)"
+    fi
     done
     STEP_EVIDENCE_GEN_END=$(date +%s)
     echo "[timing] Evidence + Generation + Rescue step: $((STEP_EVIDENCE_GEN_END-STEP_EVIDENCE_GEN_START))s"
