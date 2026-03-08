@@ -394,6 +394,11 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
     [ "${RERANK_USE_MULTI_GPU:-0}" = "1" ] && RERANK_ARGS+=(--use-multi-gpu)
     [ -n "${RERANK_NUM_GPUS:-}" ] && RERANK_ARGS+=(--num-gpus "$RERANK_NUM_GPUS")
     [ -n "${RERANK_QUERY_FIELD:-}" ] && RERANK_ARGS+=(--query-field "$RERANK_QUERY_FIELD")
+    if [ "${RERANK_RERANKER_TYPE:-}" = "llm" ] || [ "${RERANK_USE_LLM:-0}" = "1" ]; then
+      RERANK_ARGS+=(--reranker-type llm)
+    fi
+    [ "${RERANK_LLM_USE_FP16:-1}" = "0" ] && RERANK_ARGS+=(--no-llm-use-fp16)
+    [ "${RERANK_LLM_USE_BF16:-0}" = "1" ] && RERANK_ARGS+=(--llm-use-bf16)
     python "$SCRIPT_DIR/rerank/rerank_stage2.py" "${RERANK_ARGS[@]}"
   fi
   STEP_RERANK_END=$(date +%s)
