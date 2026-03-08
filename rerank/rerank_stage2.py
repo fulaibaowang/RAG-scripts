@@ -304,6 +304,7 @@ def _rerank_worker(
         model_name,
         device=device,
         max_length=None if max_length <= 0 else max_length,
+        trust_remote_code=True,
     )
     local_out: Dict[str, List[Tuple[str, float]]] = {}
     total = len(items)
@@ -354,10 +355,22 @@ def rerank_run(
                 target=_rerank_worker,
                 args=(gpu_id, chunk, topics, doc_texts, model_name, batch_size, max_length, return_dict),
             )
-            p.start()
-            procs.append(p)
+        p.start()
+        procs.append(p)
         for p in procs:
             p.join()
+        # Fail fast if any worker crashed (e.g. model load error); avoid silently using partial results.
+        for gpu_id, p in enumerate(procs):
+            if p.exitcode != 0:
+                raise RuntimeError(
+                    f"Rerank worker on GPU {gpu_id} exited with code {p.exitcode}. "
+                    "Check logs for the actual error (e.g. trust_remote_code, OOM, CUDA)."
+                )
+        if len(return_dict) != len(procs):
+            raise RuntimeError(
+                f"Rerank workers returned incomplete results: got {len(return_dict)}/{len(procs)} parts. "
+                "One or more workers may have crashed before writing to return_dict."
+            )
         merged: Dict[str, List[Tuple[str, float]]] = {}
         for part in return_dict.values():
             merged.update(part)
@@ -495,6 +508,7 @@ def main() -> None:
             args.model,
             device=model_device,
             max_length=None if args.model_max_length <= 0 else args.model_max_length,
+            trust_remote_code=True,
         )
 
     reranked_runs: Dict[str, List[Tuple[str, float]]] = {}
