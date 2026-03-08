@@ -527,8 +527,7 @@ def main() -> None:
         )
         reranked_runs[name] = reranked
         print("reranked", name, "queries:", len(reranked))
-
-    for name, reranked in reranked_runs.items():
+        # Save this split immediately so a crash doesn't lose all completed work
         rows = []
         for qid, docs in reranked.items():
             for rank, (docno, score) in enumerate(docs, start=1):
@@ -536,6 +535,7 @@ def main() -> None:
         run_df = pd.DataFrame(rows)
         out_path = output_cfg.runs_dir / f"{name}.tsv"
         run_df.to_csv(out_path, sep="\t", index=False)
+        print("saved", out_path)
 
     summary_rows = []
 
