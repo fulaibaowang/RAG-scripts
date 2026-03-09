@@ -833,24 +833,15 @@ _DOCS_JSONL_OK=0
           [ -n "${GENERATION_MODEL:-}" ] && GENERATION_ARGS+=(--model "$GENERATION_MODEL")
           [ "${GENERATION_NO_PROGRESS:-1}" = "1" ] && GENERATION_ARGS+=(--no-progress)
           python "$SCRIPT_DIR/generation/generate_answers.py" "${GENERATION_ARGS[@]}"
-        fi
-      done
-
-      # ----- Rescue: one pass over all generation outputs (in-place, save failed prompts to same folder) -----
-      for _tsv in "$_EVIDENCE_RUNS_DIR/"*.tsv; do
-        [ -f "$_tsv" ] || continue
-        _stem=$(basename "$_tsv" .tsv)
-        _split="${_stem#best_rrf_}"
-        _split="${_split%%_top*}"
-        [ -n "$_split" ] || continue
-        _gen_json="$WORKFLOW_OUTPUT_DIR/$_GEN_SUBDIR/${_split}_answers.json"
-        if [ -f "$_gen_json" ]; then
-          echo "[Rescue] $_split..."
-          RESCUE_ARGS=(--input "$_gen_json")
-          [ -n "${GENERATION_RESCUE_TIMEOUT:-}" ] && RESCUE_ARGS+=(--timeout "$GENERATION_RESCUE_TIMEOUT")
-          [ -n "${GENERATION_RESCUE_RETRY_SLEEP:-}" ] && RESCUE_ARGS+=(--retry-sleep "$GENERATION_RESCUE_RETRY_SLEEP")
-          [ -n "${GENERATION_MAX_CHARS_PER_CONTEXT:-}" ] && RESCUE_ARGS+=(--max-chars-per-context "$GENERATION_MAX_CHARS_PER_CONTEXT")
-          python "$SCRIPT_DIR/generation/rescue_failed_generation.py" "${RESCUE_ARGS[@]}"
+          # Rescue only when we just ran generation (avoid running rescue on reruns where gen was skipped)
+          if [ -f "$_gen_json" ]; then
+            echo "[Rescue] $_split..."
+            RESCUE_ARGS=(--input "$_gen_json")
+            [ -n "${GENERATION_RESCUE_TIMEOUT:-}" ] && RESCUE_ARGS+=(--timeout "$GENERATION_RESCUE_TIMEOUT")
+            [ -n "${GENERATION_RESCUE_RETRY_SLEEP:-}" ] && RESCUE_ARGS+=(--retry-sleep "$GENERATION_RESCUE_RETRY_SLEEP")
+            [ -n "${GENERATION_MAX_CHARS_PER_CONTEXT:-}" ] && RESCUE_ARGS+=(--max-chars-per-context "$GENERATION_MAX_CHARS_PER_CONTEXT")
+            python "$SCRIPT_DIR/generation/rescue_failed_generation.py" "${RESCUE_ARGS[@]}"
+          fi
         fi
       done
     else
