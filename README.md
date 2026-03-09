@@ -45,7 +45,7 @@ Required and common env (set by sourcing a config):
 
 Reranker can only use as many docs as hybrid produces; the pipeline clamps the value to at least 100 and at most 2000. For small corpora (e.g. &lt; 5k docs), set `TOP_K` lower (e.g. 1000) and a smaller `RECALL_KS` so metrics stay valid.
 
-For typical tuning ranges (e.g. RM3, HNSW, RRF, reranker) and links to the notebooks, see [docs/PARAMETERS.md](../../../docs/PARAMETERS.md).
+For typical tuning ranges (e.g. RM3, HNSW, RRF, reranker) and links to the notebooks, see [docs/PARAMETERS.md](docs/PARAMETERS.md).
 
 ## Scripts
 
