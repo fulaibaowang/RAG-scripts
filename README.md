@@ -14,13 +14,13 @@ Required and common env (set by sourcing a config):
 | Env var | Description | Example |
 |---------|-------------|---------|
 | `WORKFLOW_OUTPUT_DIR` | Base output path for all stages | `output/workflow_run` |
-| `TRAIN_JSON` | Path to training questions JSON | `example/training14b_10pct_sample.json` |
+| `TRAIN_JSON` | Path to dev question sets JSON | `example/training14b_10pct_sample.json` |
 | `TEST_BATCH_JSONS` | Space-separated paths to test batch JSONs | `bioasq/13B1_golden.json` |
 | `TOP_K` | Retrieval depth for all stages (default 5000) | `1000` or `5000` |
 | `RECALL_KS` | Comma-separated K values for recall metrics | `50,100,200,300,400,500` |
 | `BM25_INDEX_PATH` | Terrier index directory | Path to index |
 | `DENSE_INDEX_DIR` | Dense HNSW index directory | Path to index |
-| `DOCS_JSONL` | JSONL corpus for reranker (optional) | Path to docs |
+| `DOCS_JSONL` | JSONL corpus for reranker | Path to docs |
 | `RUN_BASELINE` | Build baseline evidence/generation (`evidence_baseline/`, `generation_baseline/`) | `1` |
 | `RUN_SNIPPET_RRF` | Enable snippet-RRF route (steps 6–7 + `evidence_snippet/`, `generation_snippet/`) | `0` |
 
