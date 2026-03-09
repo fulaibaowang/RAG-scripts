@@ -47,6 +47,43 @@ Reranker can only use as many docs as hybrid produces; the pipeline clamps the v
 
 For typical tuning ranges (e.g. RM3, HNSW, RRF, reranker) and links to the notebooks, see [docs/PARAMETERS.md](../../../docs/PARAMETERS.md).
 
+## Scripts
+
+- **Pipeline orchestrator**
+  - [run_retrieval_rerank_pipeline.sh](run_retrieval_rerank_pipeline.sh) — end-to-end pipeline from BM25 retrieval to LLM generation.
+
+- **Config templates**
+  - [workflow_config_baseline.env](workflow_config_baseline.env), [workflow_config_snippet.env](workflow_config_snippet.env), [workflow_config_full.env](workflow_config_full.env) — example configs with defaults and comments.
+
+- **Indexing** (`index/`)
+  - [index/build_bm25_index_from_jsonl_shards.py](index/build_bm25_index_from_jsonl_shards.py) — build a Terrier BM25 index from JSONL shards.
+  - [index/build_dense_hnsw_index_from_jsonl_shards.py](index/build_dense_hnsw_index_from_jsonl_shards.py) — build an HNSW dense index from JSONL shards.
+
+- **Stage 1 retrieval** (`retrieval/`)
+  - [retrieval/eval_bm25_rm3.py](retrieval/eval_bm25_rm3.py) — BM25 + RM3 retrieval and evaluation.
+  - [retrieval/eval_dense.py](retrieval/eval_dense.py) — dense retrieval over an HNSW index.
+  - [retrieval/eval_hybrid.py](retrieval/eval_hybrid.py) — hybrid RRF fusion of BM25 and dense runs.
+
+- **Stage 2 reranking** (`rerank/`)
+  - [rerank/rerank_stage2.py](rerank/rerank_stage2.py) — cross-encoder document reranking.
+  - [rerank/rerank_rrf_hybrid.py](rerank/rerank_rrf_hybrid.py) — RRF fusion of hybrid and reranker scores (`rerank_hybrid/`).
+  - [rerank/plot_rerank_eval.py](rerank/plot_rerank_eval.py) — plots recall/MAP curves from rerank outputs.
+
+- **Stage 2.5 snippet + evidence** (`evidence/`)
+  - [evidence/snippet_rerank.py](evidence/snippet_rerank.py) — snippet window extraction and two-stage dense + CE reranking.
+  - [evidence/build_contexts_from_snippets.py](evidence/build_contexts_from_snippets.py) — build snippet-based evidence JSONL from `snippet_rrf/`.
+  - [evidence/build_contexts_from_documents.py](evidence/build_contexts_from_documents.py) — build document-based evidence JSONL from `rerank_hybrid/`.
+  - [evidence/post_rerank_json.py](evidence/post_rerank_json.py) — convert rerank TSV outputs into BioASQ-style JSON runs.
+
+- **Stage 3 generation** (`generation/`)
+  - [generation/generate_answers.py](generation/generate_answers.py) — LLM answer generation from evidence JSONL.
+  - [generation/rescue_failed_generation.py](generation/rescue_failed_generation.py) — retry/repair failed generations.
+
+- **Utilities**
+  - [compare_result_dirs.py](compare_result_dirs.py) — compare metrics across two pipeline output directories.
+  - [logging_config.py](logging_config.py) — shared logging configuration (LOG_LEVEL, LOG_FILE).
+  - [retrieval_eval/common.py](retrieval_eval/common.py) — shared retrieval evaluation helpers (metrics, I/O).
+
 ## Run format (TSV only)
 
 All stages write runs as TSV with columns: `qid`, `docno`, `rank`, `score`. No parquet or JSON for runs. Same format everywhere for downstream consumption.
