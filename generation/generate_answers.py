@@ -30,7 +30,16 @@ try:
 except Exception:
     tqdm = None
 
-REPO_ROOT = Path(__file__).resolve().parents[4]
+def _find_repo_root() -> Path:
+    """Walk up from this file to find the repo root (.git marker)."""
+    d = Path(__file__).resolve().parent
+    while d != d.parent:
+        if (d / ".git").exists():
+            return d
+        d = d.parent
+    return Path(__file__).resolve().parent
+
+REPO_ROOT = _find_repo_root()
 
 OLLAMA_URL = "https://chat.fri.uni-lj.si/ollama/api/generate"
 OLLAMA_MODEL = "llama3.3:latest"
@@ -108,7 +117,7 @@ def parse_args() -> argparse.Namespace:
         "--prompts-dir",
         type=Path,
         default=None,
-        help="Prompts directory (default: REPO_ROOT/scripts/public/prompts).",
+        help="Prompts directory (default: REPO_ROOT/scripts/public/shared_scripts/prompts).",
     )
     parser.add_argument(
         "--timeout",
@@ -258,7 +267,7 @@ def build_full_prompt_for_record(
     max_chars_per_context: int = 1200,
 ) -> str:
     """Build the exact prompt that would be sent for this record. Used by rescue script."""
-    qtype = (record.get("type") or "summary").strip().lower()
+    qtype = (record.get("type") or "").strip().lower()
     question = (record.get("body") or "").strip()
     contexts = record.get("contexts") or []
     if not question or not contexts:
@@ -388,7 +397,7 @@ def load_contexts_json(path: Path) -> List[Dict[str, Any]]:
 
 def main() -> int:
     import sys
-    _shared = Path(__file__).resolve().parents[2]  # generation/ -> shared_scripts
+    _shared = Path(__file__).resolve().parents[1]  # generation/ -> shared_scripts/
     if str(_shared) not in sys.path:
         sys.path.insert(0, str(_shared))
     try:
@@ -405,10 +414,25 @@ def main() -> int:
     _load_dotenv()
     api_key = get_api_key()
 
-    prompts_dir = args.prompts_dir or (REPO_ROOT / "scripts" / "public" / "prompts")
+    # Default prompts directory: resolve relative to this script so layout is portable.
+    # This works for both:
+    # - REPO_ROOT/scripts/public/shared_scripts/generation/generate_answers.py
+    # - REPO_ROOT/shared_scripts/generation/generate_answers.py
+    default_prompts_dir = Path(__file__).resolve().parents[1] / "prompts"
+    prompts_dir = args.prompts_dir or default_prompts_dir
     system_path = prompts_dir / "system.txt"
     user_base_path = prompts_dir / "user_base.txt"
     schemas_dir = prompts_dir / "schemas"
+
+    # Optional overrides from environment/config:
+    # - GENERATION_SYSTEM_PATH: path to system.txt replacement
+    # - GENERATION_SCHEMAS_DIR: directory containing schema *.txt files
+    system_override = (os.getenv("GENERATION_SYSTEM_PATH") or "").strip()
+    if system_override:
+        system_path = Path(system_override)
+    schemas_override = (os.getenv("GENERATION_SCHEMAS_DIR") or "").strip()
+    if schemas_override:
+        schemas_dir = Path(schemas_override)
 
     if not system_path.exists() or not user_base_path.exists():
         logger.error("Prompts not found under %s", prompts_dir)
@@ -425,17 +449,29 @@ def main() -> int:
     SCHEMA_BLOCKS: Dict[str, str] = {}
 
     def get_schema_block(qtype: str) -> str:
-        qtype = (qtype or "summary").strip().lower()
-        if qtype in SCHEMA_BLOCKS:
-            return SCHEMA_BLOCKS[qtype]
-        path = schemas_dir / f"{qtype}.txt"
+        """
+        Resolve schema text for a question type.
+
+        - If qtype is empty/None, return "" (no schema block).
+        - If the specific schema file is missing, return "" instead of falling back to any default.
+        """
+        raw = (qtype or "").strip().lower()
+        if not raw:
+            return ""
+        if raw in SCHEMA_BLOCKS:
+            return SCHEMA_BLOCKS[raw]
+        path = schemas_dir / f"{raw}.txt"
         if not path.exists():
-            path = schemas_dir / "summary.txt"
+            # No schema for this type; treat schema as optional.
+            SCHEMA_BLOCKS[raw] = ""
+            return ""
         with open(path, "r", encoding="utf-8") as f:
             block = f.read().strip()
-        SCHEMA_BLOCKS[qtype] = block
+        SCHEMA_BLOCKS[raw] = block
         return block
 
+    # Priming specific schemas is no longer necessary now that schema blocks are optional,
+    # but we keep this call to warm the cache for standard types when schema files exist.
     for _q in ("summary", "yesno", "factoid", "list"):
         get_schema_block(_q)
 
@@ -463,7 +499,7 @@ def main() -> int:
 
     def process_one(idx: int, obj: Dict[str, Any]) -> tuple[int, Dict[str, Any]]:
         q_id = obj.get("id")
-        qtype = obj.get("type", "summary")
+        qtype = obj.get("type") or ""
         question = obj.get("body", "") or ""
         if args.evidence_source == "contexts":
             contexts = obj.get("contexts") or []

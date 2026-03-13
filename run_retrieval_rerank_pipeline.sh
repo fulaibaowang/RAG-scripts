@@ -16,13 +16,32 @@
 #
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# Allow overriding the shared-scripts root via env (e.g. when vendoring into another project).
+# If SHARED_SCRIPTS_DIR is set, treat it as SCRIPT_DIR; otherwise use this script's directory.
+if [ -n "${SHARED_SCRIPTS_DIR:-}" ]; then
+  SCRIPT_DIR="$SHARED_SCRIPTS_DIR"
+else
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
+
+# Resolve REPO_ROOT portably by walking up until we find .git (works regardless of shared_scripts depth).
+_d="$SCRIPT_DIR"
+while [ "$_d" != "/" ]; do
+  [ -d "$_d/.git" ] && break
+  _d="$(dirname "$_d")"
+done
+if [ "$_d" = "/" ]; then
+  echo "Warning: could not locate .git repo root; falling back to SCRIPT_DIR as working directory." >&2
+  REPO_ROOT="$SCRIPT_DIR"
+else
+  REPO_ROOT="$_d"
+fi
 
 # Parse -c / --config, --no-rerank, --no-rrf-fusion, --snippet-rrf, --run-both-routes, --no-generation*, -h / --help
 CONFIG_FILE=""
-RUN_RERANK=1
-RUN_RRF_FUSION=1
+# Allow environment to override defaults (and keep CLI flags as explicit overrides below).
+RUN_RERANK="${RUN_RERANK:-1}"
+RUN_RRF_FUSION="${RUN_RRF_FUSION:-1}"
 SNIPPET_RRF=0
 RUN_BOTH_ROUTES=0
 RUN_GENERATION_BASELINE="${RUN_GENERATION_BASELINE:-1}"
@@ -100,6 +119,7 @@ while [ $# -gt 0 ]; do
       echo "Env toggles:"
       echo "  RUN_BASELINE=0|1        Control baseline evidence/generation route (default 1)."
       echo "  RUN_SNIPPET_RRF=0|1     Control snippet-rrf route (steps 6–7, evidence_snippet/, generation_snippet/)."
+      echo "  RUN_RRF_FUSION=0|1      Control Hybrid+Rerank RRF fusion (default 1; 0 is same as --no-rrf-fusion)."
       echo "  RUN_GENERATION_BASELINE=0|1   Run generation for baseline route (default 1)."
       echo "  RUN_GENERATION_SNIPPET=0|1    Run generation for snippet route (default 1)."
       echo ""
@@ -763,7 +783,7 @@ _DOCS_JSONL_OK=0
           --run-path "$_tsv" \
           --query-json "$_query_json" \
           --output-path "$_post_json" \
-          --top-k 10
+          --top-k "${EVIDENCE_TOP_K:-10}"
       else
         echo "[Evidence] Post-rerank JSON ($_split)... (skip: output exists)"
       fi

@@ -18,9 +18,9 @@ os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
 import numpy as np
 import pandas as pd
 
-# Allow importing retrieval_eval from scripts/public/shared_scripts.
+# Allow importing retrieval_eval from shared_scripts (parent of rerank/).
 import sys
-_SHARED_SCRIPTS = Path(__file__).resolve().parents[2]  # shared_scripts/
+_SHARED_SCRIPTS = Path(__file__).resolve().parents[1]  # rerank/ -> shared_scripts/
 sys.path.insert(0, str(_SHARED_SCRIPTS))
 
 try:
@@ -56,7 +56,13 @@ class OutputConfig:
 
 
 def _resolve_repo_root() -> Path:
-    return Path(__file__).resolve().parents[3]
+    """Walk up from this file to find the repo root (.git marker)."""
+    d = Path(__file__).resolve().parent
+    while d != d.parent:
+        if (d / ".git").exists():
+            return d
+        d = d.parent
+    return Path(__file__).resolve().parent
 
 
 # Hybrid stage writes best_rrf_{split}_top{k}.tsv; extract logical split for role/label mapping.

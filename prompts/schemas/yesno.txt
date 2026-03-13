@@ -1,0 +1,7 @@
+Return valid JSON exactly in this format:
+{"exact_answer":"yes","ideal_answer":"...","evidence_ids":["E01"]}
+
+Rules:
+- exact_answer must be exactly "yes" or "no" (lowercase).
+- ideal_answer: 1–3 sentences grounded in evidence.
+- If insufficient evidence: choose the more defensible yes/no and say "Insufficient evidence." in ideal_answer; evidence_ids may be [].

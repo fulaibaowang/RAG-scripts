@@ -19,7 +19,7 @@ try:
 except Exception as e:  # pragma: no cover
     raise ImportError("Missing dependency 'matplotlib' (pip install matplotlib).") from e
 
-# Allow importing retrieval_eval from public scripts root
+# Allow importing retrieval_eval from shared_scripts/ (parent of retrieval/)
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from retrieval_eval.common import (  # noqa: E402

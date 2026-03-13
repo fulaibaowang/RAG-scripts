@@ -45,7 +45,7 @@ def _resolve_device(device: str) -> str:
     return "cpu"
 
 
-# Allow importing retrieval_eval from public scripts root
+# Allow importing retrieval_eval from shared_scripts/ (parent of retrieval/)
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from retrieval_eval.common import (  # noqa: E402

@@ -24,6 +24,7 @@ import glob as glob_mod
 import json
 import math
 import re
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from time import time
@@ -32,7 +33,10 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 
-# PYTHONPATH is set by run_retrieval_rerank_pipeline.sh; retrieval_eval.common is expected there.
+# Ensure shared_scripts/ is on sys.path so retrieval_eval is importable standalone.
+_SHARED_SCRIPTS = Path(__file__).resolve().parents[1]  # evidence/ -> shared_scripts/
+if str(_SHARED_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(_SHARED_SCRIPTS))
 
 try:
     import torch

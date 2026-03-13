@@ -12,7 +12,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import pandas as pd
 import pyterrier as pt
 
-# Add public scripts root to path so we can import retrieval_eval
+# Add shared_scripts/ (parent of retrieval/) to path so we can import retrieval_eval
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from retrieval_eval.common import (

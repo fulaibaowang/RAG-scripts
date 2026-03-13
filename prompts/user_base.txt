@@ -1,0 +1,7 @@
+{SCHEMA_BLOCK}
+
+Question (type={QTYPE}):
+{QUESTION}
+
+Evidence Contexts:
+{EVIDENCE_BLOCK}

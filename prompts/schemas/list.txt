@@ -1,0 +1,8 @@
+Return valid JSON exactly in this format:
+{"exact_answer":["...","..."],"ideal_answer":"...","evidence_ids":["E01"]}
+
+Rules:
+- exact_answer must be a JSON list of unique strings (can be empty).
+- Prefer 3–10 items if supported; if the question asks for an exact number of items, give that number of items if supported; If the question implies a fixed-size canonical set (triad, main advantages, main findings), return the minimal canonical set used in the evidence, not every downstream variant. Prefer verbatim spans copied from the evidence; avoid paraphrase.
+- ideal_answer: 1–4 sentences grounded in evidence.
+- If insufficient evidence: exact_answer=[], ideal_answer="Insufficient evidence.", evidence_ids=[].

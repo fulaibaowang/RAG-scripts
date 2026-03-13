@@ -37,18 +37,9 @@ except ImportError:
 
 import sys
 _THIS_FILE = Path(__file__).resolve()
-_SCRIPT_DIR = _THIS_FILE.parent
-_REPO_ROOT = _THIS_FILE.parents[2]
-_SHARED_SCRIPTS = _REPO_ROOT / "scripts" / "public" / "shared_scripts"
-if _SHARED_SCRIPTS.exists():
-    if str(_SHARED_SCRIPTS) not in sys.path:
-        sys.path.insert(0, str(_SHARED_SCRIPTS))
-else:
-    for _p in [_SCRIPT_DIR.parents[0]] + list(_SCRIPT_DIR.parents):
-        if (_p / "retrieval_eval").exists():
-            if str(_p) not in sys.path:
-                sys.path.insert(0, str(_p))
-            break
+_SCRIPT_DIR = _THIS_FILE.parent  # shared_scripts/ (this file lives at its root)
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
 
 from retrieval_eval.common import (
     ap_at_k,

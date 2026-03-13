@@ -34,8 +34,6 @@ logger = logging.getLogger(__name__)
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 GENERATE_ANSWERS = SCRIPT_DIR / "generate_answers.py"
-REPO_ROOT = SCRIPT_DIR.resolve().parents[3]
-PROMPTS_DIR = REPO_ROOT / "scripts" / "public" / "prompts"
 
 
 def parse_args() -> argparse.Namespace:
@@ -89,7 +87,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     import sys
-    _shared = Path(__file__).resolve().parents[2]  # generation/ -> shared_scripts
+    _shared = Path(__file__).resolve().parents[1]  # generation/ -> shared_scripts/
     if str(_shared) not in sys.path:
         sys.path.insert(0, str(_shared))
     try:
@@ -208,9 +206,11 @@ def main() -> int:
             continue
         qid = rec.get("id")
         safe_id = "".join(c if c.isalnum() or c in "._-" else "_" for c in str(qid)) if qid else "unknown"
+        # Use same default prompts layout as generate_answers.py (prompts/ sibling to generation/)
+        prompts_dir = SCRIPT_DIR.parent / "prompts"
         full_prompt = build_full_prompt_for_record(
             rec,
-            PROMPTS_DIR,
+            prompts_dir,
             max_contexts=8,
             max_chars_per_context=args.max_chars_per_context,
         )

@@ -23,8 +23,8 @@ except ImportError:
     plt = None  # type: ignore[assignment]
 
 import sys
-_ROOT = Path(__file__).resolve().parents[3]
-sys.path.insert(0, str(_ROOT / "scripts" / "public"))
+_SHARED_SCRIPTS = Path(__file__).resolve().parents[1]  # rerank/ -> shared_scripts/
+sys.path.insert(0, str(_SHARED_SCRIPTS))
 
 from retrieval_eval.common import (
     build_topics_and_gold,
