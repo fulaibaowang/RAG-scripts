@@ -215,6 +215,13 @@ RERANK_HYBRID_200_OUT="$WORKFLOW_OUTPUT_DIR/rerank_hybrid_200"
 SNIPPET_RERANK_OUT="$WORKFLOW_OUTPUT_DIR/snippet_rerank"
 SNIPPET_RRF_OUT="$WORKFLOW_OUTPUT_DIR/snippet_rrf"
 
+# BM25 method name used by hybrid stage: default to RM3, but switch to plain BM25 when RM3 is disabled.
+if [ "${BM25_DISABLE_RM3:-0}" = "1" ]; then
+  BM25_METHOD_FOR_HYBRID="BM25"
+else
+  BM25_METHOD_FOR_HYBRID="BM25_RM3"
+fi
+
 mkdir -p "$BM25_OUT" "$DENSE_OUT" "$HYBRID_OUT"
 
 # Step count for progress (3 = retrieval only, 4 = + reranker, 5 = + RRF fusion; 7 = + snippet extraction + final RRF)
@@ -325,6 +332,7 @@ fi
 # ----- Hybrid -----
 HYBRID_ARGS=(
   --bm25_runs_dir "$BM25_OUT/runs"
+  --bm25_method "$BM25_METHOD_FOR_HYBRID"
   --bm25_topk "$BM25_TOP_K"
   --dense_root "$DENSE_OUT"
   --train-json "$TRAIN_JSON"
