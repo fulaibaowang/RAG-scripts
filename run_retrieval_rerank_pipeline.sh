@@ -371,7 +371,9 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
   STEP_RERANK_START=$(date +%s)
   # Only consider rerank "complete" when metrics.csv exists; partial TSVs allow resume in rerank_stage2.py
   RERANK_RESULTS_EXIST=0
-  [ -f "$RERANK_OUT/metrics.csv" ] && RERANK_RESULTS_EXIST=1
+  if [ -f "$RERANK_OUT/metrics.csv" ] || [ -n "$(find "$RERANK_OUT/runs" -maxdepth 1 -name '*.tsv' 2>/dev/null | head -1)" ]; then
+    RERANK_RESULTS_EXIST=1
+  fi
 
   RERANK_FIGS_EXIST=0
   [ -n "$(find "$RERANK_OUT/figures" -maxdepth 1 -name 'hybrid_reranker_recall_map10_*.png' 2>/dev/null | head -1)" ] && RERANK_FIGS_EXIST=1
@@ -743,8 +745,15 @@ _DOCS_JSONL_OK=0
     fi
     for _route in $_ROUTES_LIST; do
       if [ "$_route" = "baseline" ]; then
-        _EVIDENCE_RUNS_DIR="$RERANK_HYBRID_OUT/runs"
-        _EVIDENCE_POST_DIR="$RERANK_HYBRID_OUT"
+        # When RRF fusion is enabled, baseline evidence uses Hybrid+Rerank runs.
+        # When RUN_RRF_FUSION=0, fall back to raw Rerank runs so downstream steps still work.
+        if [ "$RUN_RRF_FUSION" = "1" ]; then
+          _EVIDENCE_RUNS_DIR="$RERANK_HYBRID_OUT/runs"
+          _EVIDENCE_POST_DIR="$RERANK_HYBRID_OUT"
+        else
+          _EVIDENCE_RUNS_DIR="$RERANK_OUT/runs"
+          _EVIDENCE_POST_DIR="$RERANK_OUT"
+        fi
         _EVIDENCE_SUBDIR="evidence_baseline"
         _GEN_SUBDIR="generation_baseline"
         _USE_SNIPPET_CTX=0
