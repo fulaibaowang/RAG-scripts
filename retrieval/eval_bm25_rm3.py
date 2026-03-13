@@ -188,9 +188,15 @@ def main():
     ap.add_argument("--rm3_lambda", type=float, default=0.6)
 
     ap.add_argument(
+        "--disable_rm3",
+        action="store_true",
+        help="Disable RM3 and run plain BM25 only (default: RM3 enabled).",
+    )
+
+    ap.add_argument(
         "--include_bm25",
         action="store_true",
-        help="Also evaluate BM25 baseline (default: only BM25_RM3).",
+        help="Also evaluate BM25 baseline. Ignored when --disable_rm3 is set (then only BM25 runs).",
     )
 
     ap.add_argument("--no_exclude_test_qids", action="store_true", help="Do not remove test qids from train set")
@@ -320,9 +326,13 @@ def main():
                 for qid in zr:
                     f.write(qid + "\n")
 
-    methods_to_run = [("BM25_RM3", pipe_bm25_rm3)]
-    if args.include_bm25:
-        methods_to_run = [("BM25", pipe_bm25)] + methods_to_run
+    if args.disable_rm3:
+        # When RM3 is disabled, always run plain BM25 (ignore include_bm25 to avoid duplicate configs).
+        methods_to_run = [("BM25", pipe_bm25)]
+    else:
+        methods_to_run = [("BM25_RM3", pipe_bm25_rm3)]
+        if args.include_bm25:
+            methods_to_run = [("BM25", pipe_bm25)] + methods_to_run
 
     if args.no_eval:
         for method, pipe in methods_to_run:

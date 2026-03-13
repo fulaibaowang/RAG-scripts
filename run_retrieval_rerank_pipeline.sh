@@ -240,6 +240,7 @@ BM25_ARGS=(
 [ -n "${BM25_RM3_FB_TERMS:-}" ] && BM25_ARGS+=(--rm3_fb_terms "$BM25_RM3_FB_TERMS")
 [ -n "${BM25_RM3_LAMBDA:-}" ] && BM25_ARGS+=(--rm3_lambda "$BM25_RM3_LAMBDA")
 [ "${BM25_INCLUDE_BASELINE:-0}" = "1" ] && BM25_ARGS+=(--include_bm25)
+[ "${BM25_DISABLE_RM3:-0}" = "1" ] && BM25_ARGS+=(--disable_rm3)
 [ "${BM25_NO_EVAL:-0}" = "1" ] && BM25_ARGS+=(--no_eval)
 [ "${BM25_SAVE_RUNS:-1}" = "1" ] && BM25_ARGS+=(--save_runs)
 [ "${BM25_SAVE_PER_QUERY:-0}" = "1" ] && BM25_ARGS+=(--save_per_query)
