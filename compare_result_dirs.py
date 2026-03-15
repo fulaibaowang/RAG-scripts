@@ -206,9 +206,14 @@ def load_metrics_from_dirs(
             if "label" not in df.columns and "split" in df.columns:
                 df["label"] = df["split"]
             if "role" not in df.columns and "split" in df.columns:
-                df["role"] = df["split"].map(
-                    lambda s: "train" if s and "training" in str(s).lower() else "test"
-                )
+                def _split_to_role(s):
+                    if not s or pd.isna(s):
+                        return "test"
+                    t = str(s).strip().lower()
+                    if "training" in t or "_train_" in t or t.endswith("_train"):
+                        return "train"
+                    return "test"
+                df["role"] = df["split"].map(_split_to_role)
             rows.append(df)
         elif runs_dir.is_dir() and list(runs_dir.glob("*.tsv")):
             if not gold_map:
