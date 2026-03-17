@@ -149,7 +149,7 @@ fi
 [ "$LISTWISE_DISABLE_METRICS" = "1" ] && LISTWISE_ARGS+=(--disable-metrics)
 
 echo "[listwise] Running listwise reranking..."
-python3 "$SCRIPT_DIR/rerank/listwise_rerank.py" "${LISTWISE_ARGS[@]}"
+python "$SCRIPT_DIR/rerank/listwise_rerank.py" "${LISTWISE_ARGS[@]}"
 
 STEP_END=$(date +%s)
 echo "[listwise] Completed in $((STEP_END - STEP_START))s"

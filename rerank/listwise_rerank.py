@@ -249,6 +249,46 @@ def _import_rankllm():
     return Request, Candidate, Query, ZephyrReranker
 
 
+def patch_rankllm_vllm_tqdm_bug() -> None:
+    """Patch RankLLM vLLM handler to disable tqdm in vLLM.generate.
+
+    Some vLLM builds can throw `ZeroDivisionError` in the progress-bar path
+    (`in_spd = total_in_toks / elapsed`) when elapsed is zero. This patch is
+    a no-op when RankLLM internals differ and only affects listwise generation.
+    """
+    try:
+        from rank_llm.rerank import vllm_handler as _vllm_handler_module
+    except Exception as e:
+        logger.warning("Could not import rank_llm.rerank.vllm_handler for patch: %s", e)
+        return
+
+    handler_cls = getattr(_vllm_handler_module, "VLLMHandler", None)
+    if handler_cls is None:
+        logger.warning("VLLMHandler not found in rank_llm.rerank.vllm_handler; skipping patch")
+        return
+
+    original_generate_output = getattr(handler_cls, "generate_output", None)
+    if original_generate_output is None:
+        logger.warning("VLLMHandler.generate_output not found; skipping patch")
+        return
+
+    if getattr(handler_cls, "_listwise_patch_disable_tqdm", False):
+        logger.info("RankLLM vLLM tqdm patch already applied")
+        return
+
+    def _patched_generate_output(self, prompts, sampling_params):
+        import inspect as _inspect
+
+        sig = _inspect.signature(self._vllm.generate)
+        if "use_tqdm" in sig.parameters:
+            return self._vllm.generate(prompts, sampling_params, use_tqdm=False)
+        return self._vllm.generate(prompts, sampling_params)
+
+    handler_cls.generate_output = _patched_generate_output
+    handler_cls._listwise_patch_disable_tqdm = True
+    logger.info("Applied RankLLM vLLM patch: force use_tqdm=False")
+
+
 def build_zephyr_reranker(ZephyrReranker, model_name: str, context_size: int = 4096):
     sig = inspect.signature(ZephyrReranker)
     params = sig.parameters
@@ -511,6 +551,7 @@ def main():
     # ---- Import & initialise RankLLM --------------------------------------
     logger.info("Importing RankLLM...")
     Request, Candidate, Query, ZephyrReranker = _import_rankllm()
+    patch_rankllm_vllm_tqdm_bug()
     logger.info("Building ZephyrReranker (model=%s, context=%d)...", args.model, args.context_size)
     reranker = build_zephyr_reranker(ZephyrReranker, args.model, args.context_size)
     logger.info("Reranker ready.")
