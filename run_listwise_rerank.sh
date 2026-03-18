@@ -82,6 +82,7 @@ fi
 # Defaults from config (LISTWISE_* env vars) with fallbacks
 # ---------------------------------------------------------------------------
 LISTWISE_SINGLE_K="${LISTWISE_SINGLE_K:-15}"
+LISTWISE_RUN_SLIDING="${LISTWISE_RUN_SLIDING:-1}"  # set to 0 to skip sliding window
 LISTWISE_POOL="${LISTWISE_POOL:-50}"
 LISTWISE_WINDOW="${LISTWISE_WINDOW:-15}"
 LISTWISE_STRIDE="${LISTWISE_STRIDE:-5}"
@@ -99,6 +100,7 @@ echo "  Output:               $LISTWISE_OUTPUT_DIR"
 echo "  Model:                $LISTWISE_MODEL"
 echo "  Context size:         $LISTWISE_CONTEXT_SIZE"
 echo "  Single-window k:      $LISTWISE_SINGLE_K"
+echo "  Run sliding window:   $LISTWISE_RUN_SLIDING"
 echo "  Sliding pool:         $LISTWISE_POOL"
 echo "  Sliding window:       $LISTWISE_WINDOW"
 echo "  Sliding stride:       $LISTWISE_STRIDE"
@@ -116,10 +118,19 @@ _HAS_SLIDING=0
 [ -d "$_SINGLE_RUNS_DIR" ] && [ -n "$(find "$_SINGLE_RUNS_DIR" -maxdepth 1 -name '*.tsv' 2>/dev/null | head -1)" ] && _HAS_SINGLE=1
 [ -d "$_SLIDING_RUNS_DIR" ] && [ -n "$(find "$_SLIDING_RUNS_DIR" -maxdepth 1 -name '*.tsv' 2>/dev/null | head -1)" ] && _HAS_SLIDING=1
 
-if [ "$_HAS_SINGLE" = "1" ] && [ "$_HAS_SLIDING" = "1" ]; then
-  echo "[listwise] Output already exists in $LISTWISE_OUTPUT_DIR – skipping."
-  echo "  Delete the runs/ directories to re-run."
-  exit 0
+# If sliding is disabled, only check single exists
+if [ "$LISTWISE_RUN_SLIDING" != "1" ]; then
+  if [ "$_HAS_SINGLE" = "1" ]; then
+    echo "[listwise] Output already exists in $LISTWISE_OUTPUT_DIR (single only) – skipping."
+    echo "  Delete the runs/ directories to re-run."
+    exit 0
+  fi
+else
+  if [ "$_HAS_SINGLE" = "1" ] && [ "$_HAS_SLIDING" = "1" ]; then
+    echo "[listwise] Output already exists in $LISTWISE_OUTPUT_DIR – skipping."
+    echo "  Delete the runs/ directories to re-run."
+    exit 0
+  fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -147,6 +158,7 @@ if [ -n "${TEST_BATCH_JSONS:-}" ]; then
   done
 fi
 [ "$LISTWISE_DISABLE_METRICS" = "1" ] && LISTWISE_ARGS+=(--disable-metrics)
+[ "$LISTWISE_RUN_SLIDING" != "1" ] && LISTWISE_ARGS+=(--no-sliding)
 
 echo "[listwise] Running listwise reranking..."
 python3 "$SCRIPT_DIR/rerank/listwise_rerank.py" "${LISTWISE_ARGS[@]}"

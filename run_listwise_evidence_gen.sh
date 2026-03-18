@@ -234,10 +234,16 @@ _process_route() {
 }
 
 # ---------------------------------------------------------------------------
-# Run both routes
+# Run routes (single always; sliding only if enabled)
 # ---------------------------------------------------------------------------
+LISTWISE_RUN_SLIDING="${LISTWISE_RUN_SLIDING:-1}"
+
 _process_route "listwise_single" "${LISTWISE_OUTPUT_DIR}/single_window/runs"
-_process_route "listwise_sliding" "${LISTWISE_OUTPUT_DIR}/sliding_window/runs"
+if [ "$LISTWISE_RUN_SLIDING" = "1" ]; then
+  _process_route "listwise_sliding" "${LISTWISE_OUTPUT_DIR}/sliding_window/runs"
+else
+  echo "[listwise-evgen] Skipping sliding route (LISTWISE_RUN_SLIDING=0)"
+fi
 
 STEP_END=$(date +%s)
 echo "[listwise-evgen] Completed in $((STEP_END - STEP_START))s"

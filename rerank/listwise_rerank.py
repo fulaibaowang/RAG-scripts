@@ -68,6 +68,8 @@ def parse_args() -> argparse.Namespace:
                    help="Number of docs for single-window reranking.")
 
     # Sliding-window config
+    p.add_argument("--no-sliding", action="store_true",
+                   help="Skip sliding-window reranking (only run single-window).")
     p.add_argument("--pool", type=int, default=50,
                    help="Pool size for sliding-window reranking.")
     p.add_argument("--window-size", type=int, default=15,
@@ -568,26 +570,30 @@ def main():
             single_runs[split] = {}
 
         # -- sliding window --
-        logger.info("[sliding] pool=%d window=%d stride=%d", args.pool, args.window_size, args.stride)
-        reqs_sl, order_sl, nt_sl = build_requests_for_split(
-            data, qid_to_query, args.pool, tokenizer,
-            args.max_snippet_tokens, Candidate, Query, Request,
-        )
-        total_trunc_sliding += nt_sl
-        logger.info("[sliding] %d requests (%d truncated)", len(reqs_sl), nt_sl)
-        if reqs_sl:
-            sliding_runs[split] = rerank_sliding_window(
-                reranker, reqs_sl, order_sl, args.window_size, args.stride,
-            )
-            logger.info("[sliding] reranked %d queries", len(sliding_runs[split]))
+        if args.no_sliding:
+            logger.info("[sliding] skipped (--no-sliding)")
         else:
-            sliding_runs[split] = {}
+            logger.info("[sliding] pool=%d window=%d stride=%d", args.pool, args.window_size, args.stride)
+            reqs_sl, order_sl, nt_sl = build_requests_for_split(
+                data, qid_to_query, args.pool, tokenizer,
+                args.max_snippet_tokens, Candidate, Query, Request,
+            )
+            total_trunc_sliding += nt_sl
+            logger.info("[sliding] %d requests (%d truncated)", len(reqs_sl), nt_sl)
+            if reqs_sl:
+                sliding_runs[split] = rerank_sliding_window(
+                    reranker, reqs_sl, order_sl, args.window_size, args.stride,
+                )
+                logger.info("[sliding] reranked %d queries", len(sliding_runs[split]))
+            else:
+                sliding_runs[split] = {}
 
     logger.info("Total truncated – single: %d, sliding: %d", total_trunc_single, total_trunc_sliding)
 
     # ---- Save runs ---------------------------------------------------------
     save_runs_to_tsv(single_runs, runs_single, "single-window")
-    save_runs_to_tsv(sliding_runs, runs_sliding, "sliding-window")
+    if not args.no_sliding:
+        save_runs_to_tsv(sliding_runs, runs_sliding, "sliding-window")
 
     # ---- Evaluation --------------------------------------------------------
     if args.disable_metrics or not all_questions:
@@ -605,22 +611,24 @@ def main():
 
             bl = evaluate_run(gold_split, baseline_run_map)
             sg = evaluate_run(gold_split, single_runs.get(split, {}))
-            sl = evaluate_run(gold_split, sliding_runs.get(split, {}))
 
-            rows.append({
+            row = {
                 "split": split,
                 "n_queries": len(gold_split),
                 "baseline_MAP@10": bl["MAP@10"],
                 "single_MAP@10": sg["MAP@10"],
-                "sliding_MAP@10": sl["MAP@10"],
                 "delta_single_MAP@10": sg["MAP@10"] - bl["MAP@10"],
-                "delta_sliding_MAP@10": sl["MAP@10"] - bl["MAP@10"],
                 "baseline_MRR@10": bl["MRR@10"],
                 "single_MRR@10": sg["MRR@10"],
-                "sliding_MRR@10": sl["MRR@10"],
                 "delta_single_MRR@10": sg["MRR@10"] - bl["MRR@10"],
-                "delta_sliding_MRR@10": sl["MRR@10"] - bl["MRR@10"],
-            })
+            }
+            if not args.no_sliding:
+                sl = evaluate_run(gold_split, sliding_runs.get(split, {}))
+                row["sliding_MAP@10"] = sl["MAP@10"]
+                row["delta_sliding_MAP@10"] = sl["MAP@10"] - bl["MAP@10"]
+                row["sliding_MRR@10"] = sl["MRR@10"]
+                row["delta_sliding_MRR@10"] = sl["MRR@10"] - bl["MRR@10"]
+            rows.append(row)
 
         if rows:
             results_df = pd.DataFrame(rows)
@@ -630,33 +638,57 @@ def main():
             logger.info("Saved metrics -> %s", metrics_path)
 
             # Comparison plot
-            fig, axes = plt.subplots(1, 2, figsize=(14, 5))
-            x = np.arange(len(results_df))
-            w = 0.25
-            ax1 = axes[0]
-            ax1.bar(x - w, results_df["baseline_MAP@10"], w, label="Baseline", color="steelblue")
-            ax1.bar(x, results_df["single_MAP@10"], w,
-                    label=f"Single (k={args.single_k})", color="coral")
-            ax1.bar(x + w, results_df["sliding_MAP@10"], w,
-                    label=f"Sliding (p={args.pool} w={args.window_size} s={args.stride})",
-                    color="seagreen")
-            ax1.set_xlabel("Split"); ax1.set_ylabel("MAP@10")
-            ax1.set_title("MAP@10: Baseline vs Single vs Sliding")
-            ax1.set_xticks(x)
-            ax1.set_xticklabels(results_df["split"], rotation=45, ha="right")
-            ax1.legend(loc="upper left", fontsize=8); ax1.grid(axis="y", alpha=0.3)
+            if args.no_sliding:
+                fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+                x = np.arange(len(results_df))
+                w = 0.35
+                ax1 = axes[0]
+                ax1.bar(x - w/2, results_df["baseline_MAP@10"], w, label="Baseline", color="steelblue")
+                ax1.bar(x + w/2, results_df["single_MAP@10"], w,
+                        label=f"Single (k={args.single_k})", color="coral")
+                ax1.set_xlabel("Split"); ax1.set_ylabel("MAP@10")
+                ax1.set_title("MAP@10: Baseline vs Single")
+                ax1.set_xticks(x)
+                ax1.set_xticklabels(results_df["split"], rotation=45, ha="right")
+                ax1.legend(loc="upper left", fontsize=8); ax1.grid(axis="y", alpha=0.3)
 
-            ax2 = axes[1]
-            ax2.bar(x - w / 2, results_df["delta_single_MAP@10"], w,
-                    label="Single - Baseline", color="coral")
-            ax2.bar(x + w / 2, results_df["delta_sliding_MAP@10"], w,
-                    label="Sliding - Baseline", color="seagreen")
-            ax2.axhline(0, color="black", linewidth=0.5)
-            ax2.set_xlabel("Split"); ax2.set_ylabel("Delta MAP@10")
-            ax2.set_title("MAP@10 Improvement over Baseline")
-            ax2.set_xticks(x)
-            ax2.set_xticklabels(results_df["split"], rotation=45, ha="right")
-            ax2.legend(loc="upper left", fontsize=8); ax2.grid(axis="y", alpha=0.3)
+                ax2 = axes[1]
+                colors = ["green" if d > 0 else "red" for d in results_df["delta_single_MAP@10"]]
+                ax2.bar(x, results_df["delta_single_MAP@10"], color=colors)
+                ax2.axhline(0, color="black", linewidth=0.5)
+                ax2.set_xlabel("Split"); ax2.set_ylabel("Delta MAP@10")
+                ax2.set_title("MAP@10 Improvement (Single - Baseline)")
+                ax2.set_xticks(x)
+                ax2.set_xticklabels(results_df["split"], rotation=45, ha="right")
+                ax2.grid(axis="y", alpha=0.3)
+            else:
+                fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+                x = np.arange(len(results_df))
+                w = 0.25
+                ax1 = axes[0]
+                ax1.bar(x - w, results_df["baseline_MAP@10"], w, label="Baseline", color="steelblue")
+                ax1.bar(x, results_df["single_MAP@10"], w,
+                        label=f"Single (k={args.single_k})", color="coral")
+                ax1.bar(x + w, results_df["sliding_MAP@10"], w,
+                        label=f"Sliding (p={args.pool} w={args.window_size} s={args.stride})",
+                        color="seagreen")
+                ax1.set_xlabel("Split"); ax1.set_ylabel("MAP@10")
+                ax1.set_title("MAP@10: Baseline vs Single vs Sliding")
+                ax1.set_xticks(x)
+                ax1.set_xticklabels(results_df["split"], rotation=45, ha="right")
+                ax1.legend(loc="upper left", fontsize=8); ax1.grid(axis="y", alpha=0.3)
+
+                ax2 = axes[1]
+                ax2.bar(x - w / 2, results_df["delta_single_MAP@10"], w,
+                        label="Single - Baseline", color="coral")
+                ax2.bar(x + w / 2, results_df["delta_sliding_MAP@10"], w,
+                        label="Sliding - Baseline", color="seagreen")
+                ax2.axhline(0, color="black", linewidth=0.5)
+                ax2.set_xlabel("Split"); ax2.set_ylabel("Delta MAP@10")
+                ax2.set_title("MAP@10 Improvement over Baseline")
+                ax2.set_xticks(x)
+                ax2.set_xticklabels(results_df["split"], rotation=45, ha="right")
+                ax2.legend(loc="upper left", fontsize=8); ax2.grid(axis="y", alpha=0.3)
 
             plt.tight_layout()
             fig_path = fig_dir / "map10_comparison.png"
