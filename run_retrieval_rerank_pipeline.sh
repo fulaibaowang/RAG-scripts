@@ -631,6 +631,12 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
       [ -n "${SNIPPET_CE_NUM_GPUS:-${RERANK_NUM_GPUS:-}}" ] && SNIPPET_ARGS+=(--ce-num-gpus "${SNIPPET_CE_NUM_GPUS:-$RERANK_NUM_GPUS}")
       [ -n "${RERANK_QUERY_FIELD:-}" ] && SNIPPET_ARGS+=(--query-field "$RERANK_QUERY_FIELD")
       [ "${RERANK_DISABLE_METRICS:-0}" = "1" ] && SNIPPET_ARGS+=(--disable-metrics)
+      # LLM reranker for snippet Stage B (falls back to rerank-level settings when snippet-specific not set)
+      if [ "${SNIPPET_CE_RERANKER_TYPE:-${RERANK_RERANKER_TYPE:-}}" = "llm" ] || [ "${SNIPPET_CE_USE_LLM:-${RERANK_USE_LLM:-0}}" = "1" ]; then
+        SNIPPET_ARGS+=(--ce-reranker-type llm)
+      fi
+      [ "${SNIPPET_CE_LLM_USE_FP16:-${RERANK_LLM_USE_FP16:-1}}" = "0" ] && SNIPPET_ARGS+=(--no-ce-llm-use-fp16)
+      [ "${SNIPPET_CE_LLM_USE_BF16:-${RERANK_LLM_USE_BF16:-0}}" = "1" ] && SNIPPET_ARGS+=(--ce-llm-use-bf16)
       python "$SCRIPT_DIR/evidence/snippet_rerank.py" "${SNIPPET_ARGS[@]}"
     fi
     STEP_SNIPPET_END=$(date +%s)
