@@ -617,7 +617,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
         --window-stride "${SNIPPET_WINDOW_STRIDE:-1}"
         --top-w "${SNIPPET_TOP_W:-8}"
         --dense-model "${SNIPPET_DENSE_MODEL:-abhinand/MedEmbed-small-v0.1}"
-        --ce-model "${SNIPPET_CE_MODEL:-BAAI/bge-reranker-v2-m3}"
+        --ce-model "${SNIPPET_CE_MODEL:-${RERANK_MODEL:-BAAI/bge-reranker-v2-m3}}"
       )
       [ -n "${TRAIN_JSON:-}" ] && SNIPPET_ARGS+=(--train-json "$TRAIN_JSON")
       [ -n "${TEST_BATCH_JSONS:-}" ] && SNIPPET_ARGS+=(--test-batch-jsons $TEST_BATCH_JSONS)
