@@ -120,6 +120,45 @@ echo "  Fusion pool_top:      $LISTWISE_FUSION_POOL_TOP"
 echo "  Fuse sliding:         $LISTWISE_FUSE_SLIDING"
 
 # ---------------------------------------------------------------------------
+# Save config.json for reproducibility
+# ---------------------------------------------------------------------------
+mkdir -p "$LISTWISE_OUTPUT_DIR"
+cat > "$LISTWISE_OUTPUT_DIR/config.json" <<CONFIGEOF
+{
+  "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "config_file": "${CONFIG_FILE:-null}",
+  "workflow_output_dir": "$WORKFLOW_OUTPUT_DIR",
+  "input_runs": "$SNIPPET_RRF_RUNS",
+  "input_windows": "$SNIPPET_WINDOWS",
+  "output_dir": "$LISTWISE_OUTPUT_DIR",
+  "reranking": {
+    "model": "$LISTWISE_MODEL",
+    "context_size": $LISTWISE_CONTEXT_SIZE,
+    "max_snippet_tokens": $LISTWISE_MAX_SNIPPET_TOKENS,
+    "single_k": $LISTWISE_SINGLE_K,
+    "run_sliding": $LISTWISE_RUN_SLIDING,
+    "sliding_pool": $LISTWISE_POOL,
+    "sliding_window": $LISTWISE_WINDOW,
+    "sliding_stride": $LISTWISE_STRIDE,
+    "disable_metrics": $LISTWISE_DISABLE_METRICS
+  },
+  "fusion": {
+    "w_snippet_rrf": $LISTWISE_FUSION_W_SNIPPET,
+    "w_listwise": $LISTWISE_FUSION_W_LISTWISE,
+    "k_rrf": $LISTWISE_FUSION_K_RRF,
+    "pool_top_single": $LISTWISE_FUSION_POOL_TOP,
+    "pool_top_sliding": $LISTWISE_POOL,
+    "fuse_sliding": $LISTWISE_FUSE_SLIDING
+  },
+  "query_sources": {
+    "train_json": "${TRAIN_JSON:-null}",
+    "test_batch_jsons": "${TEST_BATCH_JSONS:-null}"
+  }
+}
+CONFIGEOF
+echo "[listwise] Saved config -> $LISTWISE_OUTPUT_DIR/config.json"
+
+# ---------------------------------------------------------------------------
 # Check if reranking output already exists
 # ---------------------------------------------------------------------------
 _SINGLE_RUNS_DIR="${LISTWISE_OUTPUT_DIR}/single_window/runs"
