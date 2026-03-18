@@ -5,7 +5,8 @@
 # Runs in the MAIN container (not the listwise/vLLM container) because it
 # reuses the same evidence/generation Python scripts as the main pipeline.
 #
-# Processes both single-window and sliding-window listwise outputs.
+# Default route: listwise_fused (RRF fusion of listwise single-window + snippet_rrf).
+# Optional: listwise_fused_sliding (if LISTWISE_FUSE_SLIDING=1).
 #
 # Usage:
 #   ./run_listwise_evidence_gen.sh --config <path/to/config.env>
@@ -234,15 +235,15 @@ _process_route() {
 }
 
 # ---------------------------------------------------------------------------
-# Run routes (single always; sliding only if enabled)
+# Run routes: fused (default); optional fused-sliding
 # ---------------------------------------------------------------------------
-LISTWISE_RUN_SLIDING="${LISTWISE_RUN_SLIDING:-1}"
+LISTWISE_FUSE_SLIDING="${LISTWISE_FUSE_SLIDING:-0}"
 
-_process_route "listwise_single" "${LISTWISE_OUTPUT_DIR}/single_window/runs"
-if [ "$LISTWISE_RUN_SLIDING" = "1" ]; then
-  _process_route "listwise_sliding" "${LISTWISE_OUTPUT_DIR}/sliding_window/runs"
+_process_route "listwise" "${LISTWISE_OUTPUT_DIR}/listwise_fused/runs"
+if [ "$LISTWISE_FUSE_SLIDING" = "1" ]; then
+  _process_route "listwise_sliding" "${LISTWISE_OUTPUT_DIR}/listwise_fused_sliding/runs"
 else
-  echo "[listwise-evgen] Skipping sliding route (LISTWISE_RUN_SLIDING=0)"
+  echo "[listwise-evgen] Skipping sliding fused route (LISTWISE_FUSE_SLIDING=$LISTWISE_FUSE_SLIDING)"
 fi
 
 STEP_END=$(date +%s)
