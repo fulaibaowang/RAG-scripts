@@ -153,9 +153,13 @@ LISTWISE_ARGS=(
 
 [ -n "${TRAIN_JSON:-}" ] && [ -f "$TRAIN_JSON" ] && LISTWISE_ARGS+=(--train-json "$TRAIN_JSON")
 if [ -n "${TEST_BATCH_JSONS:-}" ]; then
+  _TEST_PATHS=()
   for _p in $TEST_BATCH_JSONS; do
-    [ -f "$_p" ] && LISTWISE_ARGS+=(--test-batch-jsons "$_p")
+    [ -f "$_p" ] && _TEST_PATHS+=("$_p")
   done
+  if [ ${#_TEST_PATHS[@]} -gt 0 ]; then
+    LISTWISE_ARGS+=(--test-batch-jsons "${_TEST_PATHS[@]}")
+  fi
 fi
 [ "$LISTWISE_DISABLE_METRICS" = "1" ] && LISTWISE_ARGS+=(--disable-metrics)
 [ "$LISTWISE_RUN_SLIDING" != "1" ] && LISTWISE_ARGS+=(--no-sliding)
