@@ -75,9 +75,13 @@ def iter_docs(jsonl_glob: str, include_keywords: bool) -> Iterable[Dict]:
     
                 out = {"docno": pmid, "text": text}
                 if include_keywords:
-                    keywords = (d.get("keywords") or "").strip()
-                    if keywords:
-                        out["keywords"] = keywords
+                    kw = d.get("keywords")
+                    if isinstance(kw, list):
+                        keywords = " ".join(str(x).strip() for x in kw if str(x).strip())
+                    else:
+                        keywords = (kw or "").strip()
+                    # Important: if "keywords" is in text_attrs, every doc must provide it.
+                    out["keywords"] = keywords
                 yield out
 
 
