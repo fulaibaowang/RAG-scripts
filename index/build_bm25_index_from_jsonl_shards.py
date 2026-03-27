@@ -5,6 +5,8 @@ import argparse
 import glob
 import json
 import os
+import sys
+import time
 from typing import Dict, Iterable
 
 import pyterrier as pt
@@ -52,7 +54,11 @@ def iter_docs(jsonl_glob: str, include_keywords: bool) -> Iterable[Dict]:
     Yields:
       {"docno": pmid, "text": title + "\\n\\n" + abstract, "keywords": "..."}  (keywords optional)
     """
+    count = 0
+    skipped = 0
+    t0 = time.time()
     for fp in sorted(glob.glob(jsonl_glob)):
+        print(f"[iter_docs] reading {fp}", flush=True)
         with open(fp, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
@@ -62,14 +68,15 @@ def iter_docs(jsonl_glob: str, include_keywords: bool) -> Iterable[Dict]:
 
                 pmid = (d.get("pmid") or d.get("docno") or "").strip()
                 if not pmid:
+                    skipped += 1
                     continue
 
                 title = (d.get("title") or "").strip()
                 abstract = (d.get("abstract") or "").strip()
                 text = (title + "\n\n" + abstract).strip()
                 
-                # Skip if both title and abstract are empty
                 if not text:
+                    skipped += 1
                     continue
                 text = augment_text_for_codes(text)
     
@@ -80,9 +87,24 @@ def iter_docs(jsonl_glob: str, include_keywords: bool) -> Iterable[Dict]:
                         keywords = " ".join(str(x).strip() for x in kw if str(x).strip())
                     else:
                         keywords = (kw or "").strip()
-                    # Important: if "keywords" is in text_attrs, every doc must provide it.
                     out["keywords"] = keywords
+
+                count += 1
+                if count % 500_000 == 0:
+                    elapsed = time.time() - t0
+                    rate = count / elapsed if elapsed > 0 else 0
+                    print(
+                        f"[iter_docs] yielded {count:,} docs, skipped {skipped:,} "
+                        f"({elapsed:.0f}s, {rate:,.0f} docs/s)",
+                        file=sys.stderr, flush=True,
+                    )
                 yield out
+
+    elapsed = time.time() - t0
+    print(
+        f"[iter_docs] FINISHED: {count:,} docs yielded, {skipped:,} skipped in {elapsed:.1f}s",
+        flush=True,
+    )
 
 
 def build_index(index_path: str, jsonl_glob: str, overwrite: bool, threads: int, include_keywords: bool):
