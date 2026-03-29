@@ -237,7 +237,7 @@ def main(argv: Optional[List[str]] = None) -> None:
     print()
 
     # 2. Ground truth
-    gt_path = _resolve_ground_truth(output_dir, args.ground_truth, args.repo_root)
+    gt_path, _, _ = _resolve_ground_truth(output_dir, args.ground_truth, args.repo_root)
     print(f"Ground truth : {gt_path}")
     questions = load_questions(gt_path)
     _, gold_map = build_topics_and_gold(questions)

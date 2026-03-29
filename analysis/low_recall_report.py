@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """Identify questions with very low Recall@K from a pipeline output folder.
 
+If a stage has several ``runs/*.tsv`` (or several ``per_query/*.csv``), each
+file is processed in sorted name order and gets its own report CSV (unless
+there is only one artifact, in which case the filename stays
+``low_recall_{stage}.csv``).
+
 For each low-recall question the report includes the question text, golden
 truth PMIDs, and (optionally) their PubMed titles.  Titles are resolved from
 a local JSONL corpus (``--docs-jsonl``) or, as a fallback, via the NCBI
@@ -19,13 +24,25 @@ python low_recall_report.py --output-dir bioasq14_output/batch_1 \
 python low_recall_report.py --output-dir bioasq14_output/batch_1 \
     --stage dense --mode zero \
     --ground-truth bioasq_data/14b/BioASQ-task14bPhaseB-testset1
+
+# Write CSVs only (no table on stdout; use -q to silence progress too):
+python low_recall_report.py --output-dir bioasq14_output/batch_1 -q
+
+# Per-run ground truth: optional ``output_dir/low_recall_ground_truth_map.json``::
+#
+#   {"by_run_file": {"dense_13b.tsv": "example/a.json"}, "default": "example/b.json"}
+#
+# Or set TEST_BATCH_JSONS in config*.env; any run filename containing a batch
+# file's stem (e.g. ``13b_golden_50q_sample``) uses that JSON before the default.
 """
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import glob as glob_mod
 import json
 import re
+import shlex
 import sys
 import time
 import urllib.request
@@ -126,17 +143,22 @@ def _resolve_ground_truth(
     output_dir: Path,
     ground_truth_arg: Optional[str],
     repo_root_arg: Optional[str],
-) -> Tuple[Path, Optional[Path]]:
-    """Return (ground_truth_json_path, config_env_path_used_or_none).
+) -> Tuple[Path, Optional[Path], Dict[str, str]]:
+    """Return (default_ground_truth_json, config_env_path_or_none, env_with_REPO_ROOT).
 
-    *config_env_path_used_or_none* is set when ground truth came from a
-    pipeline env file (for logging).
+    *env_with_REPO_ROOT* is suitable for ``_substitute_env`` when resolving map paths.
     """
+    repo_root = Path(repo_root_arg) if repo_root_arg else _detect_repo_root(output_dir)
+
     if ground_truth_arg:
         p = Path(ground_truth_arg)
-        if p.exists():
-            return p, None
-        raise FileNotFoundError(f"Ground truth not found: {p}")
+        if not p.exists():
+            raise FileNotFoundError(f"Ground truth not found: {p}")
+        rp = p.resolve()
+        cfg_path = _find_pipeline_config_env(output_dir)
+        file_env = _parse_config_env(cfg_path) if cfg_path else {}
+        env = {**file_env, "REPO_ROOT": str(repo_root)}
+        return rp, cfg_path, env
 
     config_path = _find_pipeline_config_env(output_dir)
     if config_path is None:
@@ -151,17 +173,99 @@ def _resolve_ground_truth(
             f"TRAIN_JSON not found in {config_path.name}; pass --ground-truth explicitly"
         )
 
-    repo_root = Path(repo_root_arg) if repo_root_arg else _detect_repo_root(output_dir)
     env["REPO_ROOT"] = str(repo_root)
     resolved = Path(_substitute_env(train_json_raw, env))
     if resolved.exists():
-        return resolved, config_path
+        return resolved.resolve(), config_path, env
 
     raise FileNotFoundError(
         f"Resolved ground-truth path does not exist: {resolved}\n"
         f"  (from TRAIN_JSON={train_json_raw!r}, REPO_ROOT={repo_root})\n"
         "  Pass --ground-truth or --repo-root to override."
     )
+
+
+def _resolve_path_against_repo(
+    raw: str,
+    env: Dict[str, str],
+    repo_root: Path,
+) -> Path:
+    """Resolve a config or map path (may be relative to repo root)."""
+    expanded = _substitute_env(raw.strip(), env)
+    p = Path(expanded)
+    if p.is_absolute():
+        out = p
+    else:
+        out = repo_root / p
+    return out.resolve()
+
+
+def _parse_test_batch_jsons(
+    raw: str,
+    env: Dict[str, str],
+    repo_root: Path,
+) -> List[Path]:
+    """Paths from TEST_BATCH_JSONS that exist (shell-tokenized)."""
+    if not (raw or "").strip():
+        return []
+    out: List[Path] = []
+    for part in shlex.split(raw.strip()):
+        p = _resolve_path_against_repo(part, env, repo_root)
+        if p.is_file():
+            out.append(p)
+    return out
+
+
+def _load_low_recall_gt_map(path: Path) -> dict:
+    with path.open("r", encoding="utf-8") as fh:
+        data = json.load(fh)
+    if not isinstance(data, dict):
+        raise ValueError(f"Ground-truth map must be a JSON object: {path}")
+    return data
+
+
+def _pick_ground_truth_for_run(
+    run_filename: str,
+    *,
+    default_gt: Path,
+    config_env: Dict[str, str],
+    repo_root: Path,
+    map_data: Optional[dict],
+) -> Tuple[Path, str]:
+    """Pick JSON ground truth for this run / per-query CSV filename."""
+    if map_data:
+        by_run = map_data.get("by_run_file") or map_data.get("runs")
+        if isinstance(by_run, dict) and run_filename in by_run:
+            p = _resolve_path_against_repo(str(by_run[run_filename]), config_env, repo_root)
+            if p.is_file():
+                return p, f"ground-truth map key {run_filename!r}"
+
+        patterns = map_data.get("patterns")
+        if isinstance(patterns, list):
+            for entry in patterns:
+                if not isinstance(entry, dict):
+                    continue
+                g = entry.get("glob") or entry.get("match")
+                gt = entry.get("ground_truth")
+                if g and gt and fnmatch.fnmatch(run_filename, g):
+                    p = _resolve_path_against_repo(str(gt), config_env, repo_root)
+                    if p.is_file():
+                        return p, f"ground-truth map glob {g!r}"
+
+        d = map_data.get("default")
+        if d is not None and str(d).strip():
+            p = _resolve_path_against_repo(str(d), config_env, repo_root)
+            if p.is_file():
+                return p, "ground-truth map default"
+
+    batches = _parse_test_batch_jsons(
+        config_env.get("TEST_BATCH_JSONS", ""), config_env, repo_root
+    )
+    for bp in batches:
+        if bp.stem in run_filename:
+            return bp, f"TEST_BATCH_JSONS → {bp.name}"
+
+    return default_gt, "default (TRAIN_JSON or --ground-truth)"
 
 # ---------------------------------------------------------------------------
 # Per-query recall loading
@@ -212,39 +316,40 @@ def _load_perquery_csv(path: Path, k: int) -> Dict[str, float]:
     return dict(zip(df["qid"], df[col]))
 
 
-def load_recall_per_query(
-    output_dir: Path,
-    stage: str,
-    k: int,
-    gold_map: Dict[str, List[str]],
-) -> Dict[str, float]:
-    """Return {qid: recall@K} for the chosen stage.
+def discover_recall_sources(stage_dir: Path) -> List[Tuple[str, Path]]:
+    """List recall inputs for *stage_dir*, deterministic order.
 
-    Uses a pre-computed per_query CSV if available; otherwise computes from
-    the run TSV.
+    If ``per_query/*.csv`` exists, returns those only (sorted by name).
+    Otherwise returns ``runs/*.tsv`` (sorted by name).
     """
-    stage_dir = output_dir / stage
-
     perq_dir = stage_dir / "per_query"
     if perq_dir.is_dir():
-        csvs = list(perq_dir.glob("*.csv"))
+        csvs = sorted(perq_dir.glob("*.csv"))
         if csvs:
-            csv_path = csvs[0]
-            print(f"  Loading per-query CSV: {csv_path.name}")
-            return _load_perquery_csv(csv_path, k)
+            return [("per_query", p) for p in csvs]
 
     runs_dir = stage_dir / "runs"
     if runs_dir.is_dir():
-        tsvs = list(runs_dir.glob("*.tsv"))
+        tsvs = sorted(runs_dir.glob("*.tsv"))
         if tsvs:
-            tsv_path = tsvs[0]
-            print(f"  Computing R@{k} from run file: {tsv_path.name}")
-            run_df = _load_run_tsv(tsv_path)
-            return _recall_from_run(run_df, gold_map, k)
+            return [("run_tsv", p) for p in tsvs]
 
     raise FileNotFoundError(
-        f"No per_query CSV or run TSV found for stage '{stage}' in {stage_dir}"
+        f"No per_query CSV or run TSV found for stage '{stage_dir.name}' in {stage_dir}"
     )
+
+
+def load_recall_for_source(
+    kind: str,
+    path: Path,
+    k: int,
+    gold_map: Dict[str, List[str]],
+) -> Dict[str, float]:
+    """Load {qid: recall@K} from one per-query CSV or one run TSV."""
+    if kind == "per_query":
+        return _load_perquery_csv(path, k)
+    run_df = _load_run_tsv(path)
+    return _recall_from_run(run_df, gold_map, k)
 
 # ---------------------------------------------------------------------------
 # Filtering
@@ -279,6 +384,8 @@ def filter_low_recall(
 def fetch_titles_jsonl(
     pmids: Set[str],
     jsonl_glob: str,
+    *,
+    quiet: bool = False,
 ) -> Dict[str, str]:
     """Scan JSONL files to extract titles for the given PMIDs."""
     titles: Dict[str, str] = {}
@@ -307,8 +414,9 @@ def fetch_titles_jsonl(
         if not remaining:
             break
 
-    print(f"  JSONL scan: {len(titles)}/{len(pmids)} titles found "
-          f"({total_scanned} lines scanned)")
+    if not quiet:
+        print(f"  JSONL scan: {len(titles)}/{len(pmids)} titles found "
+              f"({total_scanned} lines scanned)")
     return titles
 
 # ---------------------------------------------------------------------------
@@ -320,7 +428,7 @@ _BATCH_SIZE = 200
 _RATE_LIMIT_DELAY = 0.34  # ~3 req/s without API key
 
 
-def fetch_titles_ncbi(pmids: Set[str]) -> Dict[str, str]:
+def fetch_titles_ncbi(pmids: Set[str], *, quiet: bool = False) -> Dict[str, str]:
     """Fetch PubMed titles via NCBI esummary in batches."""
     if not pmids:
         return {}
@@ -329,8 +437,9 @@ def fetch_titles_ncbi(pmids: Set[str]) -> Dict[str, str]:
     pmid_list = sorted(pmids)
     n_batches = (len(pmid_list) + _BATCH_SIZE - 1) // _BATCH_SIZE
 
-    print(f"  Fetching titles from NCBI for {len(pmid_list)} PMIDs "
-          f"({n_batches} batch(es))...")
+    if not quiet:
+        print(f"  Fetching titles from NCBI for {len(pmid_list)} PMIDs "
+              f"({n_batches} batch(es))...")
 
     for i in range(0, len(pmid_list), _BATCH_SIZE):
         batch = pmid_list[i : i + _BATCH_SIZE]
@@ -343,7 +452,8 @@ def fetch_titles_ncbi(pmids: Set[str]) -> Dict[str, str]:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
         except (urllib.error.URLError, json.JSONDecodeError) as exc:
-            print(f"    WARNING: NCBI request failed: {exc}")
+            if not quiet:
+                print(f"    WARNING: NCBI request failed: {exc}")
             continue
 
         result = data.get("result", {})
@@ -357,7 +467,8 @@ def fetch_titles_ncbi(pmids: Set[str]) -> Dict[str, str]:
         if i + _BATCH_SIZE < len(pmid_list):
             time.sleep(_RATE_LIMIT_DELAY)
 
-    print(f"  NCBI: {len(titles)}/{len(pmids)} titles resolved")
+    if not quiet:
+        print(f"  NCBI: {len(titles)}/{len(pmids)} titles resolved")
     return titles
 
 # ---------------------------------------------------------------------------
@@ -438,7 +549,16 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     )
     ap.add_argument(
         "--ground-truth", default=None,
-        help="Explicit ground-truth JSON path; if omitted, from config.env or config*.env",
+        help="Default ground-truth JSON; per-run overrides via map file or TEST_BATCH_JSONS",
+    )
+    ap.add_argument(
+        "--ground-truth-map", default=None, type=Path,
+        help="JSON map (see module docstring); default tries low_recall_ground_truth_map.json "
+             "in --output-dir unless --no-ground-truth-map",
+    )
+    ap.add_argument(
+        "--no-ground-truth-map", action="store_true",
+        help="Do not load low_recall_ground_truth_map.json from the output dir",
     )
     ap.add_argument(
         "--docs-jsonl", default=None,
@@ -447,7 +567,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     )
     ap.add_argument(
         "--output", default=None, type=Path,
-        help="Output CSV path (default: {output_dir}/analysis/low_recall_{stage}.csv)",
+        help="Output CSV path (single run/CSV only; not allowed with multiple artifacts)",
     )
     ap.add_argument(
         "--repo-root", default=None,
@@ -456,6 +576,10 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     ap.add_argument(
         "--no-titles", action="store_true",
         help="Skip title fetching entirely",
+    )
+    ap.add_argument(
+        "--quiet", "-q", action="store_true",
+        help="Do not print progress or tables; only write CSV(s)",
     )
     return ap.parse_args(argv)
 
@@ -467,80 +591,151 @@ def main(argv: Optional[List[str]] = None) -> None:
     k: int = args.recall_k
     mode: str = args.mode
 
-    print(f"=== Low Recall@{k} Report ===")
-    print(f"  Output dir : {output_dir}")
-    print(f"  Stage      : {stage}")
-    print(f"  Mode       : {mode}")
-    print()
-
-    # 1. Ground truth
-    gt_path, cfg_env = _resolve_ground_truth(output_dir, args.ground_truth, args.repo_root)
-    print(f"Ground truth : {gt_path}")
-    if cfg_env is not None and cfg_env.name != "config.env":
-        print(f"  (TRAIN_JSON from {cfg_env.name})")
-    questions = load_questions(gt_path)
-    _, gold_map = build_topics_and_gold(questions)
-    question_meta = _build_question_meta(questions)
-    print(f"  {len(questions)} questions loaded, {len(gold_map)} with gold docs")
-    print()
-
-    # 2. Per-query recall
-    print(f"Loading Recall@{k} for stage '{stage}'...")
-    recall_map = load_recall_per_query(output_dir, stage, k, gold_map)
-    print(f"  {len(recall_map)} queries with recall values")
-    print()
-
-    # 3. Filter
-    low_qids = filter_low_recall(recall_map, mode)
-    if not low_qids:
-        print("No low-recall questions found. Nothing to report.")
-        return
-
-    n_zero = sum(1 for q in low_qids if recall_map.get(q, 0) == 0.0)
-    print(f"Low-recall questions: {len(low_qids)} "
-          f"(zero={n_zero}, non-zero={len(low_qids) - n_zero})")
-    print()
-
-    # 4. Collect gold PMIDs for title fetching
-    all_gold_pmids: Set[str] = set()
-    for qid in low_qids:
-        all_gold_pmids.update(gold_map.get(qid, []))
-
-    # 5. Title lookup
-    titles: Dict[str, str] = {}
-    if not args.no_titles and all_gold_pmids:
-        print(f"Resolving titles for {len(all_gold_pmids)} unique PMIDs...")
-        if args.docs_jsonl:
-            titles = fetch_titles_jsonl(all_gold_pmids, args.docs_jsonl)
-            missing = all_gold_pmids - set(titles.keys())
-            if missing:
-                print(f"  {len(missing)} PMIDs not found in JSONL, "
-                      "falling back to NCBI API...")
-                titles.update(fetch_titles_ncbi(missing))
-        else:
-            titles = fetch_titles_ncbi(all_gold_pmids)
+    quiet = args.quiet
+    if not quiet:
+        print(f"=== Low Recall@{k} Report ===")
+        print(f"  Output dir : {output_dir}")
+        print(f"  Stage      : {stage}")
+        print(f"  Mode       : {mode}")
         print()
 
-    # 6. Build report
-    report_df = build_report(low_qids, recall_map, gold_map, question_meta, titles, k)
+    # 1. Default ground truth + env (for TEST_BATCH_JSONS and map substitution)
+    default_gt, cfg_env, config_env = _resolve_ground_truth(
+        output_dir, args.ground_truth, args.repo_root
+    )
+    repo_root = Path(config_env["REPO_ROOT"])
 
-    # 7. Save
-    out_path: Path = args.output or (output_dir / "analysis" / f"low_recall_{stage}.csv")
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    report_df.to_csv(out_path, index=False)
-    print(f"Saved {len(report_df)} rows → {out_path}")
-    print()
+    map_data: Optional[dict] = None
+    map_path_used: Optional[Path] = None
+    if not args.no_ground_truth_map:
+        map_candidate = (
+            args.ground_truth_map.resolve()
+            if args.ground_truth_map
+            else (output_dir / "low_recall_ground_truth_map.json")
+        )
+        if args.ground_truth_map and not map_candidate.is_file():
+            raise SystemExit(f"--ground-truth-map not found: {map_candidate}")
+        if map_candidate.is_file():
+            map_data = _load_low_recall_gt_map(map_candidate)
+            map_path_used = map_candidate
 
-    # 8. Print summary to stdout
-    display_cols = ["qid", "type", "n_rel", f"R@{k}", "question", "golden_pmids"]
-    if titles:
-        display_cols.append("golden_titles")
-    with pd.option_context(
-        "display.max_rows", None,
-        "display.max_colwidth", 100,
-        "display.width", 240,
-    ):
-        print(report_df[display_cols].to_string(index=False))
+    if not quiet:
+        print(f"Default ground truth : {default_gt}")
+        if cfg_env is not None and cfg_env.name != "config.env":
+            print(f"  (TRAIN_JSON from {cfg_env.name})")
+        if map_path_used is not None:
+            print(f"  Ground-truth map    : {map_path_used.name}")
+        elif not args.no_ground_truth_map and config_env.get("TEST_BATCH_JSONS"):
+            print("  Per-run override   : TEST_BATCH_JSONS stem ⊆ run filename")
+        print()
+
+    gt_bundle_cache: Dict[Path, Tuple[Dict[str, List[str]], Dict[str, dict]]] = {}
+
+    def _get_gold_bundle(gt_path: Path) -> Tuple[Dict[str, List[str]], Dict[str, dict]]:
+        if gt_path not in gt_bundle_cache:
+            qs = load_questions(gt_path)
+            _, gm = build_topics_and_gold(qs)
+            meta = _build_question_meta(qs)
+            gt_bundle_cache[gt_path] = (gm, meta)
+        return gt_bundle_cache[gt_path]
+
+    stage_dir = output_dir / stage
+    sources = discover_recall_sources(stage_dir)
+    if args.output is not None and len(sources) > 1:
+        raise SystemExit(
+            "Cannot use --output when multiple per_query CSVs or run TSVs exist; "
+            "omit --output to write one analysis file per artifact."
+        )
+
+    titles_cache: Dict[str, str] = {}
+    any_report = False
+
+    for si, (kind, src_path) in enumerate(sources):
+        run_key = src_path.name
+        gt_path, gt_reason = _pick_ground_truth_for_run(
+            run_key,
+            default_gt=default_gt,
+            config_env=config_env,
+            repo_root=repo_root,
+            map_data=map_data,
+        )
+        gold_map, question_meta = _get_gold_bundle(gt_path)
+
+        if not quiet:
+            print(f"--- Recall source {si + 1}/{len(sources)}: {run_key} ---")
+            print(f"  Ground truth file : {gt_path} ({gt_reason})")
+            print(f"  {len(gold_map)} qids with gold in this JSON")
+            if kind == "per_query":
+                print("  Loading per-query CSV…")
+            else:
+                print(f"  Computing R@{k} from run TSV…")
+        recall_map = load_recall_for_source(kind, src_path, k, gold_map)
+        if not quiet:
+            print(f"  {len(recall_map)} queries with recall values")
+        if not recall_map:
+            if not quiet:
+                print(
+                    "  Warning: no overlapping qids with gold (wrong TRAIN_JSON / run pair?)"
+                )
+                print()
+            continue
+
+        low_qids = filter_low_recall(recall_map, mode)
+        if not low_qids:
+            if not quiet:
+                print("  No low-recall questions for this run.")
+                print()
+            continue
+
+        n_zero = sum(1 for q in low_qids if recall_map.get(q, 0) == 0.0)
+        if not quiet:
+            print(f"  Low-recall questions: {len(low_qids)} "
+                  f"(zero={n_zero}, non-zero={len(low_qids) - n_zero})")
+
+        all_gold_pmids: Set[str] = set()
+        for qid in low_qids:
+            all_gold_pmids.update(gold_map.get(qid, []))
+
+        if not args.no_titles and all_gold_pmids:
+            missing = all_gold_pmids - set(titles_cache.keys())
+            if missing:
+                if not quiet:
+                    print(f"  Resolving titles for {len(missing)} new unique PMIDs…")
+                if args.docs_jsonl:
+                    new_titles = fetch_titles_jsonl(
+                        missing, args.docs_jsonl, quiet=quiet
+                    )
+                    still = missing - set(new_titles.keys())
+                    if still:
+                        if not quiet:
+                            print(f"    {len(still)} PMIDs not in JSONL, NCBI fallback…")
+                        new_titles.update(fetch_titles_ncbi(still, quiet=quiet))
+                    titles_cache.update(new_titles)
+                else:
+                    titles_cache.update(fetch_titles_ncbi(missing, quiet=quiet))
+
+        report_df = build_report(
+            low_qids, recall_map, gold_map, question_meta, titles_cache, k
+        )
+
+        if args.output is not None:
+            out_path = args.output
+        elif len(sources) == 1:
+            out_path = output_dir / "analysis" / f"low_recall_{stage}.csv"
+        else:
+            safe_stem = src_path.stem.replace("/", "_")
+            out_path = output_dir / "analysis" / f"low_recall_{stage}__{safe_stem}.csv"
+
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        report_df.to_csv(out_path, index=False)
+        if not quiet:
+            print(f"  Saved {len(report_df)} rows → {out_path}")
+        any_report = True
+        if not quiet:
+            print()
+
+    if not any_report and not quiet:
+        print("No low-recall report written (no matching recall or all above threshold).")
 
 
 if __name__ == "__main__":
