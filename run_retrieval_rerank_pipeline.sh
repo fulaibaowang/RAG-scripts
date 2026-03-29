@@ -11,7 +11,7 @@
 #
 # Config file sets: WORKFLOW_OUTPUT_DIR, TRAIN_JSON, TEST_BATCH_JSONS (optional), TOP_K,
 # RECALL_KS, BM25_INDEX_PATH, DENSE_INDEX_DIR, DOCS_JSONL (optional),
-# BM25_QUERY_FIELD / DENSE_QUERY_FIELD (body | body_expansion_synonyms | body_expansion_long),
+# BM25_QUERY_FIELD / DENSE_QUERY_FIELD (comma-separated = multi-query RRF fusion per stage),
 # and stage overrides (BM25_*, DENSE_*, HYBRID_*, RERANK_*). See workflow_config_full.env.
 #
 set -e
@@ -111,9 +111,9 @@ while [ $# -gt 0 ]; do
       echo "  --no-generation          Skip LLM generation (and rescue) for both baseline and snippet routes."
       echo "  --no-generation-baseline  Skip LLM generation for baseline route only (evidence still built)."
       echo "  --no-generation-snippet   Skip LLM generation for snippet route only (evidence still built)."
-      echo "  --bm25-query-field F    Use F as query text for BM25 (overrides env; e.g. body, body_expansion_long)."
-      echo "  --dense-query-field F   Use F as query text for Dense (overrides env)."
-      echo "  --rerank-query-field F  Use F as query text for reranker (overrides env; e.g. body, body_expansion_long)."
+      echo "  --bm25-query-field F    Use F as query text for BM25 (overrides env). Comma-separated = multi-query RRF fuse."
+      echo "  --dense-query-field F   Use F as query text for Dense (overrides env). Comma-separated = multi-query RRF fuse."
+      echo "  --rerank-query-field F  Use F for reranker and snippet CE (overrides env). Comma-separated = multi-query RRF fuse."
       echo "  -h, --help              Show this help."
       echo ""
       echo "Env toggles:"
@@ -251,6 +251,62 @@ _log_run() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >> "$PIPELINE_RUN_LOG"; }
 # Config snapshot at start
 _log_run "start" "steps=$TOTAL_STEPS" "out=$WORKFLOW_OUTPUT_DIR" "config=${CONFIG_FILE:-}" "RUN_SNIPPET_RRF=${DO_SNIPPET_RRF:-0}"
 
+# ---------- Multi-query field helpers (comma-separated *_QUERY_FIELD -> sub-runs + RRF fuse) ----------
+_trim_csv_field() {
+  echo "$1" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
+}
+_query_field_has_comma() {
+  case "${1:-}" in
+    *,*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+_subdir_for_query_field() {
+  local f="$1"
+  f="${f//\//_}"
+  echo "_sub_${f}"
+}
+# Sets global _MQUERY_FIELDS (array of trimmed fields) from comma-separated $1
+_parse_query_field_csv() {
+  _MQUERY_FIELDS=()
+  local csv="$1"
+  [ -z "$csv" ] && return 0
+  local rest="$csv"
+  local x
+  while [ -n "$rest" ]; do
+    x="${rest%%,*}"
+    if [ "$x" = "$rest" ]; then
+      rest=""
+    else
+      rest="${rest#*,}"
+    fi
+    x=$(_trim_csv_field "$x")
+    [ -n "$x" ] && _MQUERY_FIELDS+=("$x")
+  done
+}
+# Usage: _run_multi_query_fuse <out_runs_dir> <glob_pattern> <k_rrf> <weights_or_empty> <cap_or_empty> -- <run_dir1> <run_dir2> ...
+_run_multi_query_fuse() {
+  local _out="$1" _pat="$2" _k="$3" _weights="$4" _cap="$5"
+  shift 5
+  if [ "${1:-}" != "--" ]; then
+    echo "Error: _run_multi_query_fuse internal: expected -- before run-dirs" >&2
+    exit 1
+  fi
+  shift
+  [ "$#" -lt 1 ] && { echo "Error: _run_multi_query_fuse: no run-dirs" >&2; exit 1; }
+  mkdir -p "$_out"
+  local _args=(
+    "$SCRIPT_DIR/retrieval/multi_query_fuse.py"
+    --out-dir "$_out"
+    --pattern "$_pat"
+    --k-rrf "${_k:-60}"
+    --run-dirs "$@"
+  )
+  [ -n "$_weights" ] && _args+=(--weights "$_weights")
+  [ -n "$_cap" ] && _args+=(--cap "$_cap")
+  python "${_args[@]}"
+}
+
 # ----- BM25 -----
 BM25_ARGS=(
   --index_path "$BM25_INDEX_PATH"
@@ -273,11 +329,54 @@ BM25_ARGS=(
 [ "${BM25_SAVE_PER_QUERY:-0}" = "1" ] && BM25_ARGS+=(--save_per_query)
 [ "${BM25_SAVE_ZERO_RECALL:-0}" = "1" ] && BM25_ARGS+=(--save_zero_recall)
 [ "${BM25_NO_EXCLUDE_TEST_QIDS:-0}" = "1" ] && BM25_ARGS+=(--no_exclude_test_qids)
-[ -n "${BM25_QUERY_FIELD:-}" ] && BM25_ARGS+=(--query-field "$BM25_QUERY_FIELD")
+[ -n "${BM25_QUERY_FIELD:-}" ] && ! _query_field_has_comma "$BM25_QUERY_FIELD" && BM25_ARGS+=(--query-field "$BM25_QUERY_FIELD")
 
 if [ -f "$BM25_OUT/metrics.csv" ] || [ -n "$(find "$BM25_OUT/runs" -maxdepth 1 -name '*.tsv' 2>/dev/null | head -1)" ]; then
   echo "[1/$TOTAL_STEPS] BM25... (skip: output exists)"
   _log_run "step" "1" "BM25" "skip"
+elif [ -n "${BM25_QUERY_FIELD:-}" ] && _query_field_has_comma "$BM25_QUERY_FIELD"; then
+  echo "[1/$TOTAL_STEPS] BM25... (multi-query field fusion)"
+  STEP_BM25_START=$(date +%s)
+  _parse_query_field_csv "$BM25_QUERY_FIELD"
+  if [ "${#_MQUERY_FIELDS[@]}" -lt 2 ]; then
+    echo "Error: BM25_QUERY_FIELD must list at least two fields when using commas." >&2
+    exit 1
+  fi
+  _BM25_FUSE_DIRS=()
+  for _qf in "${_MQUERY_FIELDS[@]}"; do
+    _bm25_sub="$BM25_OUT/$(_subdir_for_query_field "$_qf")"
+    mkdir -p "$_bm25_sub"
+    if [ -n "$(find "$_bm25_sub/runs" -maxdepth 1 -name '*.tsv' 2>/dev/null | head -1)" ]; then
+      echo "  BM25 sub-run skip (exists): $_bm25_sub"
+    else
+      _bm25_one=("${BM25_ARGS[@]}")
+      # Replace --out_dir target with subdir
+      _bm25_new=()
+      _skip_next=0
+      for _a in "${_bm25_one[@]}"; do
+        if [ "$_skip_next" = "1" ]; then
+          _bm25_new+=("$_bm25_sub")
+          _skip_next=0
+          continue
+        fi
+        if [ "$_a" = "--out_dir" ]; then
+          _bm25_new+=("$_a")
+          _skip_next=1
+          continue
+        fi
+        _bm25_new+=("$_a")
+      done
+      _bm25_one=("${_bm25_new[@]}")
+      _bm25_one+=(--query-field "$_qf" --no_eval)
+      python "$SCRIPT_DIR/retrieval/eval_bm25_rm3.py" "${_bm25_one[@]}"
+    fi
+    _BM25_FUSE_DIRS+=("$_bm25_sub/runs")
+  done
+  mkdir -p "$BM25_OUT/runs"
+  _run_multi_query_fuse "$BM25_OUT/runs" "*.tsv" "${BM25_QUERY_FUSION_K_RRF:-60}" "${BM25_QUERY_FUSION_WEIGHTS:-}" "$BM25_TOP_K" -- "${_BM25_FUSE_DIRS[@]}"
+  STEP_BM25_END=$(date +%s)
+  echo "[timing] BM25 step: $((STEP_BM25_END-STEP_BM25_START))s"
+  _log_run "step" "1" "BM25" "$((STEP_BM25_END-STEP_BM25_START))s"
 else
   echo "[1/$TOTAL_STEPS] BM25..."
   STEP_BM25_START=$(date +%s)
@@ -315,11 +414,53 @@ fi
 [ -n "${DENSE_MODEL_NAME:-}" ] && DENSE_ARGS+=(--model_name "$DENSE_MODEL_NAME")
 [ "${DENSE_NO_EVAL:-0}" = "1" ] && DENSE_ARGS+=(--no_eval)
 [ "${DENSE_SAVE_PER_QUERY:-0}" = "1" ] && DENSE_ARGS+=(--save_per_query)
-[ -n "${DENSE_QUERY_FIELD:-}" ] && DENSE_ARGS+=(--query-field "$DENSE_QUERY_FIELD")
+[ -n "${DENSE_QUERY_FIELD:-}" ] && ! _query_field_has_comma "$DENSE_QUERY_FIELD" && DENSE_ARGS+=(--query-field "$DENSE_QUERY_FIELD")
 
 if [ -f "$DENSE_OUT/metrics.csv" ] || [ -n "$(find "$DENSE_OUT/runs" -maxdepth 1 -name '*.tsv' 2>/dev/null | head -1)" ]; then
   echo "[2/$TOTAL_STEPS] Dense... (skip: output exists)"
   _log_run "step" "2" "Dense" "skip"
+elif [ -n "${DENSE_QUERY_FIELD:-}" ] && _query_field_has_comma "$DENSE_QUERY_FIELD"; then
+  echo "[2/$TOTAL_STEPS] Dense... (multi-query field fusion)"
+  STEP_DENSE_START=$(date +%s)
+  _parse_query_field_csv "$DENSE_QUERY_FIELD"
+  if [ "${#_MQUERY_FIELDS[@]}" -lt 2 ]; then
+    echo "Error: DENSE_QUERY_FIELD must list at least two fields when using commas." >&2
+    exit 1
+  fi
+  _DENSE_FUSE_DIRS=()
+  for _qf in "${_MQUERY_FIELDS[@]}"; do
+    _dense_sub="$DENSE_OUT/$(_subdir_for_query_field "$_qf")"
+    mkdir -p "$_dense_sub"
+    if [ -n "$(find "$_dense_sub/runs" -maxdepth 1 -name 'dense_*.tsv' 2>/dev/null | head -1)" ]; then
+      echo "  Dense sub-run skip (exists): $_dense_sub"
+    else
+      _dense_one=("${DENSE_ARGS[@]}")
+      _dense_new=()
+      _skip_next=0
+      for _a in "${_dense_one[@]}"; do
+        if [ "$_skip_next" = "1" ]; then
+          _dense_new+=("$_dense_sub")
+          _skip_next=0
+          continue
+        fi
+        if [ "$_a" = "--out_dir" ]; then
+          _dense_new+=("$_a")
+          _skip_next=1
+          continue
+        fi
+        _dense_new+=("$_a")
+      done
+      _dense_one=("${_dense_new[@]}")
+      _dense_one+=(--query-field "$_qf" --no_eval)
+      python "$SCRIPT_DIR/retrieval/eval_dense.py" "${_dense_one[@]}"
+    fi
+    _DENSE_FUSE_DIRS+=("$_dense_sub/runs")
+  done
+  mkdir -p "$DENSE_OUT/runs"
+  _run_multi_query_fuse "$DENSE_OUT/runs" "dense_*.tsv" "${DENSE_QUERY_FUSION_K_RRF:-60}" "${DENSE_QUERY_FUSION_WEIGHTS:-}" "$DENSE_TOP_K" -- "${_DENSE_FUSE_DIRS[@]}"
+  STEP_DENSE_END=$(date +%s)
+  echo "[timing] Dense step: $((STEP_DENSE_END-STEP_DENSE_START))s"
+  _log_run "step" "2" "Dense" "$((STEP_DENSE_END-STEP_DENSE_START))s"
 else
   echo "[2/$TOTAL_STEPS] Dense..."
   STEP_DENSE_START=$(date +%s)
@@ -408,30 +549,75 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
         echo "Reranker candidate-limit capped to doc count in DOCS_JSONL ($DOCS_JSONL_LINES)"
       fi
     fi
-    RERANK_ARGS=(
-      --runs-dir "$HYBRID_OUT/runs"
-      --output-dir "$RERANK_OUT"
-      --docs-jsonl "$DOCS_JSONL"
-      --candidate-limit "$RERANK_EFFECTIVE"
-      --ks-recall "${RERANK_KS_RECALL:-$RECALL_KS}"
-    )
-    [ -n "${TRAIN_JSON:-}" ] && RERANK_ARGS+=(--train-json "$TRAIN_JSON")
-    [ -n "${TEST_BATCH_JSONS:-}" ] && RERANK_ARGS+=(--test_batch_jsons $TEST_BATCH_JSONS)
-    [ -n "${RERANK_MODEL:-}" ] && RERANK_ARGS+=(--model "$RERANK_MODEL")
-    [ -n "${RERANK_MODEL_DEVICE:-}" ] && RERANK_ARGS+=(--model-device "$RERANK_MODEL_DEVICE")
-    [ -n "${RERANK_MODEL_BATCH:-}" ] && RERANK_ARGS+=(--model-batch "$RERANK_MODEL_BATCH")
-    [ -n "${RERANK_MODEL_MAX_LENGTH:-}" ] && RERANK_ARGS+=(--model-max-length "$RERANK_MODEL_MAX_LENGTH")
-    [ "${RERANK_DISABLE_METRICS:-0}" = "1" ] && RERANK_ARGS+=(--disable-metrics)
-    [ "${RERANK_USE_MULTI_GPU:-0}" = "1" ] && RERANK_ARGS+=(--use-multi-gpu)
-    [ -n "${RERANK_NUM_GPUS:-}" ] && RERANK_ARGS+=(--num-gpus "$RERANK_NUM_GPUS")
-    [ -n "${RERANK_QUERY_FIELD:-}" ] && RERANK_ARGS+=(--query-field "$RERANK_QUERY_FIELD")
-    if [ "${RERANK_RERANKER_TYPE:-}" = "llm" ] || [ "${RERANK_USE_LLM:-0}" = "1" ]; then
-      RERANK_ARGS+=(--reranker-type llm)
+    if [ -n "${RERANK_QUERY_FIELD:-}" ] && _query_field_has_comma "$RERANK_QUERY_FIELD"; then
+      echo "[4/$TOTAL_STEPS] Reranker... (multi-query field fusion)"
+      _parse_query_field_csv "$RERANK_QUERY_FIELD"
+      if [ "${#_MQUERY_FIELDS[@]}" -lt 2 ]; then
+        echo "Error: RERANK_QUERY_FIELD must list at least two fields when using commas." >&2
+        exit 1
+      fi
+      _RERANK_FUSE_DIRS=()
+      for _qf in "${_MQUERY_FIELDS[@]}"; do
+        _rr_sub="$RERANK_OUT/$(_subdir_for_query_field "$_qf")"
+        mkdir -p "$_rr_sub"
+        if [ -n "$(find "$_rr_sub/runs" -maxdepth 1 -name '*.tsv' 2>/dev/null | head -1)" ]; then
+          echo "  Rerank sub-run skip (exists): $_rr_sub"
+        else
+          RERANK_ARGS=(
+            --runs-dir "$HYBRID_OUT/runs"
+            --output-dir "$_rr_sub"
+            --docs-jsonl "$DOCS_JSONL"
+            --candidate-limit "$RERANK_EFFECTIVE"
+            --ks-recall "${RERANK_KS_RECALL:-$RECALL_KS}"
+            --query-field "$_qf"
+            --disable-metrics
+          )
+          [ -n "${TRAIN_JSON:-}" ] && RERANK_ARGS+=(--train-json "$TRAIN_JSON")
+          [ -n "${TEST_BATCH_JSONS:-}" ] && RERANK_ARGS+=(--test_batch_jsons $TEST_BATCH_JSONS)
+          [ -n "${RERANK_MODEL:-}" ] && RERANK_ARGS+=(--model "$RERANK_MODEL")
+          [ -n "${RERANK_MODEL_DEVICE:-}" ] && RERANK_ARGS+=(--model-device "$RERANK_MODEL_DEVICE")
+          [ -n "${RERANK_MODEL_BATCH:-}" ] && RERANK_ARGS+=(--model-batch "$RERANK_MODEL_BATCH")
+          [ -n "${RERANK_MODEL_MAX_LENGTH:-}" ] && RERANK_ARGS+=(--model-max-length "$RERANK_MODEL_MAX_LENGTH")
+          [ "${RERANK_USE_MULTI_GPU:-0}" = "1" ] && RERANK_ARGS+=(--use-multi-gpu)
+          [ -n "${RERANK_NUM_GPUS:-}" ] && RERANK_ARGS+=(--num-gpus "$RERANK_NUM_GPUS")
+          if [ "${RERANK_RERANKER_TYPE:-}" = "llm" ] || [ "${RERANK_USE_LLM:-0}" = "1" ]; then
+            RERANK_ARGS+=(--reranker-type llm)
+          fi
+          [ "${RERANK_LLM_USE_FP16:-1}" = "0" ] && RERANK_ARGS+=(--no-llm-use-fp16)
+          [ "${RERANK_LLM_USE_BF16:-0}" = "1" ] && RERANK_ARGS+=(--llm-use-bf16)
+          [ -n "${RERANK_PROGRESS_EVERY:-}" ] && RERANK_ARGS+=(--progress-every "$RERANK_PROGRESS_EVERY")
+          python "$SCRIPT_DIR/rerank/rerank_stage2.py" "${RERANK_ARGS[@]}"
+        fi
+        _RERANK_FUSE_DIRS+=("$_rr_sub/runs")
+      done
+      mkdir -p "$RERANK_OUT/runs"
+      _run_multi_query_fuse "$RERANK_OUT/runs" "*.tsv" "${RERANK_QUERY_FUSION_K_RRF:-60}" "${RERANK_QUERY_FUSION_WEIGHTS:-}" "$RERANK_EFFECTIVE" -- "${_RERANK_FUSE_DIRS[@]}"
+    else
+      RERANK_ARGS=(
+        --runs-dir "$HYBRID_OUT/runs"
+        --output-dir "$RERANK_OUT"
+        --docs-jsonl "$DOCS_JSONL"
+        --candidate-limit "$RERANK_EFFECTIVE"
+        --ks-recall "${RERANK_KS_RECALL:-$RECALL_KS}"
+      )
+      [ -n "${TRAIN_JSON:-}" ] && RERANK_ARGS+=(--train-json "$TRAIN_JSON")
+      [ -n "${TEST_BATCH_JSONS:-}" ] && RERANK_ARGS+=(--test_batch_jsons $TEST_BATCH_JSONS)
+      [ -n "${RERANK_MODEL:-}" ] && RERANK_ARGS+=(--model "$RERANK_MODEL")
+      [ -n "${RERANK_MODEL_DEVICE:-}" ] && RERANK_ARGS+=(--model-device "$RERANK_MODEL_DEVICE")
+      [ -n "${RERANK_MODEL_BATCH:-}" ] && RERANK_ARGS+=(--model-batch "$RERANK_MODEL_BATCH")
+      [ -n "${RERANK_MODEL_MAX_LENGTH:-}" ] && RERANK_ARGS+=(--model-max-length "$RERANK_MODEL_MAX_LENGTH")
+      [ "${RERANK_DISABLE_METRICS:-0}" = "1" ] && RERANK_ARGS+=(--disable-metrics)
+      [ "${RERANK_USE_MULTI_GPU:-0}" = "1" ] && RERANK_ARGS+=(--use-multi-gpu)
+      [ -n "${RERANK_NUM_GPUS:-}" ] && RERANK_ARGS+=(--num-gpus "$RERANK_NUM_GPUS")
+      [ -n "${RERANK_QUERY_FIELD:-}" ] && RERANK_ARGS+=(--query-field "$RERANK_QUERY_FIELD")
+      if [ "${RERANK_RERANKER_TYPE:-}" = "llm" ] || [ "${RERANK_USE_LLM:-0}" = "1" ]; then
+        RERANK_ARGS+=(--reranker-type llm)
+      fi
+      [ "${RERANK_LLM_USE_FP16:-1}" = "0" ] && RERANK_ARGS+=(--no-llm-use-fp16)
+      [ "${RERANK_LLM_USE_BF16:-0}" = "1" ] && RERANK_ARGS+=(--llm-use-bf16)
+      [ -n "${RERANK_PROGRESS_EVERY:-}" ] && RERANK_ARGS+=(--progress-every "$RERANK_PROGRESS_EVERY")
+      python "$SCRIPT_DIR/rerank/rerank_stage2.py" "${RERANK_ARGS[@]}"
     fi
-    [ "${RERANK_LLM_USE_FP16:-1}" = "0" ] && RERANK_ARGS+=(--no-llm-use-fp16)
-    [ "${RERANK_LLM_USE_BF16:-0}" = "1" ] && RERANK_ARGS+=(--llm-use-bf16)
-    [ -n "${RERANK_PROGRESS_EVERY:-}" ] && RERANK_ARGS+=(--progress-every "$RERANK_PROGRESS_EVERY")
-    python "$SCRIPT_DIR/rerank/rerank_stage2.py" "${RERANK_ARGS[@]}"
   fi
   STEP_RERANK_END=$(date +%s)
   echo "[timing] Reranker step: $((STEP_RERANK_END-STEP_RERANK_START))s"
@@ -608,36 +794,103 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
       mkdir -p "$SNIPPET_RERANK_OUT"
       # Snippet route always uses pool=200 runs (from rerank_hybrid_200: step 5 snippet-only or step 5b run-both)
       _SNIPPET_RRF_INPUT="$RERANK_HYBRID_200_OUT/runs"
-      SNIPPET_ARGS=(
-        --runs-dir "$_SNIPPET_RRF_INPUT"
-        --docs-jsonl "$DOCS_JSONL"
-        --output-dir "$SNIPPET_RERANK_OUT"
-        --n-docs "${SNIPPET_N_DOCS:-100}"
-        --window-size "${SNIPPET_WINDOW_SIZE:-3}"
-        --window-stride "${SNIPPET_WINDOW_STRIDE:-1}"
-        --top-w "${SNIPPET_TOP_W:-8}"
-        --dense-model "${SNIPPET_DENSE_MODEL:-abhinand/MedEmbed-small-v0.1}"
-        --ce-model "${SNIPPET_CE_MODEL:-${RERANK_MODEL:-BAAI/bge-reranker-v2-m3}}"
-      )
-      [ -n "${TRAIN_JSON:-}" ] && SNIPPET_ARGS+=(--train-json "$TRAIN_JSON")
-      [ -n "${TEST_BATCH_JSONS:-}" ] && SNIPPET_ARGS+=(--test-batch-jsons $TEST_BATCH_JSONS)
-      [ -n "${SNIPPET_DENSE_DEVICE:-}" ] && SNIPPET_ARGS+=(--dense-device "$SNIPPET_DENSE_DEVICE")
-      [ -n "${SNIPPET_DENSE_BATCH:-}" ] && SNIPPET_ARGS+=(--dense-batch "$SNIPPET_DENSE_BATCH")
-      [ -n "${SNIPPET_CE_DEVICE:-}" ] && SNIPPET_ARGS+=(--ce-device "$SNIPPET_CE_DEVICE")
-      [ -n "${SNIPPET_CE_BATCH:-}" ] && SNIPPET_ARGS+=(--ce-batch "$SNIPPET_CE_BATCH")
-      [ -n "${SNIPPET_CE_MAX_LENGTH:-}" ] && SNIPPET_ARGS+=(--ce-max-length "$SNIPPET_CE_MAX_LENGTH")
-      # Snippet CE multi-GPU defaults to reranker settings when not set
-      [ "${SNIPPET_CE_USE_MULTI_GPU:-${RERANK_USE_MULTI_GPU:-0}}" = "1" ] && SNIPPET_ARGS+=(--ce-use-multi-gpu)
-      [ -n "${SNIPPET_CE_NUM_GPUS:-${RERANK_NUM_GPUS:-}}" ] && SNIPPET_ARGS+=(--ce-num-gpus "${SNIPPET_CE_NUM_GPUS:-$RERANK_NUM_GPUS}")
-      [ -n "${RERANK_QUERY_FIELD:-}" ] && SNIPPET_ARGS+=(--query-field "$RERANK_QUERY_FIELD")
-      [ "${RERANK_DISABLE_METRICS:-0}" = "1" ] && SNIPPET_ARGS+=(--disable-metrics)
-      # LLM reranker for snippet Stage B (falls back to rerank-level settings when snippet-specific not set)
-      if [ "${SNIPPET_CE_RERANKER_TYPE:-${RERANK_RERANKER_TYPE:-}}" = "llm" ] || [ "${SNIPPET_CE_USE_LLM:-${RERANK_USE_LLM:-0}}" = "1" ]; then
-        SNIPPET_ARGS+=(--ce-reranker-type llm)
+      if [ -n "${RERANK_QUERY_FIELD:-}" ] && _query_field_has_comma "$RERANK_QUERY_FIELD"; then
+        echo "[6/$TOTAL_STEPS] Snippet... (multi-query field fusion)"
+        _parse_query_field_csv "$RERANK_QUERY_FIELD"
+        if [ "${#_MQUERY_FIELDS[@]}" -lt 2 ]; then
+          echo "Error: RERANK_QUERY_FIELD must list at least two fields when using commas (snippet uses same var)." >&2
+          exit 1
+        fi
+        _SNIP_FUSE_CAP="${HYBRID_CAP:-$TOP_K}"
+        _SNIP_FUSE_DIRS=()
+        for _qf in "${_MQUERY_FIELDS[@]}"; do
+          _sn_sub="$SNIPPET_RERANK_OUT/$(_subdir_for_query_field "$_qf")"
+          mkdir -p "$_sn_sub"
+          if [ -n "$(find "$_sn_sub/runs" -maxdepth 1 -name '*.tsv' 2>/dev/null | head -1)" ]; then
+            echo "  Snippet sub-run skip (exists): $_sn_sub"
+          else
+            SNIPPET_ARGS=(
+              --runs-dir "$_SNIPPET_RRF_INPUT"
+              --docs-jsonl "$DOCS_JSONL"
+              --output-dir "$_sn_sub"
+              --n-docs "${SNIPPET_N_DOCS:-100}"
+              --window-size "${SNIPPET_WINDOW_SIZE:-3}"
+              --window-stride "${SNIPPET_WINDOW_STRIDE:-1}"
+              --top-w "${SNIPPET_TOP_W:-8}"
+              --dense-model "${SNIPPET_DENSE_MODEL:-abhinand/MedEmbed-small-v0.1}"
+              --ce-model "${SNIPPET_CE_MODEL:-${RERANK_MODEL:-BAAI/bge-reranker-v2-m3}}"
+              --query-field "$_qf"
+              --disable-metrics
+            )
+            [ -n "${TRAIN_JSON:-}" ] && SNIPPET_ARGS+=(--train-json "$TRAIN_JSON")
+            [ -n "${TEST_BATCH_JSONS:-}" ] && SNIPPET_ARGS+=(--test-batch-jsons $TEST_BATCH_JSONS)
+            [ -n "${SNIPPET_DENSE_DEVICE:-}" ] && SNIPPET_ARGS+=(--dense-device "$SNIPPET_DENSE_DEVICE")
+            [ -n "${SNIPPET_DENSE_BATCH:-}" ] && SNIPPET_ARGS+=(--dense-batch "$SNIPPET_DENSE_BATCH")
+            [ -n "${SNIPPET_CE_DEVICE:-}" ] && SNIPPET_ARGS+=(--ce-device "$SNIPPET_CE_DEVICE")
+            [ -n "${SNIPPET_CE_BATCH:-}" ] && SNIPPET_ARGS+=(--ce-batch "$SNIPPET_CE_BATCH")
+            [ -n "${SNIPPET_CE_MAX_LENGTH:-}" ] && SNIPPET_ARGS+=(--ce-max-length "$SNIPPET_CE_MAX_LENGTH")
+            [ "${SNIPPET_CE_USE_MULTI_GPU:-${RERANK_USE_MULTI_GPU:-0}}" = "1" ] && SNIPPET_ARGS+=(--ce-use-multi-gpu)
+            [ -n "${SNIPPET_CE_NUM_GPUS:-${RERANK_NUM_GPUS:-}}" ] && SNIPPET_ARGS+=(--ce-num-gpus "${SNIPPET_CE_NUM_GPUS:-$RERANK_NUM_GPUS}")
+            if [ "${SNIPPET_CE_RERANKER_TYPE:-${RERANK_RERANKER_TYPE:-}}" = "llm" ] || [ "${SNIPPET_CE_USE_LLM:-${RERANK_USE_LLM:-0}}" = "1" ]; then
+              SNIPPET_ARGS+=(--ce-reranker-type llm)
+            fi
+            [ "${SNIPPET_CE_LLM_USE_FP16:-${RERANK_LLM_USE_FP16:-1}}" = "0" ] && SNIPPET_ARGS+=(--no-ce-llm-use-fp16)
+            [ "${SNIPPET_CE_LLM_USE_BF16:-${RERANK_LLM_USE_BF16:-0}}" = "1" ] && SNIPPET_ARGS+=(--ce-llm-use-bf16)
+            python "$SCRIPT_DIR/evidence/snippet_rerank.py" "${SNIPPET_ARGS[@]}"
+          fi
+          _SNIP_FUSE_DIRS+=("$_sn_sub/runs")
+        done
+        mkdir -p "$SNIPPET_RERANK_OUT/runs"
+        _run_multi_query_fuse "$SNIPPET_RERANK_OUT/runs" "*.tsv" "${RERANK_QUERY_FUSION_K_RRF:-60}" "${RERANK_QUERY_FUSION_WEIGHTS:-}" "$_SNIP_FUSE_CAP" -- "${_SNIP_FUSE_DIRS[@]}"
+        mkdir -p "$SNIPPET_RERANK_OUT/windows"
+        rm -f "$SNIPPET_RERANK_OUT"/windows/*.part 2>/dev/null || true
+        for _sd in "$SNIPPET_RERANK_OUT"/_sub_*/; do
+          [ -d "${_sd}windows" ] || continue
+          for _wf in "${_sd}"windows/*.jsonl; do
+            [ -f "$_wf" ] || continue
+            _bn=$(basename "$_wf")
+            cat "$_wf" >> "$SNIPPET_RERANK_OUT/windows/${_bn}.part"
+          done
+        done
+        shopt -s nullglob
+        for _part in "$SNIPPET_RERANK_OUT"/windows/*.part; do
+          [ -f "$_part" ] || continue
+          _final="${_part%.part}"
+          mv -f "$_part" "$_final"
+        done
+        shopt -u nullglob
+      else
+        SNIPPET_ARGS=(
+          --runs-dir "$_SNIPPET_RRF_INPUT"
+          --docs-jsonl "$DOCS_JSONL"
+          --output-dir "$SNIPPET_RERANK_OUT"
+          --n-docs "${SNIPPET_N_DOCS:-100}"
+          --window-size "${SNIPPET_WINDOW_SIZE:-3}"
+          --window-stride "${SNIPPET_WINDOW_STRIDE:-1}"
+          --top-w "${SNIPPET_TOP_W:-8}"
+          --dense-model "${SNIPPET_DENSE_MODEL:-abhinand/MedEmbed-small-v0.1}"
+          --ce-model "${SNIPPET_CE_MODEL:-${RERANK_MODEL:-BAAI/bge-reranker-v2-m3}}"
+        )
+        [ -n "${TRAIN_JSON:-}" ] && SNIPPET_ARGS+=(--train-json "$TRAIN_JSON")
+        [ -n "${TEST_BATCH_JSONS:-}" ] && SNIPPET_ARGS+=(--test-batch-jsons $TEST_BATCH_JSONS)
+        [ -n "${SNIPPET_DENSE_DEVICE:-}" ] && SNIPPET_ARGS+=(--dense-device "$SNIPPET_DENSE_DEVICE")
+        [ -n "${SNIPPET_DENSE_BATCH:-}" ] && SNIPPET_ARGS+=(--dense-batch "$SNIPPET_DENSE_BATCH")
+        [ -n "${SNIPPET_CE_DEVICE:-}" ] && SNIPPET_ARGS+=(--ce-device "$SNIPPET_CE_DEVICE")
+        [ -n "${SNIPPET_CE_BATCH:-}" ] && SNIPPET_ARGS+=(--ce-batch "$SNIPPET_CE_BATCH")
+        [ -n "${SNIPPET_CE_MAX_LENGTH:-}" ] && SNIPPET_ARGS+=(--ce-max-length "$SNIPPET_CE_MAX_LENGTH")
+        # Snippet CE multi-GPU defaults to reranker settings when not set
+        [ "${SNIPPET_CE_USE_MULTI_GPU:-${RERANK_USE_MULTI_GPU:-0}}" = "1" ] && SNIPPET_ARGS+=(--ce-use-multi-gpu)
+        [ -n "${SNIPPET_CE_NUM_GPUS:-${RERANK_NUM_GPUS:-}}" ] && SNIPPET_ARGS+=(--ce-num-gpus "${SNIPPET_CE_NUM_GPUS:-$RERANK_NUM_GPUS}")
+        [ -n "${RERANK_QUERY_FIELD:-}" ] && SNIPPET_ARGS+=(--query-field "$RERANK_QUERY_FIELD")
+        [ "${RERANK_DISABLE_METRICS:-0}" = "1" ] && SNIPPET_ARGS+=(--disable-metrics)
+        # LLM reranker for snippet Stage B (falls back to rerank-level settings when snippet-specific not set)
+        if [ "${SNIPPET_CE_RERANKER_TYPE:-${RERANK_RERANKER_TYPE:-}}" = "llm" ] || [ "${SNIPPET_CE_USE_LLM:-${RERANK_USE_LLM:-0}}" = "1" ]; then
+          SNIPPET_ARGS+=(--ce-reranker-type llm)
+        fi
+        [ "${SNIPPET_CE_LLM_USE_FP16:-${RERANK_LLM_USE_FP16:-1}}" = "0" ] && SNIPPET_ARGS+=(--no-ce-llm-use-fp16)
+        [ "${SNIPPET_CE_LLM_USE_BF16:-${RERANK_LLM_USE_BF16:-0}}" = "1" ] && SNIPPET_ARGS+=(--ce-llm-use-bf16)
+        python "$SCRIPT_DIR/evidence/snippet_rerank.py" "${SNIPPET_ARGS[@]}"
       fi
-      [ "${SNIPPET_CE_LLM_USE_FP16:-${RERANK_LLM_USE_FP16:-1}}" = "0" ] && SNIPPET_ARGS+=(--no-ce-llm-use-fp16)
-      [ "${SNIPPET_CE_LLM_USE_BF16:-${RERANK_LLM_USE_BF16:-0}}" = "1" ] && SNIPPET_ARGS+=(--ce-llm-use-bf16)
-      python "$SCRIPT_DIR/evidence/snippet_rerank.py" "${SNIPPET_ARGS[@]}"
     fi
     STEP_SNIPPET_END=$(date +%s)
     echo "[timing] Snippet extraction + CE rerank step: $((STEP_SNIPPET_END-STEP_SNIPPET_START))s"

@@ -91,6 +91,7 @@ LISTWISE_CONTEXT_SIZE="${LISTWISE_CONTEXT_SIZE:-4096}"
 LISTWISE_MAX_SNIPPET_TOKENS="${LISTWISE_MAX_SNIPPET_TOKENS:-250}"
 LISTWISE_OUTPUT_DIR="${LISTWISE_OUTPUT_DIR:-${WORKFLOW_OUTPUT_DIR}/listwise_rerank}"
 LISTWISE_DISABLE_METRICS="${LISTWISE_DISABLE_METRICS:-${RERANK_DISABLE_METRICS:-0}}"
+LISTWISE_QUERY_FIELD="${LISTWISE_QUERY_FIELD:-body}"
 
 # Fusion parameters
 LISTWISE_FUSION_W_SNIPPET="${LISTWISE_FUSION_W_SNIPPET:-0.4}"
@@ -118,6 +119,7 @@ echo "  Fusion w_listwise:    $LISTWISE_FUSION_W_LISTWISE"
 echo "  Fusion k_rrf:         $LISTWISE_FUSION_K_RRF"
 echo "  Fusion pool_top:      $LISTWISE_FUSION_POOL_TOP"
 echo "  Fuse sliding:         $LISTWISE_FUSE_SLIDING"
+echo "  Query field:          $LISTWISE_QUERY_FIELD"
 
 # ---------------------------------------------------------------------------
 # Save config.json for reproducibility
@@ -140,7 +142,8 @@ cat > "$LISTWISE_OUTPUT_DIR/config.json" <<CONFIGEOF
     "sliding_pool": $LISTWISE_POOL,
     "sliding_window": $LISTWISE_WINDOW,
     "sliding_stride": $LISTWISE_STRIDE,
-    "disable_metrics": $LISTWISE_DISABLE_METRICS
+    "disable_metrics": $LISTWISE_DISABLE_METRICS,
+    "query_field": "$LISTWISE_QUERY_FIELD"
   },
   "fusion": {
     "w_snippet_rrf": $LISTWISE_FUSION_W_SNIPPET,
@@ -196,6 +199,7 @@ else
     --model "$LISTWISE_MODEL"
     --context-size "$LISTWISE_CONTEXT_SIZE"
     --max-snippet-tokens "$LISTWISE_MAX_SNIPPET_TOKENS"
+    --query-field "$LISTWISE_QUERY_FIELD"
   )
 
   [ -n "${TRAIN_JSON:-}" ] && [ -f "$TRAIN_JSON" ] && LISTWISE_ARGS+=(--train-json "$TRAIN_JSON")

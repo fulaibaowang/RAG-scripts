@@ -62,6 +62,13 @@ def parse_args() -> argparse.Namespace:
                    help="Training query JSON (questions with id/body).")
     p.add_argument("--test-batch-jsons", type=Path, nargs="*", default=[],
                    help="Test-batch query JSONs.")
+    p.add_argument(
+        "--query-field",
+        type=str,
+        default="body",
+        help="Question JSON key for listwise query text (e.g. body, body_hyde). "
+        "Falls back to body, query, question if the key is missing.",
+    )
 
     # Single-window config
     p.add_argument("--single-k", type=int, default=15,
@@ -442,9 +449,13 @@ def main():
         all_questions.extend(qs)
         logger.info("Loaded %d questions from %s", len(qs), p)
 
+    qf = (args.query_field or "body").strip() or "body"
     for q in all_questions:
         qid = str(q.get("id") or q.get("qid"))
-        body = str(q.get("body") or q.get("query") or q.get("question") or "")
+        raw = q.get(qf)
+        body = str(raw).strip() if raw is not None else ""
+        if not body:
+            body = str(q.get("body") or q.get("query") or q.get("question") or "")
         qid_to_query[qid] = body
     logger.info("Total: %d queries loaded", len(qid_to_query))
 
