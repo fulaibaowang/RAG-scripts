@@ -95,34 +95,67 @@ def _detect_repo_root(start: Path) -> Path:
 # Ground-truth loading
 # ---------------------------------------------------------------------------
 
+def _find_pipeline_config_env(output_dir: Path) -> Optional[Path]:
+    """Locate a pipeline env file under *output_dir*.
+
+    Prefer ``config.env`` (batch default). Otherwise use any ``config*.env``
+    (e.g. ``config_14b.env``) so ad-hoc or copied output trees still resolve
+    ``TRAIN_JSON`` without ``--ground-truth``.
+    """
+    preferred = output_dir / "config.env"
+    if preferred.is_file():
+        return preferred
+
+    candidates = sorted(output_dir.glob("config*.env"))
+    if not candidates:
+        return None
+    if len(candidates) == 1:
+        return candidates[0]
+
+    for p in candidates:
+        try:
+            env = _parse_config_env(p)
+            if env.get("TRAIN_JSON"):
+                return p
+        except OSError:
+            continue
+    return candidates[0]
+
+
 def _resolve_ground_truth(
     output_dir: Path,
     ground_truth_arg: Optional[str],
     repo_root_arg: Optional[str],
-) -> Path:
-    """Return the resolved ground-truth JSON path."""
+) -> Tuple[Path, Optional[Path]]:
+    """Return (ground_truth_json_path, config_env_path_used_or_none).
+
+    *config_env_path_used_or_none* is set when ground truth came from a
+    pipeline env file (for logging).
+    """
     if ground_truth_arg:
         p = Path(ground_truth_arg)
         if p.exists():
-            return p
+            return p, None
         raise FileNotFoundError(f"Ground truth not found: {p}")
 
-    config_path = output_dir / "config.env"
-    if not config_path.exists():
+    config_path = _find_pipeline_config_env(output_dir)
+    if config_path is None:
         raise FileNotFoundError(
-            f"No config.env in {output_dir} and --ground-truth not provided"
+            f"No config.env or config*.env in {output_dir} and --ground-truth not provided"
         )
 
     env = _parse_config_env(config_path)
     train_json_raw = env.get("TRAIN_JSON")
     if not train_json_raw:
-        raise KeyError("TRAIN_JSON not found in config.env; pass --ground-truth explicitly")
+        raise KeyError(
+            f"TRAIN_JSON not found in {config_path.name}; pass --ground-truth explicitly"
+        )
 
     repo_root = Path(repo_root_arg) if repo_root_arg else _detect_repo_root(output_dir)
     env["REPO_ROOT"] = str(repo_root)
     resolved = Path(_substitute_env(train_json_raw, env))
     if resolved.exists():
-        return resolved
+        return resolved, config_path
 
     raise FileNotFoundError(
         f"Resolved ground-truth path does not exist: {resolved}\n"
@@ -405,7 +438,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     )
     ap.add_argument(
         "--ground-truth", default=None,
-        help="Explicit ground-truth JSON path; if omitted, parsed from config.env",
+        help="Explicit ground-truth JSON path; if omitted, from config.env or config*.env",
     )
     ap.add_argument(
         "--docs-jsonl", default=None,
@@ -418,7 +451,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     )
     ap.add_argument(
         "--repo-root", default=None,
-        help="Override $REPO_ROOT for config.env resolution",
+        help="Override $REPO_ROOT when resolving TRAIN_JSON from pipeline config.env",
     )
     ap.add_argument(
         "--no-titles", action="store_true",
@@ -441,8 +474,10 @@ def main(argv: Optional[List[str]] = None) -> None:
     print()
 
     # 1. Ground truth
-    gt_path = _resolve_ground_truth(output_dir, args.ground_truth, args.repo_root)
+    gt_path, cfg_env = _resolve_ground_truth(output_dir, args.ground_truth, args.repo_root)
     print(f"Ground truth : {gt_path}")
+    if cfg_env is not None and cfg_env.name != "config.env":
+        print(f"  (TRAIN_JSON from {cfg_env.name})")
     questions = load_questions(gt_path)
     _, gold_map = build_topics_and_gold(questions)
     question_meta = _build_question_meta(questions)
