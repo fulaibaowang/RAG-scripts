@@ -285,6 +285,7 @@ _parse_query_field_csv() {
   done
 }
 # Usage: _run_multi_query_fuse <out_runs_dir> <glob_pattern> <k_rrf> <weights_or_empty> <cap_or_empty> -- <run_dir1> <run_dir2> ...
+# Eval is auto-enabled when HAVE_GROUND_TRUTH!=0 and TRAIN_JSON/TEST_BATCH_JSONS are set.
 _run_multi_query_fuse() {
   local _out="$1" _pat="$2" _k="$3" _weights="$4" _cap="$5"
   shift 5
@@ -304,6 +305,13 @@ _run_multi_query_fuse() {
   )
   [ -n "$_weights" ] && _args+=(--weights "$_weights")
   [ -n "$_cap" ] && _args+=(--cap "$_cap")
+  if [ "${HAVE_GROUND_TRUTH:-1}" != "0" ]; then
+    [ -n "${TRAIN_JSON:-}" ] && _args+=(--train-json "$TRAIN_JSON")
+    [ -n "${TEST_BATCH_JSONS:-}" ] && _args+=(--test-batch-jsons $TEST_BATCH_JSONS)
+    [ -n "${RECALL_KS:-}" ] && _args+=(--ks "$RECALL_KS")
+  else
+    _args+=(--no-eval)
+  fi
   python "${_args[@]}"
 }
 
