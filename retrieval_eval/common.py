@@ -100,7 +100,7 @@ def build_topics_and_gold(
             f"questions with empty {query_field!r} ({pct:.0f}%)"
         )
 
-    return pd.DataFrame(rows), gold
+    return pd.DataFrame(rows, columns=["qid", "query"]), gold
 
 
 def collect_qids_from_questions(questions: List[dict]) -> set[str]:
