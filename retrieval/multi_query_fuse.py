@@ -77,8 +77,17 @@ def fuse_n_way_rrf(
     weights: Sequence[float],
     k_rrf: float,
     cap: int | None,
+    body_weight: float | None = None,
 ) -> pd.DataFrame:
-    if len(dfs) != len(weights):
+    """N-way weighted RRF fusion.
+
+    When *body_weight* is set, per-qid adaptive weighting is used:
+    the first sub-run (index 0, "body") gets *body_weight*, and the remaining
+    weight is split equally among whichever other sub-runs are active for that
+    qid.  If only the body sub-run is active, it receives weight 1.0.
+    When *body_weight* is ``None``, the fixed *weights* vector is used.
+    """
+    if body_weight is None and len(dfs) != len(weights):
         raise ValueError("dfs and weights length mismatch")
     if not dfs:
         raise ValueError("no dataframes")
@@ -92,14 +101,36 @@ def fuse_n_way_rrf(
                 seen_q.add(s)
                 qid_order.append(s)
 
+    # Pre-compute per-df qid sets for fast membership testing
+    df_qid_sets: List[set[str]] = [set(df["qid"].astype(str).unique()) for df in dfs]
+
     rows: List[Dict[str, object]] = []
     kf = float(k_rrf)
 
     for qid in qid_order:
+        # Determine per-qid weights
+        if body_weight is not None:
+            active = [i for i, qs in enumerate(df_qid_sets) if qid in qs]
+            body_idx = 0
+            non_body = [i for i in active if i != body_idx]
+            n_nb = len(non_body)
+            qw: Dict[int, float] = {}
+            if body_idx in active:
+                qw[body_idx] = body_weight if n_nb else 1.0
+                rest = (1.0 - body_weight) if n_nb else 0.0
+            else:
+                rest = 1.0
+            for i in non_body:
+                qw[i] = rest / n_nb
+        else:
+            qw = {i: w for i, w in enumerate(weights)}
+
         scores: Dict[str, float] = {}
-        for df, w in zip(dfs, weights):
+        for i, df in enumerate(dfs):
+            wi = qw.get(i, 0.0)
+            if wi == 0.0:
+                continue
             sub = df[df["qid"].astype(str) == qid]
-            wi = float(w)
             for _, r in sub.iterrows():
                 doc = str(r["docno"])
                 rk = int(r["rank"])
@@ -255,8 +286,9 @@ def _eval_fused_runs(
     """Evaluate fused TSVs and optionally compare with sub-run TSVs.
 
     When *run_dirs* and *labels* are provided, comparison plots are generated:
-      - Plot 1 (``fused_compare_*``): per-field + fused curves on
-        "different queries" (qids present in all sub-runs).
+      - Plot 1 (``fused_compare_*``): body + fused + eligible per-field curves on
+        the "different queries" subset (union of non-body sub-run qid sets).
+        A non-body field is included only if its qid set covers all diff_qids.
       - Plot 2 (``fused_all_*``): fused curve on all queries.
     """
     fused_dir = out_dir
@@ -293,20 +325,22 @@ def _eval_fused_runs(
                 p = d / tsv_path.name
                 sub_dfs.append(_load_run_tsv(p) if p.is_file() else None)
 
-            # "different qids" = intersection of qid sets across all sub-runs
-            qid_sets = [set(df["qid"].astype(str).unique()) for df in sub_dfs if df is not None]
-            if len(qid_sets) >= 2:
-                diff_qids = qid_sets[0]
-                for qs in qid_sets[1:]:
-                    diff_qids = diff_qids & qs
-            elif qid_sets:
-                diff_qids = qid_sets[0]
-            else:
-                diff_qids = set()
+            # Per-field qid sets (None entries get empty set)
+            qid_sets = [
+                set(df["qid"].astype(str).unique()) if df is not None else set()
+                for df in sub_dfs
+            ]
+
+            # "different qids" = union of non-body (non-first) sub-run qid sets
+            non_body_sets = [qs for i, qs in enumerate(qid_sets) if i > 0 and qs]
+            diff_qids = set().union(*non_body_sets) if non_body_sets else set()
 
             if diff_qids:
-                for lbl, sdf in zip(labels, sub_dfs):
+                for idx, (lbl, sdf) in enumerate(zip(labels, sub_dfs)):
                     if sdf is None:
+                        continue
+                    # Include a non-body field only if it covers all diff_qids
+                    if idx > 0 and not qid_sets[idx].issuperset(diff_qids):
                         continue
                     rm = run_df_to_run_map(sdf, qid_col="qid", docno_col="docno")
                     row = _eval_one_run_map(rm, gold_map, ks_recall, map_ks, qid_subset=diff_qids)
@@ -407,6 +441,12 @@ def main() -> None:
         help="Comma-separated labels matching --run-dirs order (e.g. 'body,body_hyde'). "
         "Enables comparison plots: per-field + fused curves on different-queries subset.",
     )
+    ap.add_argument(
+        "--body-weight", type=float, default=None,
+        help="Adaptive per-qid weighting: the first field (body) gets this weight, "
+        "remaining weight is split equally among active non-body fields per query. "
+        "Ignored when --weights is explicitly set.",
+    )
     args = ap.parse_args()
 
     run_dirs = [Path(d).resolve() for d in args.run_dirs]
@@ -425,7 +465,19 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     n = len(run_dirs)
+    has_explicit_weights = bool(args.weights and args.weights.strip())
     weights = parse_weights(args.weights or None, n)
+    body_weight: float | None = None
+    if has_explicit_weights:
+        if args.body_weight is not None:
+            print(
+                "[multi_query_fuse] WARNING: both --weights and --body-weight set; "
+                "--weights takes precedence",
+                file=sys.stderr,
+            )
+    elif args.body_weight is not None:
+        body_weight = args.body_weight
+        print(f"[multi_query_fuse] adaptive weighting: body={body_weight}, rest shared per-qid")
 
     for path0 in matched:
         name = path0.name
@@ -435,7 +487,7 @@ def main() -> None:
             print(f"Warning: skip {name} (missing: {missing})", file=sys.stderr)
             continue
         dfs = [_load_run_tsv(p) for p in paths]
-        fused = fuse_n_way_rrf(dfs, weights, args.k_rrf, args.cap)
+        fused = fuse_n_way_rrf(dfs, weights, args.k_rrf, args.cap, body_weight=body_weight)
         out_path = out_dir / name
         fused.to_csv(out_path, sep="\t", index=False)
         print(f"[multi_query_fuse] wrote {out_path} ({len(fused)} rows)")
