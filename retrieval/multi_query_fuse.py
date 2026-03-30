@@ -49,7 +49,11 @@ from retrieval_eval.common import (
 # TSV loading
 # ---------------------------------------------------------------------------
 def _load_run_tsv(path: Path) -> pd.DataFrame:
+    if path.stat().st_size == 0:
+        return pd.DataFrame(columns=["qid", "docno", "rank"])
     df = pd.read_csv(path, sep="\t")
+    if df.empty:
+        return pd.DataFrame(columns=["qid", "docno", "rank"])
     cols = {c.lower(): c for c in df.columns}
     qid_c = cols.get("qid") or cols.get("query_id")
     doc_c = cols.get("docno") or cols.get("docid") or cols.get("doc")
