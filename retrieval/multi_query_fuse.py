@@ -175,6 +175,73 @@ def _short_label(run_id: str) -> str:
     return s if s else run_id
 
 
+def _eval_one_run_map(
+    run_map: Dict[str, List[str]],
+    gold_map: Dict[str, List[str]],
+    ks_recall: Tuple[int, ...],
+    map_ks: List[int],
+    qid_subset: Optional[set] = None,
+) -> Optional[Dict]:
+    """Evaluate a single run_map. If *qid_subset* is given, restrict to those qids."""
+    if qid_subset is not None:
+        run_map = {q: docs for q, docs in run_map.items() if q in qid_subset}
+    gold_for_run = {q: gold_map[q] for q in run_map if q in gold_map and gold_map[q]}
+    if not gold_for_run:
+        return None
+    metrics, _ = evaluate_run(gold_for_run, run_map, ks_recall=ks_recall)
+    row: Dict = {}
+    row.update(metrics)
+    for k in map_ks:
+        qids = list(gold_for_run.keys())
+        aps = [ap_at_k(set(gold_for_run[q]), run_map.get(q, []), k=k) for q in qids]
+        row[f"MAP@{k}"] = float(np.mean(aps)) if aps else 0.0
+    return row
+
+
+def _plot_curves(
+    rows: List[Dict],
+    ks_recall: Tuple[int, ...],
+    map_ks: List[int],
+    figures_dir: Path,
+    prefix: str,
+    title_suffix: str,
+) -> None:
+    """Generate recall and MAP curve PNGs for a list of metric rows."""
+    if plt is None or not rows:
+        return
+    ks_plot = sorted(k for k in ks_recall if any(f"MeanR@{k}" in r for r in rows))
+    if ks_plot:
+        fig, ax = plt.subplots(figsize=(10, 5))
+        for r in rows:
+            ys = [r.get(f"MeanR@{k}", np.nan) for k in ks_plot]
+            ax.plot(ks_plot, ys, marker="o", label=r["label"], markersize=4)
+        ax.set_xlabel("K")
+        ax.set_ylabel("Mean Recall@K")
+        ax.set_title(f"Recall curves {title_suffix}")
+        ax.legend(fontsize=8)
+        ax.grid(True, alpha=0.3)
+        plt.tight_layout()
+        p = figures_dir / f"{prefix}_recall.png"
+        plt.savefig(p, dpi=150, bbox_inches="tight")
+        plt.close()
+        print(f"[multi_query_fuse] plot -> {p}")
+    if map_ks:
+        fig, ax = plt.subplots(figsize=(10, 5))
+        for r in rows:
+            ys = [r.get(f"MAP@{k}", np.nan) for k in map_ks]
+            ax.plot(map_ks, ys, marker="o", label=r["label"], markersize=5)
+        ax.set_xlabel("K")
+        ax.set_ylabel("MAP@K")
+        ax.set_title(f"MAP curves {title_suffix}")
+        ax.legend(fontsize=8)
+        ax.grid(True, alpha=0.3)
+        plt.tight_layout()
+        p = figures_dir / f"{prefix}_map.png"
+        plt.savefig(p, dpi=150, bbox_inches="tight")
+        plt.close()
+        print(f"[multi_query_fuse] plot -> {p}")
+
+
 def _eval_fused_runs(
     out_dir: Path,
     gold_map: Dict[str, List[str]],
@@ -182,8 +249,16 @@ def _eval_fused_runs(
     train_stems: List[str],
     test_stems: List[str],
     map_ks: Optional[List[int]] = None,
+    run_dirs: Optional[List[Path]] = None,
+    labels: Optional[List[str]] = None,
 ) -> None:
-    """Evaluate all fused TSVs: write metrics.csv, recall curves, and MAP curves."""
+    """Evaluate fused TSVs and optionally compare with sub-run TSVs.
+
+    When *run_dirs* and *labels* are provided, comparison plots are generated:
+      - Plot 1 (``fused_compare_*``): per-field + fused curves on
+        "different queries" (qids present in all sub-runs).
+      - Plot 2 (``fused_all_*``): fused curve on all queries.
+    """
     fused_dir = out_dir
     parent_dir = out_dir.parent
     figures_dir = parent_dir / "figures"
@@ -201,26 +276,54 @@ def _eval_fused_runs(
 
     for tsv_path in tsv_files:
         run_id = tsv_path.stem
-        df = _load_run_tsv(tsv_path)
-        run_map = run_df_to_run_map(df, qid_col="qid", docno_col="docno")
-        gold_for_run = {q: gold_map[q] for q in run_map if q in gold_map and gold_map[q]}
-        if not gold_for_run:
-            print(f"[eval] {run_id}: no gold overlap, skipping metrics")
-            continue
-
-        metrics, _ = evaluate_run(gold_for_run, run_map, ks_recall=ks_recall)
         role = _infer_role(run_id, train_stems, test_stems)
-        row: Dict = {"run": run_id, "label": _short_label(run_id), "role": role}
-        row.update(metrics)
+        fused_df = _load_run_tsv(tsv_path)
+        fused_run_map = run_df_to_run_map(fused_df, qid_col="qid", docno_col="docno")
 
-        map_vals = {}
-        for k in map_ks:
-            qids = list(gold_for_run.keys())
-            aps = [ap_at_k(set(gold_for_run[q]), run_map.get(q, []), k=k) for q in qids]
-            v = float(np.mean(aps)) if aps else 0.0
-            map_vals[k] = v
-            row[f"MAP@{k}"] = v
-        all_metrics_rows.append(row)
+        # -- Fused on ALL queries (Plot 2) --
+        row_all = _eval_one_run_map(fused_run_map, gold_map, ks_recall, map_ks)
+        if row_all:
+            row_all.update({"run": run_id, "label": "fused", "role": role, "scope": "all"})
+            all_metrics_rows.append(row_all)
+
+        # -- Comparison with sub-runs (Plot 1) --
+        if run_dirs and labels and len(run_dirs) == len(labels):
+            sub_dfs: List[Optional[pd.DataFrame]] = []
+            for d in run_dirs:
+                p = d / tsv_path.name
+                sub_dfs.append(_load_run_tsv(p) if p.is_file() else None)
+
+            # "different qids" = intersection of qid sets across all sub-runs
+            qid_sets = [set(df["qid"].astype(str).unique()) for df in sub_dfs if df is not None]
+            if len(qid_sets) >= 2:
+                diff_qids = qid_sets[0]
+                for qs in qid_sets[1:]:
+                    diff_qids = diff_qids & qs
+            elif qid_sets:
+                diff_qids = qid_sets[0]
+            else:
+                diff_qids = set()
+
+            if diff_qids:
+                for lbl, sdf in zip(labels, sub_dfs):
+                    if sdf is None:
+                        continue
+                    rm = run_df_to_run_map(sdf, qid_col="qid", docno_col="docno")
+                    row = _eval_one_run_map(rm, gold_map, ks_recall, map_ks, qid_subset=diff_qids)
+                    if row:
+                        row.update({
+                            "run": run_id, "label": lbl, "role": role, "scope": "different",
+                        })
+                        all_metrics_rows.append(row)
+
+                row_fused_diff = _eval_one_run_map(
+                    fused_run_map, gold_map, ks_recall, map_ks, qid_subset=diff_qids,
+                )
+                if row_fused_diff:
+                    row_fused_diff.update({
+                        "run": run_id, "label": "fused", "role": role, "scope": "different",
+                    })
+                    all_metrics_rows.append(row_fused_diff)
 
     if not all_metrics_rows:
         return
@@ -234,48 +337,21 @@ def _eval_fused_runs(
         print("[multi_query_fuse] matplotlib not available, skipping plots")
         return
 
-    # Recall curves (one per role group: train, test)
-    ks_plot = sorted(k for k in ks_recall if any(f"MeanR@{k}" in r for r in all_metrics_rows))
-    if ks_plot:
-        for role_val in ("train", "test"):
-            role_rows = [r for r in all_metrics_rows if r.get("role") == role_val]
-            if not role_rows:
-                continue
-            fig, ax = plt.subplots(figsize=(10, 5))
-            for r in role_rows:
-                ys = [r.get(f"MeanR@{k}", np.nan) for k in ks_plot]
-                ax.plot(ks_plot, ys, marker="o", label=r["label"], markersize=4)
-            ax.set_xlabel("K")
-            ax.set_ylabel("Mean Recall@K")
-            ax.set_title(f"Fused recall curves ({role_val})")
-            ax.legend(fontsize=8)
-            ax.grid(True, alpha=0.3)
-            plt.tight_layout()
-            fig_path = figures_dir / f"fused_recall_curve_{role_val}.png"
-            plt.savefig(fig_path, dpi=150, bbox_inches="tight")
-            plt.close()
-            print(f"[multi_query_fuse] plot -> {fig_path}")
+    for role_val in ("train", "test"):
+        # Plot 2: fused on all queries
+        all_rows = [r for r in all_metrics_rows
+                     if r.get("role") == role_val and r.get("scope") == "all"]
+        if all_rows:
+            _plot_curves(all_rows, ks_recall, map_ks, figures_dir,
+                         f"fused_all_{role_val}", f"(all queries, {role_val})")
 
-    # MAP curves (one per role group)
-    if map_ks:
-        for role_val in ("train", "test"):
-            role_rows = [r for r in all_metrics_rows if r.get("role") == role_val]
-            if not role_rows:
-                continue
-            fig, ax = plt.subplots(figsize=(10, 5))
-            for r in role_rows:
-                ys = [r.get(f"MAP@{k}", np.nan) for k in map_ks]
-                ax.plot(map_ks, ys, marker="o", label=r["label"], markersize=5)
-            ax.set_xlabel("K")
-            ax.set_ylabel("MAP@K")
-            ax.set_title(f"Fused MAP curves ({role_val})")
-            ax.legend(fontsize=8)
-            ax.grid(True, alpha=0.3)
-            plt.tight_layout()
-            fig_path = figures_dir / f"fused_map_curve_{role_val}.png"
-            plt.savefig(fig_path, dpi=150, bbox_inches="tight")
-            plt.close()
-            print(f"[multi_query_fuse] plot -> {fig_path}")
+        # Plot 1: comparison on different-queries subset
+        diff_rows = [r for r in all_metrics_rows
+                      if r.get("role") == role_val and r.get("scope") == "different"]
+        if diff_rows:
+            _plot_curves(diff_rows, ks_recall, map_ks, figures_dir,
+                         f"fused_compare_{role_val}",
+                         f"(different queries only, {role_val})")
 
 
 # ---------------------------------------------------------------------------
@@ -326,6 +402,11 @@ def main() -> None:
     ap.add_argument("--ks", type=str, default="", help="Comma-separated K for recall metrics (default: 50..5000).")
     ap.add_argument("--map-ks", type=str, default="10,20,50,100,200", help="Comma-separated K for MAP curves.")
     ap.add_argument("--no-eval", action="store_true", help="Skip evaluation even when gold JSONs are provided.")
+    ap.add_argument(
+        "--labels", type=str, default="",
+        help="Comma-separated labels matching --run-dirs order (e.g. 'body,body_hyde'). "
+        "Enables comparison plots: per-field + fused curves on different-queries subset.",
+    )
     args = ap.parse_args()
 
     run_dirs = [Path(d).resolve() for d in args.run_dirs]
@@ -368,7 +449,12 @@ def main() -> None:
             ks_recall = tuple(int(x) for x in ks_raw.split(",") if x.strip()) if ks_raw else RECALL_KS
             map_ks_raw = args.map_ks.strip()
             map_ks = [int(x) for x in map_ks_raw.split(",") if x.strip()] if map_ks_raw else [10, 20, 50, 100, 200]
-            _eval_fused_runs(out_dir, gold_map, ks_recall, train_stems, test_stems, map_ks)
+            lbl_list = [l.strip() for l in args.labels.split(",") if l.strip()] if args.labels.strip() else []
+            _eval_fused_runs(
+                out_dir, gold_map, ks_recall, train_stems, test_stems, map_ks,
+                run_dirs=run_dirs if lbl_list else None,
+                labels=lbl_list if lbl_list else None,
+            )
         else:
             print("[multi_query_fuse] no gold loaded; skipping evaluation")
 

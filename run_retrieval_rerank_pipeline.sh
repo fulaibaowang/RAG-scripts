@@ -284,11 +284,20 @@ _parse_query_field_csv() {
     [ -n "$x" ] && _MQUERY_FIELDS+=("$x")
   done
 }
-# Usage: _run_multi_query_fuse <out_runs_dir> <glob_pattern> <k_rrf> <weights_or_empty> <cap_or_empty> -- <run_dir1> <run_dir2> ...
+# Build comma-separated string from _MQUERY_FIELDS array (sets _MQUERY_LABELS)
+_build_mquery_labels() {
+  _MQUERY_LABELS=""
+  local _sep=""
+  for _f in "${_MQUERY_FIELDS[@]}"; do
+    _MQUERY_LABELS="${_MQUERY_LABELS}${_sep}${_f}"
+    _sep=","
+  done
+}
+# Usage: _run_multi_query_fuse <out_runs_dir> <glob_pattern> <k_rrf> <weights_or_empty> <cap_or_empty> <labels_csv_or_empty> -- <run_dir1> <run_dir2> ...
 # Eval is auto-enabled when HAVE_GROUND_TRUTH!=0 and TRAIN_JSON/TEST_BATCH_JSONS are set.
 _run_multi_query_fuse() {
-  local _out="$1" _pat="$2" _k="$3" _weights="$4" _cap="$5"
-  shift 5
+  local _out="$1" _pat="$2" _k="$3" _weights="$4" _cap="$5" _labels="$6"
+  shift 6
   if [ "${1:-}" != "--" ]; then
     echo "Error: _run_multi_query_fuse internal: expected -- before run-dirs" >&2
     exit 1
@@ -305,6 +314,7 @@ _run_multi_query_fuse() {
   )
   [ -n "$_weights" ] && _args+=(--weights "$_weights")
   [ -n "$_cap" ] && _args+=(--cap "$_cap")
+  [ -n "$_labels" ] && _args+=(--labels "$_labels")
   if [ "${HAVE_GROUND_TRUTH:-1}" != "0" ]; then
     [ -n "${TRAIN_JSON:-}" ] && _args+=(--train-json "$TRAIN_JSON")
     [ -n "${TEST_BATCH_JSONS:-}" ] && _args+=(--test-batch-jsons $TEST_BATCH_JSONS)
@@ -375,13 +385,14 @@ elif [ -n "${BM25_QUERY_FIELD:-}" ] && _query_field_has_comma "$BM25_QUERY_FIELD
         _bm25_new+=("$_a")
       done
       _bm25_one=("${_bm25_new[@]}")
-      _bm25_one+=(--query-field "$_qf" --no_eval)
+      _bm25_one+=(--query-field "$_qf" --no_eval --skip-empty-query-field)
       python "$SCRIPT_DIR/retrieval/eval_bm25_rm3.py" "${_bm25_one[@]}"
     fi
     _BM25_FUSE_DIRS+=("$_bm25_sub/runs")
   done
   mkdir -p "$BM25_OUT/runs"
-  _run_multi_query_fuse "$BM25_OUT/runs" "*.tsv" "${BM25_QUERY_FUSION_K_RRF:-60}" "${BM25_QUERY_FUSION_WEIGHTS:-}" "$BM25_TOP_K" -- "${_BM25_FUSE_DIRS[@]}"
+  _build_mquery_labels
+  _run_multi_query_fuse "$BM25_OUT/runs" "*.tsv" "${BM25_QUERY_FUSION_K_RRF:-60}" "${BM25_QUERY_FUSION_WEIGHTS:-}" "$BM25_TOP_K" "$_MQUERY_LABELS" -- "${_BM25_FUSE_DIRS[@]}"
   STEP_BM25_END=$(date +%s)
   echo "[timing] BM25 step: $((STEP_BM25_END-STEP_BM25_START))s"
   _log_run "step" "1" "BM25" "$((STEP_BM25_END-STEP_BM25_START))s"
@@ -459,13 +470,14 @@ elif [ -n "${DENSE_QUERY_FIELD:-}" ] && _query_field_has_comma "$DENSE_QUERY_FIE
         _dense_new+=("$_a")
       done
       _dense_one=("${_dense_new[@]}")
-      _dense_one+=(--query-field "$_qf" --no_eval)
+      _dense_one+=(--query-field "$_qf" --no_eval --skip-empty-query-field)
       python "$SCRIPT_DIR/retrieval/eval_dense.py" "${_dense_one[@]}"
     fi
     _DENSE_FUSE_DIRS+=("$_dense_sub/runs")
   done
   mkdir -p "$DENSE_OUT/runs"
-  _run_multi_query_fuse "$DENSE_OUT/runs" "dense_*.tsv" "${DENSE_QUERY_FUSION_K_RRF:-60}" "${DENSE_QUERY_FUSION_WEIGHTS:-}" "$DENSE_TOP_K" -- "${_DENSE_FUSE_DIRS[@]}"
+  _build_mquery_labels
+  _run_multi_query_fuse "$DENSE_OUT/runs" "dense_*.tsv" "${DENSE_QUERY_FUSION_K_RRF:-60}" "${DENSE_QUERY_FUSION_WEIGHTS:-}" "$DENSE_TOP_K" "$_MQUERY_LABELS" -- "${_DENSE_FUSE_DIRS[@]}"
   STEP_DENSE_END=$(date +%s)
   echo "[timing] Dense step: $((STEP_DENSE_END-STEP_DENSE_START))s"
   _log_run "step" "2" "Dense" "$((STEP_DENSE_END-STEP_DENSE_START))s"
@@ -579,6 +591,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
             --ks-recall "${RERANK_KS_RECALL:-$RECALL_KS}"
             --query-field "$_qf"
             --disable-metrics
+            --skip-empty-query-field
           )
           [ -n "${TRAIN_JSON:-}" ] && RERANK_ARGS+=(--train-json "$TRAIN_JSON")
           [ -n "${TEST_BATCH_JSONS:-}" ] && RERANK_ARGS+=(--test_batch_jsons $TEST_BATCH_JSONS)
@@ -599,7 +612,8 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
         _RERANK_FUSE_DIRS+=("$_rr_sub/runs")
       done
       mkdir -p "$RERANK_OUT/runs"
-      _run_multi_query_fuse "$RERANK_OUT/runs" "*.tsv" "${RERANK_QUERY_FUSION_K_RRF:-60}" "${RERANK_QUERY_FUSION_WEIGHTS:-}" "$RERANK_EFFECTIVE" -- "${_RERANK_FUSE_DIRS[@]}"
+      _build_mquery_labels
+      _run_multi_query_fuse "$RERANK_OUT/runs" "*.tsv" "${RERANK_QUERY_FUSION_K_RRF:-60}" "${RERANK_QUERY_FUSION_WEIGHTS:-}" "$RERANK_EFFECTIVE" "$_MQUERY_LABELS" -- "${_RERANK_FUSE_DIRS[@]}"
     else
       RERANK_ARGS=(
         --runs-dir "$HYBRID_OUT/runs"
@@ -829,6 +843,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
               --ce-model "${SNIPPET_CE_MODEL:-${RERANK_MODEL:-BAAI/bge-reranker-v2-m3}}"
               --query-field "$_qf"
               --disable-metrics
+              --skip-empty-query-field
             )
             [ -n "${TRAIN_JSON:-}" ] && SNIPPET_ARGS+=(--train-json "$TRAIN_JSON")
             [ -n "${TEST_BATCH_JSONS:-}" ] && SNIPPET_ARGS+=(--test-batch-jsons $TEST_BATCH_JSONS)
@@ -849,7 +864,8 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
           _SNIP_FUSE_DIRS+=("$_sn_sub/runs")
         done
         mkdir -p "$SNIPPET_RERANK_OUT/runs"
-        _run_multi_query_fuse "$SNIPPET_RERANK_OUT/runs" "*.tsv" "${RERANK_QUERY_FUSION_K_RRF:-60}" "${RERANK_QUERY_FUSION_WEIGHTS:-}" "$_SNIP_FUSE_CAP" -- "${_SNIP_FUSE_DIRS[@]}"
+        _build_mquery_labels
+        _run_multi_query_fuse "$SNIPPET_RERANK_OUT/runs" "*.tsv" "${RERANK_QUERY_FUSION_K_RRF:-60}" "${RERANK_QUERY_FUSION_WEIGHTS:-}" "$_SNIP_FUSE_CAP" "$_MQUERY_LABELS" -- "${_SNIP_FUSE_DIRS[@]}"
         mkdir -p "$SNIPPET_RERANK_OUT/windows"
         rm -f "$SNIPPET_RERANK_OUT"/windows/*.part 2>/dev/null || true
         for _sd in "$SNIPPET_RERANK_OUT"/_sub_*/; do

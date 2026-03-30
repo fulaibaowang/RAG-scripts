@@ -484,6 +484,12 @@ def parse_args() -> argparse.Namespace:
     inp.add_argument("--train-json", type=Path, default=None)
     inp.add_argument("--test-batch-jsons", "--test_batch_jsons", type=Path, nargs="*", default=None)
     inp.add_argument("--query-field", type=str, default="body")
+    inp.add_argument(
+        "--skip-empty-query-field",
+        action="store_true",
+        help="Skip questions where --query-field is empty/null instead of raising an error, "
+        "and omit those qids from the output. Used by multi-query fusion sub-runs.",
+    )
     inp.add_argument("--n-docs", type=int, default=100, help="Top docs per query from input run.")
 
     win = p.add_argument_group("windows")
@@ -561,7 +567,9 @@ def main() -> None:
         if not json_path or not json_path.exists():
             return
         qs = load_questions(json_path)
-        tdf, gm = build_topics_and_gold(qs, query_field=args.query_field)
+        tdf, gm = build_topics_and_gold(
+            qs, query_field=args.query_field, skip_empty=args.skip_empty_query_field,
+        )
         topics.update(dict(zip(tdf["qid"].astype(str), tdf["query"].astype(str))))
         for qid, docs in gm.items():
             gold_all[qid] = docs
@@ -661,9 +669,13 @@ def main() -> None:
         # ----------------------------------------------------------------
         # kept_windows[qid] = [(docno, window_idx, window_text), ...]
         kept_windows: Dict[str, List[Tuple[str, int, str]]] = {}
+        _n_skipped_stage_a = 0
         t0 = time()
         for qi, (qid, docnos) in enumerate(run_map.items(), 1):
             query = topics.get(qid, "").strip()
+            if not query and args.skip_empty_query_field:
+                _n_skipped_stage_a += 1
+                continue
             qid_windows: List[Tuple[str, int, str]] = []
             for docno in docnos:
                 title, sents = doc_data.get(docno, ("", []))
@@ -689,7 +701,12 @@ def main() -> None:
                 )
 
         total_kept = sum(len(v) for v in kept_windows.values())
-        print(f"[{split_name}][Stage A] done – {total_kept} windows across {n_queries} queries")
+        if _n_skipped_stage_a:
+            print(
+                f"[{split_name}][Stage A] skipped {_n_skipped_stage_a}/{n_queries} "
+                f"qids with empty query (--skip-empty-query-field)"
+            )
+        print(f"[{split_name}][Stage A] done – {total_kept} windows across {len(kept_windows)} queries")
 
         # ----------------------------------------------------------------
         # Stage B: CE/LLM rerank windows (single- or multi-GPU)

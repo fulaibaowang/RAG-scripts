@@ -47,18 +47,39 @@ def load_questions(json_path: Path) -> List[dict]:
 def build_topics_and_gold(
     questions: List[dict],
     query_field: Optional[str] = None,
+    skip_empty: bool = False,
 ) -> Tuple[pd.DataFrame, Dict[str, List[str]]]:
     """Return topics_df(qid, query) and gold_map[qid]=[pmids].
-    If query_field is set (e.g. 'body_expansion_long', 'body'), that key is required on every
-    question and must be non-empty; otherwise ValueError is raised. If query_field is None,
-    query text is taken from body, query, or question."""
+
+    If *query_field* is set (e.g. ``'body_hyde'``), that key must be present and
+    non-empty on each question.  By default, an empty/missing value raises
+    ``ValueError`` (catches misconfigured single-field runs).
+
+    When *skip_empty* is ``True``, questions whose *query_field* value is missing
+    or empty are silently excluded from ``topics_df`` (but still included in
+    ``gold_map``).  A warning with the skip count is printed so the caller can
+    verify the numbers.  Use this for multi-query sub-runs where some questions
+    legitimately have no alternative query text.
+
+    If *query_field* is ``None``, query text is taken from body / query / question.
+    """
     rows = []
     gold: Dict[str, List[str]] = {}
+    n_skipped = 0
     for i, q in enumerate(questions):
         qid = str(q.get("id") or q.get("qid") or i)
+
+        docs = q.get("documents") or []
+        pmids = [normalize_pmid(d) for d in docs]
+        pmids = [p for p in pmids if p]
+        gold[qid] = pmids
+
         if query_field:
             val = q.get(query_field)
             if val is None or (isinstance(val, str) and not val.strip()):
+                if skip_empty:
+                    n_skipped += 1
+                    continue
                 sample_keys = list(q.keys())[:10]
                 raise ValueError(
                     f"query_field={query_field!r} is missing or empty for question {qid} "
@@ -69,12 +90,15 @@ def build_topics_and_gold(
         else:
             query = str(q.get("body") or q.get("query") or q.get("question") or "").strip()
 
-        docs = q.get("documents") or []
-        pmids = [normalize_pmid(d) for d in docs]
-        pmids = [p for p in pmids if p]
-        gold[qid] = pmids
-
         rows.append({"qid": qid, "query": query})
+
+    if n_skipped:
+        total = len(questions)
+        pct = 100.0 * n_skipped / total if total else 0.0
+        print(
+            f"[WARNING] build_topics_and_gold: skipped {n_skipped}/{total} "
+            f"questions with empty {query_field!r} ({pct:.0f}%)"
+        )
 
     return pd.DataFrame(rows), gold
 

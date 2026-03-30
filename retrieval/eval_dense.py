@@ -381,8 +381,9 @@ def evaluate_and_save_dense_on_questions(
     save: bool = True,
     save_per_query: bool = False,
     query_field: str | None = None,
+    skip_empty: bool = False,
 ) -> dict[str, Any]:
-    topics_df, gold_map = build_topics_and_gold(questions, query_field=query_field)
+    topics_df, gold_map = build_topics_and_gold(questions, query_field=query_field, skip_empty=skip_empty)
 
     res_df = dense_retrieve_topics(
         model=model,
@@ -440,9 +441,10 @@ def evaluate_and_save_dense_on_questions_sharded(
     save: bool = True,
     save_per_query: bool = False,
     query_field: str | None = None,
+    skip_empty: bool = False,
 ) -> dict[str, Any]:
     """Like evaluate_and_save_dense_on_questions but uses dense_retrieve_topics_sharded."""
-    topics_df, gold_map = build_topics_and_gold(questions, query_field=query_field)
+    topics_df, gold_map = build_topics_and_gold(questions, query_field=query_field, skip_empty=skip_empty)
 
     res_df = dense_retrieve_topics_sharded(
         model=model,
@@ -550,7 +552,9 @@ def _run_sharded(args: argparse.Namespace, out_dir: Path, ks_recall: tuple[int, 
 
     if args.no_eval:
         train_data = json.loads(Path(args.train_json).read_text(encoding="utf-8"))
-        topics_df, _ = build_topics_and_gold(train_data["questions"], query_field=args.query_field)
+        topics_df, _ = build_topics_and_gold(
+            train_data["questions"], query_field=args.query_field, skip_empty=args.skip_empty_query_field,
+        )
         res_df = dense_retrieve_topics_sharded(
             model=model,
             indices=indices,
@@ -566,7 +570,9 @@ def _run_sharded(args: argparse.Namespace, out_dir: Path, ks_recall: tuple[int, 
         for fp in args.test_batch_jsons:
             p = Path(fp)
             data = json.loads(p.read_text(encoding="utf-8"))
-            topics_df, _ = build_topics_and_gold(data["questions"], query_field=args.query_field)
+            topics_df, _ = build_topics_and_gold(
+                data["questions"], query_field=args.query_field, skip_empty=args.skip_empty_query_field,
+            )
             res_df = dense_retrieve_topics_sharded(
                 model=model,
                 indices=indices,
@@ -607,6 +613,7 @@ def _run_sharded(args: argparse.Namespace, out_dir: Path, ks_recall: tuple[int, 
             save=True,
             save_per_query=bool(args.save_per_query),
             query_field=args.query_field,
+            skip_empty=args.skip_empty_query_field,
         )
     )
     for fp in args.test_batch_jsons:
@@ -631,13 +638,14 @@ def _run_sharded(args: argparse.Namespace, out_dir: Path, ks_recall: tuple[int, 
                 save=True,
                 save_per_query=bool(args.save_per_query),
                 query_field=args.query_field,
+                skip_empty=args.skip_empty_query_field,
             )
         )
 
     metrics_df = pd.DataFrame(all_rows)
     metrics_csv = out_dir / "metrics.csv"
     metrics_df.to_csv(metrics_csv, index=False)
-    print("\n=== Dense metrics ===")
+    print("\n=== Dense metrics (sharded) ===")
     print(metrics_df)
     print(f"[saved] {metrics_csv}")
 
@@ -698,6 +706,12 @@ def main():
         type=str,
         default="body",
         help="Question key to use as query text (e.g. body, body_expansion_synonyms, body_expansion_long). Default: body.",
+    )
+    ap.add_argument(
+        "--skip-empty-query-field",
+        action="store_true",
+        help="Skip questions where --query-field is empty/null instead of raising an error. "
+        "Used by multi-query fusion sub-runs.",
     )
 
     args = ap.parse_args()
@@ -776,7 +790,9 @@ def main():
 
     if args.no_eval:
         train_data = json.loads(Path(args.train_json).read_text(encoding="utf-8"))
-        topics_df, _ = build_topics_and_gold(train_data["questions"], query_field=args.query_field)
+        topics_df, _ = build_topics_and_gold(
+            train_data["questions"], query_field=args.query_field, skip_empty=args.skip_empty_query_field,
+        )
         res_df = dense_retrieve_topics(
             model=model,
             index=index,
@@ -792,7 +808,9 @@ def main():
         for fp in args.test_batch_jsons:
             p = Path(fp)
             data = json.loads(p.read_text(encoding="utf-8"))
-            topics_df, _ = build_topics_and_gold(data["questions"], query_field=args.query_field)
+            topics_df, _ = build_topics_and_gold(
+                data["questions"], query_field=args.query_field, skip_empty=args.skip_empty_query_field,
+            )
             res_df = dense_retrieve_topics(
                 model=model,
                 index=index,
@@ -833,6 +851,7 @@ def main():
             save=True,
             save_per_query=bool(args.save_per_query),
             query_field=args.query_field,
+            skip_empty=args.skip_empty_query_field,
         )
     )
 
@@ -858,6 +877,7 @@ def main():
                 save=True,
                 save_per_query=bool(args.save_per_query),
                 query_field=args.query_field,
+                skip_empty=args.skip_empty_query_field,
             )
         )
 

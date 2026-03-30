@@ -134,6 +134,12 @@ def parse_args() -> argparse.Namespace:
         default="body",
         help="Question key to use as query text for reranker (e.g. body, body_expansion_synonyms, body_expansion_long). Default: body.",
     )
+    inputs.add_argument(
+        "--skip-empty-query-field",
+        action="store_true",
+        help="Skip questions where --query-field is empty/null instead of raising an error, "
+        "and omit those qids from the reranked output. Used by multi-query fusion sub-runs.",
+    )
 
     model = parser.add_argument_group("model")
     model.add_argument("--model", type=str, default="BAAI/bge-reranker-v2-m3")
@@ -630,7 +636,9 @@ def _llm_rerank_worker(
             continue
         questions = load_questions(Path(json_path))
         topics_df, _ = build_topics_and_gold(
-            questions, query_field=worker_args.get("query_field") or "body"
+            questions,
+            query_field=worker_args.get("query_field") or "body",
+            skip_empty=bool(worker_args.get("skip_empty_query_field")),
         )
         topics_map.update(dict(zip(topics_df["qid"], topics_df["query"])))
     candidate_docnos = set()
@@ -765,7 +773,9 @@ def main() -> None:
         if not json_path.exists():
             return
         questions = load_questions(json_path)
-        topics_df, gold_map = build_topics_and_gold(questions, query_field=query_field)
+        topics_df, gold_map = build_topics_and_gold(
+            questions, query_field=query_field, skip_empty=args.skip_empty_query_field,
+        )
         topics_map.update(dict(zip(topics_df["qid"], topics_df["query"])))
         for qid, docs in gold_map.items():
             gold_map_all[qid] = docs
@@ -816,9 +826,14 @@ def main() -> None:
             llm_use_bf16=args.llm_use_bf16,
             progress_every=args.progress_every,
         )
+        if args.skip_empty_query_field:
+            before = len(reranked)
+            reranked = {qid: docs for qid, docs in reranked.items() if qid in topics_map}
+            dropped = before - len(reranked)
+            if dropped:
+                print(f"  [skip-empty] dropped {dropped}/{before} qids not in topics_map")
         reranked_runs[name] = reranked
         print("reranked", name, "queries:", len(reranked))
-        # Save this split immediately so a crash doesn't lose all completed work
         rows = []
         for qid, docs in reranked.items():
             for rank, (docno, score) in enumerate(docs, start=1):

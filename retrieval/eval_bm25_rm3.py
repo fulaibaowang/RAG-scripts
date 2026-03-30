@@ -210,6 +210,12 @@ def main():
         default="body",
         help="Question key to use as query text (e.g. body, body_expansion_synonyms, body_expansion_long). Default: body.",
     )
+    ap.add_argument(
+        "--skip-empty-query-field",
+        action="store_true",
+        help="Skip questions where --query-field is empty/null instead of raising an error. "
+        "Used by multi-query fusion sub-runs.",
+    )
     args = ap.parse_args()
 
     ks_recall = tuple(int(x) for x in args.ks.split(",") if x.strip())
@@ -284,7 +290,9 @@ def main():
         test_qids |= collect_qids_from_questions(qs)
 
     # Build train topics/gold and optionally exclude test qids
-    train_topics, train_gold = build_topics_and_gold(train_questions, query_field=args.query_field)
+    train_topics, train_gold = build_topics_and_gold(
+        train_questions, query_field=args.query_field, skip_empty=args.skip_empty_query_field,
+    )
     if not args.no_exclude_test_qids:
         mask = ~train_topics["qid"].astype(str).isin(test_qids)
         train_topics = train_topics.loc[mask].reset_index(drop=True)
@@ -339,7 +347,9 @@ def main():
             run_map, res_df = run_retrieval_only(train_topics, pipe, args.k_eval)
             save_run_tsv(method, train_batch, res_df)
         for batch_name, questions in test_batches:
-            topics, _ = build_topics_and_gold(questions, query_field=args.query_field)
+            topics, _ = build_topics_and_gold(
+                questions, query_field=args.query_field, skip_empty=args.skip_empty_query_field,
+            )
             for method, pipe in methods_to_run:
                 run_map, res_df = run_retrieval_only(topics, pipe, args.k_eval)
                 save_run_tsv(method, batch_name, res_df)
@@ -354,7 +364,9 @@ def main():
 
     # Test batches
     for batch_name, questions in test_batches:
-        topics, gold = build_topics_and_gold(questions, query_field=args.query_field)
+        topics, gold = build_topics_and_gold(
+            questions, query_field=args.query_field, skip_empty=args.skip_empty_query_field,
+        )
         for method, pipe in methods_to_run:
             br, perq, run_map, res_df = eval_one(method, batch_name, topics, gold, pipe, args.k_eval, ks_recall=ks_recall)
             all_rows.append(br.to_row())
