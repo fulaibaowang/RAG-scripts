@@ -47,6 +47,8 @@ Reranker can only use as many docs as hybrid produces; the pipeline clamps the v
 
 For typical tuning ranges (e.g. RM3, HNSW, RRF, reranker) and links to the notebooks, see [docs/PARAMETERS.md](docs/PARAMETERS.md).
 
+For multi-query fusion (running multiple query variants per stage and fusing with RRF), HyDE query preparation, and smart deduplication, see [../query_parsing/MULTI_QUERY_HYDE.md](../query_parsing/MULTI_QUERY_HYDE.md).
+
 ## Scripts
 
 - **Pipeline orchestrator**
