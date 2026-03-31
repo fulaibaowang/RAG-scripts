@@ -243,27 +243,36 @@ def _plot_curves(
     figures_dir: Path,
     prefix: str,
     title_suffix: str,
+    plot_type: str = "both",
+    recall_k_max: Optional[int] = None,
 ) -> None:
-    """Generate recall and MAP curve PNGs for a list of metric rows."""
+    """Generate recall and/or MAP curve PNGs for a list of metric rows.
+
+    *plot_type*: ``"recall"``, ``"map"``, or ``"both"`` (default).
+    *recall_k_max*: when set, recall curves are capped at this K value.
+    """
     if plt is None or not rows:
         return
-    ks_plot = sorted(k for k in ks_recall if any(f"MeanR@{k}" in r for r in rows))
-    if ks_plot:
-        fig, ax = plt.subplots(figsize=(10, 5))
-        for r in rows:
-            ys = [r.get(f"MeanR@{k}", np.nan) for k in ks_plot]
-            ax.plot(ks_plot, ys, marker="o", label=r["label"], markersize=4)
-        ax.set_xlabel("K")
-        ax.set_ylabel("Mean Recall@K")
-        ax.set_title(f"Recall curves {title_suffix}")
-        ax.legend(fontsize=8)
-        ax.grid(True, alpha=0.3)
-        plt.tight_layout()
-        p = figures_dir / f"{prefix}_recall.png"
-        plt.savefig(p, dpi=150, bbox_inches="tight")
-        plt.close()
-        print(f"[multi_query_fuse] plot -> {p}")
-    if map_ks:
+    if plot_type in ("recall", "both"):
+        ks_plot = sorted(k for k in ks_recall if any(f"MeanR@{k}" in r for r in rows))
+        if recall_k_max is not None:
+            ks_plot = [k for k in ks_plot if k <= recall_k_max]
+        if ks_plot:
+            fig, ax = plt.subplots(figsize=(10, 5))
+            for r in rows:
+                ys = [r.get(f"MeanR@{k}", np.nan) for k in ks_plot]
+                ax.plot(ks_plot, ys, marker="o", label=r["label"], markersize=4)
+            ax.set_xlabel("K")
+            ax.set_ylabel("Mean Recall@K")
+            ax.set_title(f"Recall curves {title_suffix}")
+            ax.legend(fontsize=8)
+            ax.grid(True, alpha=0.3)
+            plt.tight_layout()
+            p = figures_dir / f"{prefix}_recall.png"
+            plt.savefig(p, dpi=150, bbox_inches="tight")
+            plt.close()
+            print(f"[multi_query_fuse] plot -> {p}")
+    if plot_type in ("map", "both") and map_ks:
         fig, ax = plt.subplots(figsize=(10, 5))
         for r in rows:
             ys = [r.get(f"MAP@{k}", np.nan) for k in map_ks]
@@ -289,6 +298,9 @@ def _eval_fused_runs(
     map_ks: Optional[List[int]] = None,
     run_dirs: Optional[List[Path]] = None,
     labels: Optional[List[str]] = None,
+    plot_type: str = "both",
+    no_fused_all_plots: bool = False,
+    recall_k_max: Optional[int] = None,
 ) -> None:
     """Evaluate fused TSVs and optionally compare with sub-run TSVs.
 
@@ -296,7 +308,11 @@ def _eval_fused_runs(
       - Plot 1 (``fused_compare_*``): body + fused + eligible per-field curves on
         the "different queries" subset (union of non-body sub-run qid sets).
         A non-body field is included only if its qid set covers all diff_qids.
-      - Plot 2 (``fused_all_*``): fused curve on all queries.
+      - Plot 2 (``fused_all_*``): fused curve on all queries (skipped when
+        *no_fused_all_plots* is ``True``).
+
+    *plot_type*: ``"recall"``, ``"map"``, or ``"both"`` -- forwarded to
+    ``_plot_curves``.  *recall_k_max*: cap on recall curve x-axis.
     """
     fused_dir = out_dir
     parent_dir = out_dir.parent
@@ -379,12 +395,14 @@ def _eval_fused_runs(
         return
 
     for role_val in ("train", "test"):
-        # Plot 2: fused on all queries
-        all_rows = [r for r in all_metrics_rows
-                     if r.get("role") == role_val and r.get("scope") == "all"]
-        if all_rows:
-            _plot_curves(all_rows, ks_recall, map_ks, figures_dir,
-                         f"fused_all_{role_val}", f"(all queries, {role_val})")
+        # Plot 2: fused on all queries (skip when --no-fused-all-plots)
+        if not no_fused_all_plots:
+            all_rows = [r for r in all_metrics_rows
+                         if r.get("role") == role_val and r.get("scope") == "all"]
+            if all_rows:
+                _plot_curves(all_rows, ks_recall, map_ks, figures_dir,
+                             f"fused_all_{role_val}", f"(all queries, {role_val})",
+                             plot_type=plot_type, recall_k_max=recall_k_max)
 
         # Plot 1: comparison on different-queries subset
         diff_rows = [r for r in all_metrics_rows
@@ -392,7 +410,8 @@ def _eval_fused_runs(
         if diff_rows:
             _plot_curves(diff_rows, ks_recall, map_ks, figures_dir,
                          f"fused_compare_{role_val}",
-                         f"(different queries only, {role_val})")
+                         f"(different queries only, {role_val})",
+                         plot_type=plot_type, recall_k_max=recall_k_max)
 
 
 # ---------------------------------------------------------------------------
@@ -454,6 +473,19 @@ def main() -> None:
         "remaining weight is split equally among active non-body fields per query. "
         "Ignored when --weights is explicitly set.",
     )
+    ap.add_argument(
+        "--plot", type=str, choices=("recall", "map", "both"), default="both",
+        help="Which curve types to plot: recall, map, or both (default: both).",
+    )
+    ap.add_argument(
+        "--no-fused-all-plots", action="store_true",
+        help="Skip the fused_all_* plots (fused on all queries). "
+        "Only the fused_compare_* plots (different-queries subset) are generated.",
+    )
+    ap.add_argument(
+        "--recall-k-max", type=int, default=None,
+        help="Cap the recall curve x-axis at this K value (plots only, metrics unchanged).",
+    )
     args = ap.parse_args()
 
     run_dirs = [Path(d).resolve() for d in args.run_dirs]
@@ -513,6 +545,9 @@ def main() -> None:
                 out_dir, gold_map, ks_recall, train_stems, test_stems, map_ks,
                 run_dirs=run_dirs if lbl_list else None,
                 labels=lbl_list if lbl_list else None,
+                plot_type=args.plot,
+                no_fused_all_plots=args.no_fused_all_plots,
+                recall_k_max=args.recall_k_max,
             )
         else:
             print("[multi_query_fuse] no gold loaded; skipping evaluation")

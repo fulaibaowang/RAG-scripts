@@ -749,9 +749,6 @@ def main() -> None:
             p=float(args.p),
         )
 
-        plot_shortfall(ranked, cap=cap_eff, topn=10, save_path=figs_dir / "shortfall_top10.png")
-        plot_keff(ranked, cap=cap_eff, topn=10, save_path=figs_dir / "keff_top10.png")
-
         if args.mode == "sweep":
             plot_param_sensitivity(
                 results_df=results_df,
