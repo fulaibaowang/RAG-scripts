@@ -520,7 +520,7 @@ HYBRID_ARGS=(
 [ "${HYBRID_NO_PLOTS:-0}" = "1" ] && HYBRID_ARGS+=(--no_plots)
 [ "${HYBRID_SAVE_PLOTS:-0}" = "1" ] && HYBRID_ARGS+=(--save_plots)
 
-if [ -f "$HYBRID_OUT/ranked_test_avg.csv" ] || [ -f "$HYBRID_OUT/metrics.csv" ]; then
+if [ -f "$HYBRID_OUT/ranked_test_avg.csv" ] || [ -f "$HYBRID_OUT/metrics.csv" ] || [ -n "$(find "$HYBRID_OUT/runs" -maxdepth 1 -name '*.tsv' 2>/dev/null | head -1)" ]; then
   echo "[3/$TOTAL_STEPS] Hybrid... (skip: output exists)"
   _log_run "step" "3" "Hybrid" "skip"
 else
