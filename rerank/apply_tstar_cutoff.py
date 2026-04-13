@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""Apply global rerank score threshold t* to rerank_hybrid (RRF) runs by joining doc scores from rerank/runs.
+"""Apply global rerank score threshold t* to rerank_hybrid (RRF) runs by joining doc scores from rerank runs.
 
 Hybrid+RRF fused TSVs may omit scores; this script looks up (qid, docno) -> score from the matching
 rerank run (same logical stem without ``_rrf_poolR*_poolH*_k*`` suffix). Optional CAP truncates after
 thresholding; FLOOR guarantees at least FLOOR docs by top-up in original fused order.
+
+When ``--rerank-sub-runs-dir`` is given one or more times (multi-query rerank: ``rerank/_sub_*/runs``),
+scores are max over those sub-run TSVs per (qid, docno) — not the RRF-fused scores in
+``rerank/runs``. Otherwise scores come from a single ``--rerank-runs-dir`` TSV.
 """
 from __future__ import annotations
 
@@ -67,6 +71,22 @@ def build_max_score_map(rerank_df: pd.DataFrame) -> Dict[Tuple[str, str], float]
     return m
 
 
+def build_max_score_map_across_sub_runs(rr_stem: str, sub_run_dirs: Sequence[Path]) -> Dict[Tuple[str, str], float]:
+    """(qid, docno) -> max reranker score over per-field sub-run TSVs (multi-query path)."""
+    merged: Dict[Tuple[str, str], float] = {}
+    for sd in sub_run_dirs:
+        path = sd / f"{rr_stem}.tsv"
+        if not path.exists():
+            print(f"[t*] warning: missing sub rerank run {path} (stem {rr_stem})", file=sys.stderr)
+            continue
+        sub_map = build_max_score_map(load_run_tsv(path))
+        for k, v in sub_map.items():
+            prev = merged.get(k, float("-inf"))
+            if v > prev:
+                merged[k] = v
+    return merged
+
+
 def apply_cutoff_for_query(
     doc_order: List[str],
     score_map: Dict[Tuple[str, str], float],
@@ -120,7 +140,20 @@ def apply_cutoff_for_query(
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     p.add_argument("--input-runs-dir", type=Path, required=True, help="Fused rerank_hybrid runs/*.tsv")
-    p.add_argument("--rerank-runs-dir", type=Path, required=True, help="Reranker runs/*.tsv (with scores)")
+    p.add_argument(
+        "--rerank-runs-dir",
+        type=Path,
+        default=None,
+        help="Single rerank runs dir (with scores). Used when no --rerank-sub-runs-dir is passed.",
+    )
+    p.add_argument(
+        "--rerank-sub-runs-dir",
+        type=Path,
+        action="append",
+        default=None,
+        metavar="DIR",
+        help="Repeat: rerank/_sub_<field>/runs dirs. When set, threshold uses max score across these TSVs per doc.",
+    )
     p.add_argument("--output-runs-dir", type=Path, required=True, help="Directory to write filtered TSVs")
     p.add_argument("--tstar", type=float, required=True, help="Global score threshold (reranker scale)")
     p.add_argument("--floor", type=int, default=5, help="Minimum docs per query after cutoff")
@@ -166,9 +199,14 @@ def main() -> int:
 
     inp = args.input_runs_dir
     rdir = args.rerank_runs_dir
+    sub_run_dirs: List[Path] = [Path(p).resolve() for p in (args.rerank_sub_runs_dir or []) if p is not None]
     out_runs = args.output_runs_dir
     out_runs.mkdir(parents=True, exist_ok=True)
     out_base = out_runs.parent
+
+    if not sub_run_dirs and rdir is None:
+        print("Error: provide --rerank-runs-dir and/or --rerank-sub-runs-dir", file=sys.stderr)
+        return 1
 
     paths = sorted(inp.glob(args.pattern))
     if not paths:
@@ -189,14 +227,25 @@ def main() -> int:
         if not rr_stem:
             print(f"skip {fused_path.name}: could not parse stem")
             continue
-        rerank_path = rdir / f"{rr_stem}.tsv"
-        if not rerank_path.exists():
-            print(f"skip {fused_path.name}: missing rerank run {rerank_path}", file=sys.stderr)
-            continue
-
         fused_df = load_run_tsv(fused_path)
-        rerank_df = load_run_tsv(rerank_path)
-        score_map = build_max_score_map(rerank_df)
+        if sub_run_dirs:
+            score_map = build_max_score_map_across_sub_runs(rr_stem, sub_run_dirs)
+            if not score_map:
+                print(
+                    f"skip {fused_path.name}: no scores from --rerank-sub-runs-dir for stem {rr_stem}",
+                    file=sys.stderr,
+                )
+                continue
+        else:
+            if rdir is None:
+                print("Error: --rerank-runs-dir is required when no --rerank-sub-runs-dir is set", file=sys.stderr)
+                return 1
+            rerank_path = rdir / f"{rr_stem}.tsv"
+            if not rerank_path.exists():
+                print(f"skip {fused_path.name}: missing rerank run {rerank_path}", file=sys.stderr)
+                continue
+            rerank_df = load_run_tsv(rerank_path)
+            score_map = build_max_score_map(rerank_df)
 
         rows_out: List[dict] = []
         kept_counts: List[int] = []
@@ -248,6 +297,7 @@ def main() -> int:
         row = {
             "split_stem": fused_stem,
             "rerank_stem": rr_stem,
+            "score_source": "sub_max" if sub_run_dirs else "rerank_runs",
             "n_queries": nq,
             "mean_kept": float(np.mean(kept_counts)) if kept_counts else float("nan"),
             "median_kept": float(np.median(kept_counts)) if kept_counts else float("nan"),
@@ -279,6 +329,7 @@ def main() -> int:
             prow: dict = {
                 "split_stem": "__pooled__",
                 "rerank_stem": "",
+                "score_source": sdf["score_source"].iloc[0] if "score_source" in sdf.columns else "",
                 "n_queries": int(sdf["n_queries"].sum()),
                 "mean_kept": float(np.mean(pooled_kept)),
                 "median_kept": float(np.median(pooled_kept)),
@@ -311,7 +362,9 @@ def main() -> int:
         "floor": floor,
         "cap": cap,
         "input_runs_dir": str(inp),
-        "rerank_runs_dir": str(rdir),
+        "rerank_runs_dir": str(rdir) if rdir is not None else None,
+        "rerank_sub_runs_dirs": [str(p) for p in sub_run_dirs],
+        "score_source": "sub_max" if sub_run_dirs else "rerank_runs",
         "output_runs_dir": str(out_runs),
     }
     (out_base / "tstar_cutoff_config.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")

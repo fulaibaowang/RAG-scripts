@@ -693,6 +693,14 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
       --tstar "$RERANK_TSTAR"
       --floor "${RERANK_TSTAR_FLOOR:-5}"
     )
+    # Multi-query rerank: fused rerank/runs scores are RRF-combined; t* uses max raw score per doc across _sub_* runs.
+    if [ -n "${RERANK_QUERY_FIELD:-}" ] && _query_field_has_comma "$RERANK_QUERY_FIELD"; then
+      _parse_query_field_csv "$RERANK_QUERY_FIELD"
+      for _qf in "${_MQUERY_FIELDS[@]}"; do
+        _TS_ARGS+=(--rerank-sub-runs-dir "$RERANK_OUT/$(_subdir_for_query_field "$_qf")/runs")
+      done
+      echo "[t* $_tag] score_source=sub_max (${#_MQUERY_FIELDS[@]} fields)"
+    fi
     [ -n "${RERANK_TSTAR_CAP:-}" ] && _TS_ARGS+=(--cap "$RERANK_TSTAR_CAP")
     if [ "${HAVE_GROUND_TRUTH:-1}" != "0" ] && [ "${RERANK_DISABLE_METRICS:-0}" != "1" ]; then
       [ -n "${TRAIN_JSON:-}" ] && _TS_ARGS+=(--train-json "$TRAIN_JSON")
