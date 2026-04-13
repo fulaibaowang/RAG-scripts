@@ -787,6 +787,7 @@ def main() -> None:
                     wf.write(json.dumps({
                         "qid": qid, "docno": docno,
                         "window_idx": wi, "window_text": wt, "ce_score": sc,
+                        "query_field": args.query_field,
                     }, ensure_ascii=False) + "\n")
         print(f"[{split_name}] saved window results -> {win_path}")
 

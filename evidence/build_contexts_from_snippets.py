@@ -3,12 +3,22 @@
 Build contexts from post-rerank JSON using top CE windows from snippet reranking.
 
 Reads the JSON produced by post_rerank_json.py and the window JSONL from
-snippet_rerank (qid, docno, window_idx, ce_score). For each (qid, doc) in the
-post-rerank documents, selects the top-K windows by CE score, merges their
-sentence indices (non-overlapping), and builds context as title + selected
-sentences. Fallback: if no windows exist for a doc, uses full title + abstract.
-Output format matches build_contexts_from_documents.py.
+snippet_rerank (qid, docno, window_idx, ce_score, optional query_field).
+For each (qid, doc) in the post-rerank documents, max-pools CE scores per
+window_idx across lines (multi-query concat), ranks distinct windows, then:
+
+- top-windows=1: keep the best window only.
+- top-windows=2: keep the best window; add the second-ranked window only if its
+  sentence span is disjoint from the first (overlapping second is dropped).
+
+Merges kept windows' sentence indices for context text. Fallback: if no windows
+exist for a doc, uses full title + abstract.
+
+Emits per-context selected_windows, rejected_windows (rank-2 dropped for sentence
+overlap with rank-1), and optional per-split stats JSON.
 """
+
+from __future__ import annotations
 
 import argparse
 import glob as glob_mod
@@ -18,16 +28,26 @@ import re
 import sys
 import unicodedata
 from pathlib import Path
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
 PUBMED_URL_PATTERN = re.compile(r"pubmed/(\d+)/?$", re.I)
+# When ce_score ties, prefer lexicographically smaller query_field; missing sorts last.
+_QF_TIE_SENTINEL = "\uffff"
+
+
+def _top_windows_int(value: str) -> int:
+    v = int(value)
+    if v not in (1, 2):
+        raise argparse.ArgumentTypeError("--top-windows must be 1 or 2")
+    return v
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Build contexts from post-rerank JSON and snippet window JSONL (top CE windows, non-overlapping sentences).",
+        description="Build contexts from post-rerank JSON and snippet window JSONL "
+        "(max-pool CE, top 1–2 distinct windows; second kept only if disjoint, then merge sentences).",
     )
     parser.add_argument(
         "--post-rerank-json",
@@ -45,19 +65,19 @@ def parse_args() -> argparse.Namespace:
         "--split-name",
         type=str,
         required=True,
-        help="Split name matching the JSONL filename (e.g. best_rrf_13B1_golden_top5000_rrf_pool200_k60).",
+        help="Split name matching the JSONL filename (e.g. 13B1_golden).",
     )
     parser.add_argument(
         "--corpus-path",
         type=str,
-        required=True,
-        help="Path or glob pattern to corpus JSONL.",
+        default=None,
+        help="Path or glob pattern to corpus JSONL (not used with --stats-only).",
     )
     parser.add_argument(
         "--output-path",
         type=Path,
-        required=True,
-        help="Path to output JSON (e.g. output/<workflow>/evidence/..._contexts.json).",
+        default=None,
+        help="Path to output contexts JSON (not used with --stats-only).",
     )
     parser.add_argument(
         "--window-size",
@@ -67,15 +87,35 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--top-windows",
-        type=int,
+        type=_top_windows_int,
         default=2,
-        help="Number of top CE windows per document to use for context.",
+        help="1 or 2: top CE windows per doc; with 2, second window is kept only if disjoint from the first.",
+    )
+    parser.add_argument(
+        "--stats-only",
+        action="store_true",
+        help="Only read post-rerank + windows JSONL and write stats JSON (no corpus, no contexts).",
+    )
+    parser.add_argument(
+        "--stats-output-path",
+        type=Path,
+        default=None,
+        help="Path for per-split stats JSON. Required with --stats-only; optional otherwise (derived from --output-path).",
     )
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose logging.")
     return parser.parse_args()
 
 
-def pmid_from_url(url: str):
+def default_stats_output_path(output_path: Path) -> Path:
+    stem = output_path.stem
+    if stem.endswith("_contexts"):
+        base = stem[: -len("_contexts")]
+    else:
+        base = stem
+    return output_path.parent / f"{base}_snippet_window_stats.json"
+
+
+def pmid_from_url(url: str) -> Optional[str]:
     """Extract PMID from a PubMed URL, or return None."""
     if not url:
         return None
@@ -85,7 +125,7 @@ def pmid_from_url(url: str):
 
 def load_post_rerank_questions(post_rerank_path: Path) -> Tuple[List[dict], Set[str]]:
     """Load post-rerank JSON and return (questions list, set of all PMIDs in documents)."""
-    with open(post_rerank_path, "r") as f:
+    with open(post_rerank_path, "r", encoding="utf-8") as f:
         data = json.load(f)
     questions = data.get("questions", [])
     needed_pmids: Set[str] = set()
@@ -97,21 +137,49 @@ def load_post_rerank_questions(post_rerank_path: Path) -> Tuple[List[dict], Set[
     return questions, needed_pmids
 
 
-def load_snippet_windows(
+def _sent_ids_for_window(window_idx: int, window_size: int) -> List[int]:
+    return [window_idx + j for j in range(window_size)]
+
+
+def _better_max_candidate(
+    score: float,
+    qf: Optional[str],
+    best_score: float,
+    best_qf: Optional[str],
+) -> bool:
+    if score > best_score:
+        return True
+    if score < best_score:
+        return False
+    a = qf if qf is not None else _QF_TIE_SENTINEL
+    b = best_qf if best_qf is not None else _QF_TIE_SENTINEL
+    return a < b
+
+
+def select_windows_max_pool(
     windows_path: Path,
     window_size: int,
     top_windows: int,
-) -> Dict[Tuple[str, str], List[int]]:
+) -> Tuple[
+    Dict[Tuple[str, str], List[int]],
+    Dict[Tuple[str, str], List[dict]],
+    Dict[Tuple[str, str], List[dict]],
+    Dict[Tuple[str, str], dict],
+]:
     """
-    Load snippet JSONL and return (qid, docno) -> sorted list of sentence indices to include.
+    Max-pool CE per (qid, docno, window_idx), rank distinct windows by (-ce_score, window_idx).
 
-    Each line: qid, docno, window_idx, window_text, ce_score.
-    For each (qid, docno) we take top_windows by ce_score; each window covers
-    sentence indices [window_idx, window_idx+1, ..., window_idx+window_size-1].
-    Union of those indices is returned, sorted ascending.
+    top_windows=1: keep best only.
+    top_windows=2: keep best; add second-ranked only if sentence spans are disjoint.
+
+    Returns:
+        merged_sent_indices: (qid, docno) -> sorted union of kept sentence indices
+        selected_windows: (qid, docno) -> list of kept {window_idx, ce_score, sent_ids, query_field?}
+        rejected_windows: (qid, docno) -> list of {..., reason} (only non-empty when rank-2 dropped)
+        pair_aux: (qid, docno) -> {had_two_ranked, dropped_second_overlap, candidate_overlap_sent_count}
     """
-    # (qid, docno) -> list of (ce_score, window_idx) for sorting
-    by_qid_doc: Dict[Tuple[str, str], List[Tuple[float, int]]] = {}
+    # (qid, docno, window_idx) -> (best_ce, best_query_field)
+    max_by_triple: Dict[Tuple[str, str, int], Tuple[float, Optional[str]]] = {}
     with open(windows_path, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
@@ -123,25 +191,88 @@ def load_snippet_windows(
                 continue
             qid = obj.get("qid")
             docno = obj.get("docno")
-            window_idx = obj.get("window_idx", 0)
-            ce_score = float(obj.get("ce_score", 0.0))
             if qid is None or docno is None:
                 continue
-            key = (str(qid), str(docno))
-            if key not in by_qid_doc:
-                by_qid_doc[key] = []
-            by_qid_doc[key].append((ce_score, window_idx))
+            try:
+                wi = int(obj.get("window_idx", 0))
+            except (TypeError, ValueError):
+                continue
+            try:
+                ce_score = float(obj.get("ce_score", 0.0))
+            except (TypeError, ValueError):
+                ce_score = 0.0
+            qf_raw = obj.get("query_field", None)
+            qf: Optional[str] = str(qf_raw) if qf_raw is not None and qf_raw != "" else None
 
-    out: Dict[Tuple[str, str], List[int]] = {}
-    for (qid, docno), scored in by_qid_doc.items():
+            key3 = (str(qid), str(docno), wi)
+            if key3 not in max_by_triple:
+                max_by_triple[key3] = (ce_score, qf)
+            else:
+                bs, bqf = max_by_triple[key3]
+                if _better_max_candidate(ce_score, qf, bs, bqf):
+                    max_by_triple[key3] = (ce_score, qf)
+
+    by_pair: Dict[Tuple[str, str], List[Tuple[float, int, Optional[str]]]] = {}
+    for (qid, docno, wi), (sc, qf) in max_by_triple.items():
+        k2 = (qid, docno)
+        by_pair.setdefault(k2, []).append((sc, wi, qf))
+
+    def _window_record(sc: float, wi: int, qf: Optional[str], **extra: str) -> dict:
+        sids = _sent_ids_for_window(wi, window_size)
+        rec: dict = {
+            "window_idx": wi,
+            "ce_score": sc,
+            "sent_ids": sids,
+        }
+        if qf is not None:
+            rec["query_field"] = qf
+        rec.update(extra)
+        return rec
+
+    merged_by_pair: Dict[Tuple[str, str], List[int]] = {}
+    selected_by_pair: Dict[Tuple[str, str], List[dict]] = {}
+    rejected_by_pair: Dict[Tuple[str, str], List[dict]] = {}
+    pair_aux: Dict[Tuple[str, str], dict] = {}
+    for k2, scored in by_pair.items():
         scored.sort(key=lambda x: (-x[0], x[1]))
-        top = scored[:top_windows]
+        ranked = scored[:top_windows]
+        aux: dict = {
+            "had_two_ranked": len(ranked) >= 2 and top_windows >= 2,
+            "dropped_second_overlap": False,
+            "candidate_overlap_sent_count": 0,
+        }
+        picked: List[Tuple[float, int, Optional[str]]] = []
+        rejected: List[dict] = []
+        if ranked:
+            picked.append(ranked[0])
+        if top_windows >= 2 and len(ranked) >= 2:
+            s0 = set(_sent_ids_for_window(ranked[0][1], window_size))
+            s1 = set(_sent_ids_for_window(ranked[1][1], window_size))
+            inter = s0 & s1
+            n_inter = len(inter)
+            aux["candidate_overlap_sent_count"] = n_inter
+            if not inter:
+                picked.append(ranked[1])
+            else:
+                aux["dropped_second_overlap"] = True
+                sc, wi, qf = ranked[1]
+                rejected.append(
+                    _window_record(sc, wi, qf, reason="overlap_with_top1"),
+                )
+
+        selected: List[dict] = []
         indices: Set[int] = set()
-        for _, wi in top:
-            for j in range(window_size):
-                indices.add(wi + j)
-        out[(qid, docno)] = sorted(indices)
-    return out
+        for sc, wi, qf in picked:
+            sids = _sent_ids_for_window(wi, window_size)
+            for j in sids:
+                indices.add(j)
+            selected.append(_window_record(sc, wi, qf))
+        merged_by_pair[k2] = sorted(indices)
+        selected_by_pair[k2] = selected
+        if rejected:
+            rejected_by_pair[k2] = rejected
+        pair_aux[k2] = aux
+    return merged_by_pair, selected_by_pair, rejected_by_pair, pair_aux
 
 
 def _resolve_corpus_paths(path_or_glob: str) -> List[Path]:
@@ -243,8 +374,123 @@ def build_context_title_abstract(title: str, abstract: str) -> str:
     return _normalize_unicode_whitespace(text)
 
 
+def compute_snippet_window_stats(
+    questions: List[dict],
+    selected_by_pair: Dict[Tuple[str, str], List[dict]],
+    pair_aux: Dict[Tuple[str, str], dict],
+    split_name: str,
+    top_windows: int,
+    window_size: int,
+    track_corpus_fallback: bool,
+    pmid_to_title_sents: Optional[Dict[str, Tuple[str, List[str]]]],
+) -> dict:
+    """
+    Aggregate stats over (qid, pmid) doc slots in post-rerank JSON.
+
+    With top-windows=2, final kept windows are never sentence-overlapping; overlap is
+    reported on the *candidate* rank-1 vs rank-2 pair before the drop rule.
+
+    If track_corpus_fallback and pmid_to_title_sents is set, counts snippet vs fallback
+    using the same rules as context building (empty sentences -> fallback).
+    """
+    doc_pairs_considered = 0
+    pairs_final_two_windows = 0
+    pairs_final_one_window = 0
+    pairs_fallback_no_windows = 0
+    pairs_ranked_two_candidates = 0
+    pairs_second_dropped_overlap = 0
+    candidate_overlap_sent_count_sum = 0
+    pairs_candidate_top2_sentence_overlap = 0
+
+    for q in questions:
+        qid = q.get("id")
+        if qid is None:
+            continue
+        qid_s = str(qid)
+        for url in q.get("documents") or []:
+            pmid = pmid_from_url(url)
+            if not pmid:
+                continue
+            doc_pairs_considered += 1
+            key = (qid_s, pmid)
+            sw = selected_by_pair.get(key, [])
+            aux = pair_aux.get(
+                key,
+                {
+                    "had_two_ranked": False,
+                    "dropped_second_overlap": False,
+                    "candidate_overlap_sent_count": 0,
+                },
+            )
+
+            use_fallback = len(sw) == 0
+            if not use_fallback and track_corpus_fallback and pmid_to_title_sents is not None:
+                pair = pmid_to_title_sents.get(pmid)
+                if pair is None:
+                    use_fallback = True
+                else:
+                    _, sentences = pair
+                    if not sentences:
+                        use_fallback = True
+
+            if use_fallback:
+                pairs_fallback_no_windows += 1
+                continue
+
+            if aux.get("had_two_ranked"):
+                pairs_ranked_two_candidates += 1
+            if aux.get("dropped_second_overlap"):
+                pairs_second_dropped_overlap += 1
+            n_ov = int(aux.get("candidate_overlap_sent_count") or 0)
+            if n_ov > 0:
+                pairs_candidate_top2_sentence_overlap += 1
+                candidate_overlap_sent_count_sum += n_ov
+
+            if len(sw) >= 2:
+                pairs_final_two_windows += 1
+            elif len(sw) == 1:
+                pairs_final_one_window += 1
+
+    mean_among_overlapping_candidates: Optional[float]
+    if pairs_candidate_top2_sentence_overlap > 0:
+        mean_among_overlapping_candidates = (
+            candidate_overlap_sent_count_sum / pairs_candidate_top2_sentence_overlap
+        )
+    else:
+        mean_among_overlapping_candidates = None
+
+    dpc = doc_pairs_considered
+    pr2 = pairs_ranked_two_candidates
+
+    return {
+        "split_name": split_name,
+        "top_windows": top_windows,
+        "window_size": window_size,
+        "doc_pairs_considered": doc_pairs_considered,
+        "pairs_final_two_windows": pairs_final_two_windows,
+        "pairs_final_one_window": pairs_final_one_window,
+        "pairs_lt2_windows": pairs_final_one_window,
+        "pairs_fallback_no_windows": pairs_fallback_no_windows,
+        "pairs_ranked_two_candidates": pairs_ranked_two_candidates,
+        "pairs_second_dropped_overlap": pairs_second_dropped_overlap,
+        "pairs_candidate_top2_sentence_overlap": pairs_candidate_top2_sentence_overlap,
+        "candidate_top2_overlap_sent_count_sum": candidate_overlap_sent_count_sum,
+        "candidate_top2_overlap_sent_count_mean_among_overlapping": mean_among_overlapping_candidates,
+        "rate_pairs_final_two_windows": (pairs_final_two_windows / dpc) if dpc else 0.0,
+        "rate_pairs_final_one_window": (pairs_final_one_window / dpc) if dpc else 0.0,
+        "rate_pairs_fallback_no_windows": (pairs_fallback_no_windows / dpc) if dpc else 0.0,
+        "rate_second_dropped_of_ranked_two": (pairs_second_dropped_overlap / pr2) if pr2 else 0.0,
+        "rate_candidate_overlap_of_ranked_two": (pairs_candidate_top2_sentence_overlap / pr2) if pr2 else 0.0,
+    }
+
+
+def write_stats_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+
+
 def main() -> int:
-    import sys
     _shared = Path(__file__).resolve().parents[1]
     if str(_shared) not in sys.path:
         sys.path.insert(0, str(_shared))
@@ -259,6 +505,17 @@ def main() -> int:
         format="%(levelname)s: %(message)s",
     )
 
+    if args.stats_only:
+        if not args.stats_output_path:
+            logger.error("--stats-only requires --stats-output-path")
+            return 1
+        if args.corpus_path or args.output_path:
+            logger.warning("--stats-only: ignoring corpus-path / output-path if set")
+    else:
+        if not args.corpus_path or not args.output_path:
+            logger.error("Without --stats-only, --corpus-path and --output-path are required")
+            return 1
+
     if not args.post_rerank_json.exists():
         logger.error("Post-rerank JSON not found: %s", args.post_rerank_json)
         return 1
@@ -272,14 +529,58 @@ def main() -> int:
     questions, needed_pmids = load_post_rerank_questions(args.post_rerank_json)
     logger.info("Questions: %d, unique PMIDs: %d", len(questions), len(needed_pmids))
 
-    logger.info("Loading snippet windows: %s", windows_path)
-    snippet_indices = load_snippet_windows(windows_path, args.window_size, args.top_windows)
-    logger.info("Snippet indices for %d (qid, docno) pairs", len(snippet_indices))
+    logger.info("Loading snippet windows (max-pool + top-%d): %s", args.top_windows, windows_path)
+    merged_by_pair, selected_by_pair, rejected_by_pair, pair_aux = select_windows_max_pool(
+        windows_path, args.window_size, args.top_windows,
+    )
+    logger.info("Snippet selection for %d (qid, docno) pairs", len(merged_by_pair))
 
-    logger.info("Indexing corpus: %s", args.corpus_path)
-    pmid_to_title_sents = build_pmid_to_title_sentences(args.corpus_path, needed_pmids)
-    logger.info("Found %d / %d PMIDs in corpus", len(pmid_to_title_sents), len(needed_pmids))
+    stats_path = args.stats_output_path
+    if stats_path is None and args.output_path is not None:
+        stats_path = default_stats_output_path(args.output_path)
 
+    pmid_to_title_sents: Dict[str, Tuple[str, List[str]]] = {}
+    if not args.stats_only:
+        logger.info("Indexing corpus: %s", args.corpus_path)
+        pmid_to_title_sents = build_pmid_to_title_sentences(args.corpus_path, needed_pmids)
+        logger.info("Found %d / %d PMIDs in corpus", len(pmid_to_title_sents), len(needed_pmids))
+
+    stats_payload = compute_snippet_window_stats(
+        questions,
+        selected_by_pair,
+        pair_aux,
+        args.split_name,
+        args.top_windows,
+        args.window_size,
+        track_corpus_fallback=not args.stats_only,
+        pmid_to_title_sents=pmid_to_title_sents if not args.stats_only else None,
+    )
+    if stats_path is not None:
+        write_stats_json(stats_path, stats_payload)
+        logger.info("Wrote stats: %s", stats_path)
+
+    logger.info(
+        "Stats: doc_pairs_considered=%d final_two=%d final_one=%d fallback=%d "
+        "ranked_two=%d dropped_second=%d candidate_overlap_pairs=%d overlap_sent_sum=%d",
+        stats_payload["doc_pairs_considered"],
+        stats_payload["pairs_final_two_windows"],
+        stats_payload["pairs_final_one_window"],
+        stats_payload["pairs_fallback_no_windows"],
+        stats_payload["pairs_ranked_two_candidates"],
+        stats_payload["pairs_second_dropped_overlap"],
+        stats_payload["pairs_candidate_top2_sentence_overlap"],
+        stats_payload["candidate_top2_overlap_sent_count_sum"],
+    )
+    if stats_payload["candidate_top2_overlap_sent_count_mean_among_overlapping"] is not None:
+        logger.info(
+            "Stats: mean candidate overlap sent count (among overlapping rank-1 vs rank-2)=%.4f",
+            stats_payload["candidate_top2_overlap_sent_count_mean_among_overlapping"],
+        )
+
+    if args.stats_only:
+        return 0
+
+    assert args.output_path is not None
     args.output_path.parent.mkdir(parents=True, exist_ok=True)
     missing_total = 0
     out_questions: List[dict] = []
@@ -287,7 +588,7 @@ def main() -> int:
         qid = q.get("id")
         if qid is None:
             continue
-        contexts = []
+        contexts: List[dict] = []
         for url in q.get("documents") or []:
             pmid = pmid_from_url(url)
             if not pmid:
@@ -298,19 +599,29 @@ def main() -> int:
                 continue
             title, sentences = pair
             key = (str(qid), str(pmid))
-            indices = snippet_indices.get(key)
-            if indices is not None and sentences:
+            indices = merged_by_pair.get(key)
+            sw = selected_by_pair.get(key, [])
+            rw = rejected_by_pair.get(key, [])
+            if indices is not None and sentences and len(sw) > 0:
                 text = build_context_from_sentences(title, sentences, indices)
-            else:
-                abstract = " ".join(sentences) if sentences else ""
-                text = build_context_title_abstract(title, abstract)
-            contexts.append(
-                {
+                ctx: dict = {
                     "id": f"{pmid}-1",
                     "doc": f"http://www.ncbi.nlm.nih.gov/pubmed/{pmid}",
                     "text": text,
+                    "selected_windows": sw,
+                    "rejected_windows": rw,
                 }
-            )
+            else:
+                abstract = " ".join(sentences) if sentences else ""
+                text = build_context_title_abstract(title, abstract)
+                ctx = {
+                    "id": f"{pmid}-1",
+                    "doc": f"http://www.ncbi.nlm.nih.gov/pubmed/{pmid}",
+                    "text": text,
+                    "selected_windows": [],
+                    "rejected_windows": [],
+                }
+            contexts.append(ctx)
         out_q = dict(q)
         out_q["contexts"] = contexts
         out_questions.append(out_q)

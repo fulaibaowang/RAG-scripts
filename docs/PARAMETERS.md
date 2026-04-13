@@ -136,7 +136,7 @@ The snippet-RRF route adds a snippet window reranking stage and a second fusion 
 
 | Parameter | Suggested Range | Default | Notes |
 |-----------|----------------|---------|-------|
-| `SNIPPET_CONTEXT_TOP_WINDOWS` | 1 – 3 | **2** | Top CE windows per doc used to build contexts |
+| `SNIPPET_CONTEXT_TOP_WINDOWS` | **1 or 2** | **2** | Top CE windows per doc; with 2, second is kept only if disjoint from the first |
 
 See also: [notebooks/snippet_extraction.ipynb](../../../notebooks/snippet_extraction.ipynb) and [notebooks/snippet_extraction_MedCPT.ipynb](../../../notebooks/snippet_extraction_MedCPT.ipynb) for window-size and fusion exploration.
 

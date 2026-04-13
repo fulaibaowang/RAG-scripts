@@ -2,7 +2,7 @@
 """
 Post-hybrid-reranking: attach top-k documents from rerank run to query JSON.
 
-Reads a hybrid rerank TSV (qid, docno, rank), picks top-k docno (PMID) per query,
+Reads a hybrid rerank TSV (qid, docno, rank), picks at most top-k docno (PMID) per query,
 and writes a single JSON whose questions have a "documents" field (list of
 PubMed URLs). Oracle fields (snippets, documents, ideal_answer, exact_answer)
 are removed from the source query JSON so the output is suitable for
@@ -48,7 +48,7 @@ def parse_args() -> argparse.Namespace:
         "--top-k",
         type=int,
         default=10,
-        help="Number of docs per query (default: 10).",
+        help="Max docs per query from the run TSV (rank <= top-k). Fewer if the run has fewer rows; no error.",
     )
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose logging.")
     return parser.parse_args()
