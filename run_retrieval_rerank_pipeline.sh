@@ -212,6 +212,8 @@ HYBRID_OUT="$WORKFLOW_OUTPUT_DIR/hybrid"
 RERANK_OUT="$WORKFLOW_OUTPUT_DIR/rerank"
 RERANK_HYBRID_OUT="$WORKFLOW_OUTPUT_DIR/rerank_hybrid"
 RERANK_HYBRID_200_OUT="$WORKFLOW_OUTPUT_DIR/rerank_hybrid_200"
+RERANK_HYBRID_TSTAR_OUT="$WORKFLOW_OUTPUT_DIR/rerank_hybrid_tstar"
+RERANK_HYBRID_200_TSTAR_OUT="$WORKFLOW_OUTPUT_DIR/rerank_hybrid_200_tstar"
 SNIPPET_RERANK_OUT="$WORKFLOW_OUTPUT_DIR/snippet_rerank"
 SNIPPET_RRF_OUT="$WORKFLOW_OUTPUT_DIR/snippet_rrf"
 
@@ -653,6 +655,54 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
   echo "[timing] Reranker step: $((STEP_RERANK_END-STEP_RERANK_START))s"
   _log_run "step" "4" "Reranker" "$((STEP_RERANK_END-STEP_RERANK_START))s"
 
+  RERANK_TSTAR_ENABLE="${RERANK_TSTAR_ENABLE:-0}"
+  RERANK_TSTAR_FLOOR="${RERANK_TSTAR_FLOOR:-5}"
+
+  _apply_rerank_tstar_cutoff() {
+    local _in_runs="$1"
+    local _out_base="$2"
+    local _tag="$3"
+    [ "${RERANK_TSTAR_ENABLE:-0}" = "1" ] || return 0
+    if [ -z "${RERANK_TSTAR:-}" ]; then
+      echo "Error: RERANK_TSTAR_ENABLE=1 but RERANK_TSTAR is not set." >&2
+      exit 1
+    fi
+    if [ -n "${RERANK_TSTAR_CAP:-}" ] && [ "${RERANK_TSTAR_CAP}" -lt "${RERANK_TSTAR_FLOOR:-5}" ]; then
+      echo "Error: RERANK_TSTAR_CAP (${RERANK_TSTAR_CAP}) < RERANK_TSTAR_FLOOR (${RERANK_TSTAR_FLOOR:-5})" >&2
+      exit 1
+    fi
+    [ -d "$_in_runs" ] || {
+      echo "[t* $_tag] skip: missing input runs dir: $_in_runs" >&2
+      return 0
+    }
+    if [ -z "$(find "$_in_runs" -maxdepth 1 -name '*.tsv' 2>/dev/null | head -1)" ]; then
+      echo "[t* $_tag] skip: no TSV in $_in_runs"
+      return 0
+    fi
+    if [ -n "$(find "$_out_base/runs" -maxdepth 1 -name '*.tsv' 2>/dev/null | head -1)" ]; then
+      echo "[t* $_tag] skip: output exists in $_out_base/runs"
+      return 0
+    fi
+    echo "[t* $_tag] threshold=${RERANK_TSTAR} floor=${RERANK_TSTAR_FLOOR:-5} -> $_out_base/runs"
+    mkdir -p "$_out_base/runs"
+    _TS_ARGS=(
+      python "$SCRIPT_DIR/rerank/apply_tstar_cutoff.py"
+      --input-runs-dir "$_in_runs"
+      --rerank-runs-dir "$RERANK_OUT/runs"
+      --output-runs-dir "$_out_base/runs"
+      --tstar "$RERANK_TSTAR"
+      --floor "${RERANK_TSTAR_FLOOR:-5}"
+    )
+    [ -n "${RERANK_TSTAR_CAP:-}" ] && _TS_ARGS+=(--cap "$RERANK_TSTAR_CAP")
+    if [ "${HAVE_GROUND_TRUTH:-1}" != "0" ] && [ "${RERANK_DISABLE_METRICS:-0}" != "1" ]; then
+      [ -n "${TRAIN_JSON:-}" ] && _TS_ARGS+=(--train-json "$TRAIN_JSON")
+      [ -n "${TEST_BATCH_JSONS:-}" ] && _TS_ARGS+=(--test-batch-jsons $TEST_BATCH_JSONS)
+    else
+      _TS_ARGS+=(--disable-metrics)
+    fi
+    "${_TS_ARGS[@]}"
+  }
+
   # ----- Step 5: RRF fusion (Hybrid + Rerank -> rerank_hybrid); only when RUN_RRF_FUSION=1 -----
   # Snippet-only (no run-both): write pool=200 to rerank_hybrid_200 so snippet always gets 200-pool runs.
   # Use DO_SNIPPET_RRF (from config RUN_SNIPPET_RRF or flag --snippet-rrf) so config-only snippet route works.
@@ -701,6 +751,11 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
       [ "${RERANK_DISABLE_METRICS:-0}" = "1" ] && RRF_ARGS+=(--disable-metrics)
       python "$SCRIPT_DIR/rerank/rerank_rrf_hybrid.py" "${RRF_ARGS[@]}"
     fi
+    if [ "$_RRF_STEP5_OUT" = "$RERANK_HYBRID_OUT" ]; then
+      _apply_rerank_tstar_cutoff "$_RRF_STEP5_OUT/runs" "$RERANK_HYBRID_TSTAR_OUT" "rerank_hybrid"
+    else
+      _apply_rerank_tstar_cutoff "$_RRF_STEP5_OUT/runs" "$RERANK_HYBRID_200_TSTAR_OUT" "rerank_hybrid_200"
+    fi
     STEP_RRF_END=$(date +%s)
     echo "[timing] Hybrid+Rerank RRF fusion step: $((STEP_RRF_END-STEP_RRF_START))s"
     _log_run "step" "5" "RRF" "$((STEP_RRF_END-STEP_RRF_START))s"
@@ -732,6 +787,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
         ${RERANK_KS_RECALL:+--ks-recall "$RERANK_KS_RECALL"} \
         $([ "${RERANK_DISABLE_METRICS:-0}" = "1" ] && echo --disable-metrics)
     fi
+    _apply_rerank_tstar_cutoff "$RERANK_HYBRID_200_OUT/runs" "$RERANK_HYBRID_200_TSTAR_OUT" "rerank_hybrid_200_5b"
   fi
 
   # ----- Compare (independent checkpoints: run when inputs exist and figures missing; not tied to 5/5b) -----
@@ -743,9 +799,11 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
   elif [ -n "${RRF_POOL_TOP_RERANK:-}" ] && [ -n "${RRF_POOL_TOP_HYBRID:-}" ]; then
     _COMPARE_RECALL_MAX="$((RRF_POOL_TOP_RERANK + RRF_POOL_TOP_HYBRID))"
   fi
-  if [ "${HAVE_GROUND_TRUTH:-1}" != "0" ] && [ -d "$RERANK_OUT/runs" ] && [ -d "$RERANK_HYBRID_OUT/runs" ]; then
+  _COMPARE_HYBRID_DIR="$RERANK_HYBRID_OUT"
+  [ "${RERANK_TSTAR_ENABLE:-0}" = "1" ] && _COMPARE_HYBRID_DIR="$RERANK_HYBRID_TSTAR_OUT"
+  if [ "${HAVE_GROUND_TRUTH:-1}" != "0" ] && [ -d "$RERANK_OUT/runs" ] && [ -d "$_COMPARE_HYBRID_DIR/runs" ]; then
     COMPARE_FIGS_EXIST=0
-    [ -n "$(find "$RERANK_HYBRID_OUT/figures" -maxdepth 1 -name 'compare_*.png' 2>/dev/null | head -1)" ] && COMPARE_FIGS_EXIST=1
+    [ -n "$(find "$_COMPARE_HYBRID_DIR/figures" -maxdepth 1 -name 'compare_*.png' 2>/dev/null | head -1)" ] && COMPARE_FIGS_EXIST=1
     if [ "$COMPARE_FIGS_EXIST" = "1" ]; then
       echo "[Compare] Rerank vs Hybrid+Rerank... (skip: figures exist)"
       _log_run "step" "Compare" "skip"
@@ -753,13 +811,13 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
       echo "[Compare] Rerank vs Hybrid+Rerank (recall & MAP @ $COMPARE_KS, recall-k-max $_COMPARE_RECALL_MAX)..."
       STEP_COMPARE_START=$(date +%s)
       COMPARE_ARGS=(
-        --dirs "$RERANK_OUT" "$RERANK_HYBRID_OUT"
+        --dirs "$RERANK_OUT" "$_COMPARE_HYBRID_DIR"
         --labels "Rerank" "Hybrid+Rerank"
         --plot both
         --map-ks "$COMPARE_KS"
         --ks-recall "$COMPARE_KS"
         --recall-k-max "$_COMPARE_RECALL_MAX"
-        --output-dir "$RERANK_HYBRID_OUT"
+        --output-dir "$_COMPARE_HYBRID_DIR"
         --force-from-runs
         --plots-by-split
       )
@@ -778,9 +836,11 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
   # (2) Rerank vs Hybrid+Rerank pool=200: output in rerank_hybrid_200/figures (when that dir exists)
   _COMPARE_RECALL_MAX_200=400
   [ -n "${COMPARE_RECALL_K_MAX:-}" ] && _COMPARE_RECALL_MAX_200="$COMPARE_RECALL_K_MAX"
-  if [ "${HAVE_GROUND_TRUTH:-1}" != "0" ] && [ -d "$RERANK_OUT/runs" ] && [ -d "$RERANK_HYBRID_200_OUT/runs" ]; then
+  _COMPARE_HYBRID_200_DIR="$RERANK_HYBRID_200_OUT"
+  [ "${RERANK_TSTAR_ENABLE:-0}" = "1" ] && _COMPARE_HYBRID_200_DIR="$RERANK_HYBRID_200_TSTAR_OUT"
+  if [ "${HAVE_GROUND_TRUTH:-1}" != "0" ] && [ -d "$RERANK_OUT/runs" ] && [ -d "$_COMPARE_HYBRID_200_DIR/runs" ]; then
     COMPARE_200_FIGS_EXIST=0
-    [ -n "$(find "$RERANK_HYBRID_200_OUT/figures" -maxdepth 1 -name 'compare_*.png' 2>/dev/null | head -1)" ] && COMPARE_200_FIGS_EXIST=1
+    [ -n "$(find "$_COMPARE_HYBRID_200_DIR/figures" -maxdepth 1 -name 'compare_*.png' 2>/dev/null | head -1)" ] && COMPARE_200_FIGS_EXIST=1
     if [ "$COMPARE_200_FIGS_EXIST" = "1" ]; then
       echo "[Compare] Rerank vs Hybrid+Rerank (pool=200)... (skip: figures exist)"
       _log_run "step" "Compare200" "skip"
@@ -788,13 +848,13 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
       echo "[Compare] Rerank vs Hybrid+Rerank (pool=200) (recall & MAP @ $COMPARE_KS, recall-k-max $_COMPARE_RECALL_MAX_200)..."
       STEP_COMPARE_200_START=$(date +%s)
       COMPARE_200_ARGS=(
-        --dirs "$RERANK_OUT" "$RERANK_HYBRID_200_OUT"
+        --dirs "$RERANK_OUT" "$_COMPARE_HYBRID_200_DIR"
         --labels "Rerank" "Hybrid+Rerank (pool=200)"
         --plot both
         --map-ks "$COMPARE_KS"
         --ks-recall "$COMPARE_KS"
         --recall-k-max "$_COMPARE_RECALL_MAX_200"
-        --output-dir "$RERANK_HYBRID_200_OUT"
+        --output-dir "$_COMPARE_HYBRID_200_DIR"
         --force-from-runs
         --plots-by-split
       )
@@ -823,7 +883,11 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
       echo "[6/$TOTAL_STEPS] Snippet extraction + CE rerank..."
       mkdir -p "$SNIPPET_RERANK_OUT"
       # Snippet route always uses pool=200 runs (from rerank_hybrid_200: step 5 snippet-only or step 5b run-both)
-      _SNIPPET_RRF_INPUT="$RERANK_HYBRID_200_OUT/runs"
+      if [ "${RERANK_TSTAR_ENABLE:-0}" = "1" ]; then
+        _SNIPPET_RRF_INPUT="$RERANK_HYBRID_200_TSTAR_OUT/runs"
+      else
+        _SNIPPET_RRF_INPUT="$RERANK_HYBRID_200_OUT/runs"
+      fi
       if [ -n "${RERANK_QUERY_FIELD:-}" ] && _query_field_has_comma "$RERANK_QUERY_FIELD"; then
         echo "[6/$TOTAL_STEPS] Snippet... (multi-query field fusion)"
         _parse_query_field_csv "$RERANK_QUERY_FIELD"
@@ -948,7 +1012,12 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
       echo "[7/$TOTAL_STEPS] Final RRF (docs 0.8 + snippet 0.2)..."
       # Doc side: rerank_hybrid_200 when snippet route (pool 200); else rerank_hybrid
       _STEP7_DOCS_DIR="$RERANK_HYBRID_OUT"
-      [ "${DO_SNIPPET_RRF:-0}" = "1" ] && _STEP7_DOCS_DIR="$RERANK_HYBRID_200_OUT"
+      if [ "${DO_SNIPPET_RRF:-0}" = "1" ]; then
+        _STEP7_DOCS_DIR="$RERANK_HYBRID_200_OUT"
+        [ "${RERANK_TSTAR_ENABLE:-0}" = "1" ] && _STEP7_DOCS_DIR="$RERANK_HYBRID_200_TSTAR_OUT"
+      elif [ "${RERANK_TSTAR_ENABLE:-0}" = "1" ]; then
+        _STEP7_DOCS_DIR="$RERANK_HYBRID_TSTAR_OUT"
+      fi
       # Pool size default: SNIPPET_FINAL_POOL, falling back to SNIPPET_N_DOCS (and then 100)
       _SNIP_POOL="${SNIPPET_FINAL_POOL:-${SNIPPET_N_DOCS:-100}}"
       python "$SCRIPT_DIR/rerank/rerank_rrf_hybrid.py" \
@@ -979,7 +1048,9 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
   # Only run when snippet_rrf actually has run files (step 7 may skip all if stems don't match).
   _SNIPPET_RRF_HAS_RUNS=0
   [ -n "$(find "$SNIPPET_RRF_OUT/runs" -maxdepth 1 -name '*.tsv' 2>/dev/null | head -1)" ] && _SNIPPET_RRF_HAS_RUNS=1
-  if [ "${HAVE_GROUND_TRUTH:-1}" != "0" ] && [ "${DO_SNIPPET_RRF:-0}" = "1" ] && [ "$_SNIPPET_RRF_HAS_RUNS" = "1" ] && [ -d "$RERANK_HYBRID_200_OUT/runs" ]; then
+  _SNIPPET_COMPARE_DOCS_DIR="$RERANK_HYBRID_200_OUT"
+  [ "${RERANK_TSTAR_ENABLE:-0}" = "1" ] && _SNIPPET_COMPARE_DOCS_DIR="$RERANK_HYBRID_200_TSTAR_OUT"
+  if [ "${HAVE_GROUND_TRUTH:-1}" != "0" ] && [ "${DO_SNIPPET_RRF:-0}" = "1" ] && [ "$_SNIPPET_RRF_HAS_RUNS" = "1" ] && [ -d "$_SNIPPET_COMPARE_DOCS_DIR/runs" ]; then
     _SNIP_N="${SNIPPET_N_DOCS:-100}"
     COMPARE_KS_SNIPPET="${COMPARE_KS_SNIPPET:-10,20,30,50,100}"
     [ "$_SNIP_N" -gt 100 ] && COMPARE_KS_SNIPPET="${COMPARE_KS_SNIPPET},200"
@@ -993,7 +1064,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
       echo "[Compare] Snippet RRF vs Hybrid+Rerank (recall & MAP up to k=$_SNIP_N)..."
       STEP_SNIPPET_COMPARE_START=$(date +%s)
       SNIPPET_COMPARE_ARGS=(
-        --dirs "$RERANK_HYBRID_200_OUT" "$SNIPPET_RRF_OUT"
+        --dirs "$_SNIPPET_COMPARE_DOCS_DIR" "$SNIPPET_RRF_OUT"
         --labels "Hybrid+Rerank (docs)" "Snippet RRF (docs+CE)"
         --plot both
         --map-ks "$COMPARE_KS_SNIPPET"
@@ -1041,8 +1112,13 @@ _DOCS_JSONL_OK=0
         # When RRF fusion is enabled, baseline evidence uses Hybrid+Rerank runs.
         # When RUN_RRF_FUSION=0, fall back to raw Rerank runs so downstream steps still work.
         if [ "$RUN_RRF_FUSION" = "1" ]; then
-          _EVIDENCE_RUNS_DIR="$RERANK_HYBRID_OUT/runs"
-          _EVIDENCE_POST_DIR="$RERANK_HYBRID_OUT"
+          if [ "${RERANK_TSTAR_ENABLE:-0}" = "1" ]; then
+            _EVIDENCE_RUNS_DIR="$RERANK_HYBRID_TSTAR_OUT/runs"
+            _EVIDENCE_POST_DIR="$RERANK_HYBRID_TSTAR_OUT"
+          else
+            _EVIDENCE_RUNS_DIR="$RERANK_HYBRID_OUT/runs"
+            _EVIDENCE_POST_DIR="$RERANK_HYBRID_OUT"
+          fi
         else
           _EVIDENCE_RUNS_DIR="$RERANK_OUT/runs"
           _EVIDENCE_POST_DIR="$RERANK_OUT"
