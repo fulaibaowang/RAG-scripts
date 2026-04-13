@@ -799,7 +799,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
   fi
 
   # ----- Compare (independent checkpoints: run when inputs exist and figures missing; not tied to 5/5b) -----
-  # (1) Rerank vs Hybrid+Rerank (pool 50): output in rerank_hybrid/figures
+  # (1) Rerank vs Hybrid+Rerank (pool 50): output in rerank_hybrid/figures (always pre-t* fusion; t* summaries live under rerank_hybrid_tstar/).
   COMPARE_KS="${COMPARE_KS:-10,20,30,50,100,200,300}"
   _COMPARE_RECALL_MAX=300
   if [ -n "${COMPARE_RECALL_K_MAX:-}" ]; then
@@ -807,11 +807,9 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
   elif [ -n "${RRF_POOL_TOP_RERANK:-}" ] && [ -n "${RRF_POOL_TOP_HYBRID:-}" ]; then
     _COMPARE_RECALL_MAX="$((RRF_POOL_TOP_RERANK + RRF_POOL_TOP_HYBRID))"
   fi
-  _COMPARE_HYBRID_DIR="$RERANK_HYBRID_OUT"
-  [ "${RERANK_TSTAR_ENABLE:-0}" = "1" ] && _COMPARE_HYBRID_DIR="$RERANK_HYBRID_TSTAR_OUT"
-  if [ "${HAVE_GROUND_TRUTH:-1}" != "0" ] && [ -d "$RERANK_OUT/runs" ] && [ -d "$_COMPARE_HYBRID_DIR/runs" ]; then
+  if [ "${HAVE_GROUND_TRUTH:-1}" != "0" ] && [ -d "$RERANK_OUT/runs" ] && [ -d "$RERANK_HYBRID_OUT/runs" ]; then
     COMPARE_FIGS_EXIST=0
-    [ -n "$(find "$_COMPARE_HYBRID_DIR/figures" -maxdepth 1 -name 'compare_*.png' 2>/dev/null | head -1)" ] && COMPARE_FIGS_EXIST=1
+    [ -n "$(find "$RERANK_HYBRID_OUT/figures" -maxdepth 1 -name 'compare_*.png' 2>/dev/null | head -1)" ] && COMPARE_FIGS_EXIST=1
     if [ "$COMPARE_FIGS_EXIST" = "1" ]; then
       echo "[Compare] Rerank vs Hybrid+Rerank... (skip: figures exist)"
       _log_run "step" "Compare" "skip"
@@ -819,13 +817,13 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
       echo "[Compare] Rerank vs Hybrid+Rerank (recall & MAP @ $COMPARE_KS, recall-k-max $_COMPARE_RECALL_MAX)..."
       STEP_COMPARE_START=$(date +%s)
       COMPARE_ARGS=(
-        --dirs "$RERANK_OUT" "$_COMPARE_HYBRID_DIR"
+        --dirs "$RERANK_OUT" "$RERANK_HYBRID_OUT"
         --labels "Rerank" "Hybrid+Rerank"
         --plot both
         --map-ks "$COMPARE_KS"
         --ks-recall "$COMPARE_KS"
         --recall-k-max "$_COMPARE_RECALL_MAX"
-        --output-dir "$_COMPARE_HYBRID_DIR"
+        --output-dir "$RERANK_HYBRID_OUT"
         --force-from-runs
         --plots-by-split
       )
@@ -841,14 +839,12 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
     _log_run "step" "Compare" "skip (condition)"
   fi
 
-  # (2) Rerank vs Hybrid+Rerank pool=200: output in rerank_hybrid_200/figures (when that dir exists)
+  # (2) Rerank vs Hybrid+Rerank pool=200: output in rerank_hybrid_200/figures (always pre-t*; t* stats under rerank_hybrid_200_tstar/).
   _COMPARE_RECALL_MAX_200=400
   [ -n "${COMPARE_RECALL_K_MAX:-}" ] && _COMPARE_RECALL_MAX_200="$COMPARE_RECALL_K_MAX"
-  _COMPARE_HYBRID_200_DIR="$RERANK_HYBRID_200_OUT"
-  [ "${RERANK_TSTAR_ENABLE:-0}" = "1" ] && _COMPARE_HYBRID_200_DIR="$RERANK_HYBRID_200_TSTAR_OUT"
-  if [ "${HAVE_GROUND_TRUTH:-1}" != "0" ] && [ -d "$RERANK_OUT/runs" ] && [ -d "$_COMPARE_HYBRID_200_DIR/runs" ]; then
+  if [ "${HAVE_GROUND_TRUTH:-1}" != "0" ] && [ -d "$RERANK_OUT/runs" ] && [ -d "$RERANK_HYBRID_200_OUT/runs" ]; then
     COMPARE_200_FIGS_EXIST=0
-    [ -n "$(find "$_COMPARE_HYBRID_200_DIR/figures" -maxdepth 1 -name 'compare_*.png' 2>/dev/null | head -1)" ] && COMPARE_200_FIGS_EXIST=1
+    [ -n "$(find "$RERANK_HYBRID_200_OUT/figures" -maxdepth 1 -name 'compare_*.png' 2>/dev/null | head -1)" ] && COMPARE_200_FIGS_EXIST=1
     if [ "$COMPARE_200_FIGS_EXIST" = "1" ]; then
       echo "[Compare] Rerank vs Hybrid+Rerank (pool=200)... (skip: figures exist)"
       _log_run "step" "Compare200" "skip"
@@ -856,13 +852,13 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
       echo "[Compare] Rerank vs Hybrid+Rerank (pool=200) (recall & MAP @ $COMPARE_KS, recall-k-max $_COMPARE_RECALL_MAX_200)..."
       STEP_COMPARE_200_START=$(date +%s)
       COMPARE_200_ARGS=(
-        --dirs "$RERANK_OUT" "$_COMPARE_HYBRID_200_DIR"
+        --dirs "$RERANK_OUT" "$RERANK_HYBRID_200_OUT"
         --labels "Rerank" "Hybrid+Rerank (pool=200)"
         --plot both
         --map-ks "$COMPARE_KS"
         --ks-recall "$COMPARE_KS"
         --recall-k-max "$_COMPARE_RECALL_MAX_200"
-        --output-dir "$_COMPARE_HYBRID_200_DIR"
+        --output-dir "$RERANK_HYBRID_200_OUT"
         --force-from-runs
         --plots-by-split
       )
@@ -1056,9 +1052,8 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
   # Only run when snippet_rrf actually has run files (step 7 may skip all if stems don't match).
   _SNIPPET_RRF_HAS_RUNS=0
   [ -n "$(find "$SNIPPET_RRF_OUT/runs" -maxdepth 1 -name '*.tsv' 2>/dev/null | head -1)" ] && _SNIPPET_RRF_HAS_RUNS=1
-  _SNIPPET_COMPARE_DOCS_DIR="$RERANK_HYBRID_200_OUT"
-  [ "${RERANK_TSTAR_ENABLE:-0}" = "1" ] && _SNIPPET_COMPARE_DOCS_DIR="$RERANK_HYBRID_200_TSTAR_OUT"
-  if [ "${HAVE_GROUND_TRUTH:-1}" != "0" ] && [ "${DO_SNIPPET_RRF:-0}" = "1" ] && [ "$_SNIPPET_RRF_HAS_RUNS" = "1" ] && [ -d "$_SNIPPET_COMPARE_DOCS_DIR/runs" ]; then
+  # Doc-side compare uses pre-t* rerank_hybrid_200 (fusion diagnostic); production doc input for snippet remains *_tstar when enabled.
+  if [ "${HAVE_GROUND_TRUTH:-1}" != "0" ] && [ "${DO_SNIPPET_RRF:-0}" = "1" ] && [ "$_SNIPPET_RRF_HAS_RUNS" = "1" ] && [ -d "$RERANK_HYBRID_200_OUT/runs" ]; then
     _SNIP_N="${SNIPPET_N_DOCS:-100}"
     COMPARE_KS_SNIPPET="${COMPARE_KS_SNIPPET:-10,20,30,50,100}"
     [ "$_SNIP_N" -gt 100 ] && COMPARE_KS_SNIPPET="${COMPARE_KS_SNIPPET},200"
@@ -1072,7 +1067,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
       echo "[Compare] Snippet RRF vs Hybrid+Rerank (recall & MAP up to k=$_SNIP_N)..."
       STEP_SNIPPET_COMPARE_START=$(date +%s)
       SNIPPET_COMPARE_ARGS=(
-        --dirs "$_SNIPPET_COMPARE_DOCS_DIR" "$SNIPPET_RRF_OUT"
+        --dirs "$RERANK_HYBRID_200_OUT" "$SNIPPET_RRF_OUT"
         --labels "Hybrid+Rerank (docs)" "Snippet RRF (docs+CE)"
         --plot both
         --map-ks "$COMPARE_KS_SNIPPET"
