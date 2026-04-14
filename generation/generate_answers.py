@@ -7,7 +7,19 @@ documents, contexts), calls an LLM per question, parses ideal_answer and
 evidence_ids (and exact_answer for yesno/factoid/list), and writes a single
 JSON file to output_dir (e.g. output_dir/<stem>_answers.json).
 
-Requires: LLAMA_API_KEY in env or .env at repo root.
+Backend (env after loading repo-root .env if present):
+
+- ``GENERATION_BACKEND`` (default ``ollama`` when unset): choose transport. Values:
+  ``ollama`` — HTTP to ``OLLAMA_URL`` with ``LLAMA_API_KEY``; ``GEN_API_*`` ignored.
+  ``openai_compat`` (aliases: ``openrouter``, ``openai``) — POST
+  ``{GEN_API_BASE}/chat/completions`` with ``GEN_API_KEY``. Requires ``GEN_API_BASE``.
+
+- **Model id** for both backends: ``--model`` / ``GENERATION_MODEL`` (default
+  ``llama3.3:latest`` for Ollama). Do not commit API keys in run config templates;
+  set ``GEN_API_KEY`` / ``LLAMA_API_KEY`` via gitignored ``.env``, exports, or scheduler secrets.
+
+OpenAI-compatible path is equivalent to the OpenAI client's ``base_url`` +
+``chat.completions``; this script uses ``requests`` only.
 """
 
 from __future__ import annotations
@@ -141,19 +153,22 @@ def parse_args() -> argparse.Namespace:
         "--model",
         type=str,
         default=OLLAMA_MODEL,
-        help=f"Ollama model name for generation (default: {OLLAMA_MODEL}).",
+        help=(
+            f"Model id: Ollama tag when GENERATION_BACKEND is ollama (default: {OLLAMA_MODEL}); "
+            f"OpenAI-compatible model id when GENERATION_BACKEND is openai_compat."
+        ),
     )
     parser.add_argument(
         "--temperature",
         type=float,
         default=0.0,
-        help="LLM sampling temperature passed via Ollama 'options.temperature' (default: 0.0).",
+        help="Sampling temperature (Ollama options or chat completions body; default: 0.0).",
     )
     parser.add_argument(
         "--top-p",
         type=float,
         default=1.0,
-        help="Nucleus sampling top_p passed via Ollama 'options.top_p' (default: 1.0 = no truncation).",
+        help="Top-p sampling (Ollama options or chat completions when < 1.0; default: 1.0).",
     )
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose logging.")
     parser.add_argument(
@@ -170,16 +185,50 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def get_api_key() -> str:
+def openai_compat_enabled() -> bool:
+    """True when GENERATION_BACKEND requests OpenAI-compatible chat completions."""
+    raw = (os.getenv("GENERATION_BACKEND") or "").strip().lower()
+    if not raw or raw == "ollama":
+        return False
+    if raw in ("openai_compat", "openrouter", "openai"):
+        return True
+    raise RuntimeError(
+        f"Unknown GENERATION_BACKEND={raw!r}; use ollama (default) or openai_compat"
+    )
+
+
+def chat_completions_endpoint(gen_api_base: str) -> str:
+    """Return full URL for POST .../chat/completions given GEN_API_BASE (e.g. https://openrouter.ai/api/v1)."""
+    base = gen_api_base.strip().rstrip("/")
+    if base.lower().endswith("/chat/completions"):
+        return base
+    return f"{base}/chat/completions"
+
+
+def get_ollama_api_key() -> str:
     key = (os.getenv("LLAMA_API_KEY") or "").strip()
     if not key:
+        raise RuntimeError("Missing LLAMA_API_KEY in environment or .env (Ollama backend)")
+    return key
+
+
+def get_openai_compat_api_key() -> str:
+    key = (os.getenv("GEN_API_KEY") or "").strip()
+    if not key:
         raise RuntimeError(
-            "Missing LLAMA_API_KEY in environment or .env"
+            "Missing GEN_API_KEY in environment or .env (required when GENERATION_BACKEND=openai_compat)"
         )
     return key
 
 
-def call_llm(
+def get_api_key() -> str:
+    """Return the active backend API key (GEN_API_KEY or LLAMA_API_KEY) based on GENERATION_BACKEND."""
+    if openai_compat_enabled():
+        return get_openai_compat_api_key()
+    return get_ollama_api_key()
+
+
+def call_llm_ollama(
     api_key: str,
     system_prompt: str,
     user_prompt: str,
@@ -206,6 +255,92 @@ def call_llm(
     r.raise_for_status()
     data = r.json()
     return data.get("response", "")
+
+
+def call_llm_openai_compat(
+    api_key: str,
+    gen_api_base: str,
+    system_prompt: str,
+    user_prompt: str,
+    model: str,
+    timeout: int = 120,
+    temperature: float = 0.0,
+    top_p: float = 1.0,
+) -> str:
+    """OpenAI-compatible chat completions (OpenRouter, vLLM, OpenAI, etc.)."""
+    url = chat_completions_endpoint(gen_api_base)
+    payload: Dict[str, Any] = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": float(temperature),
+    }
+    if float(top_p) < 1.0:
+        payload["top_p"] = float(top_p)
+    r = requests.post(
+        url,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        json=payload,
+        timeout=timeout,
+    )
+    r.raise_for_status()
+    data = r.json()
+    if isinstance(data, dict) and data.get("error"):
+        err = data["error"]
+        if isinstance(err, dict):
+            msg = str(err.get("message", err))
+        else:
+            msg = str(err)
+        raise RuntimeError(f"Chat API error: {msg}")
+    choices = data.get("choices") if isinstance(data, dict) else None
+    if not choices or not isinstance(choices, list):
+        raise ValueError("No choices in chat completions response")
+    msg0 = choices[0].get("message") if isinstance(choices[0], dict) else None
+    if not isinstance(msg0, dict):
+        raise ValueError("Invalid message object in chat completions response")
+    content = msg0.get("content")
+    if content is None:
+        raise ValueError("Empty message content in chat completions response")
+    return str(content)
+
+
+def call_llm(
+    api_key: str,
+    system_prompt: str,
+    user_prompt: str,
+    model: str = OLLAMA_MODEL,
+    timeout: int = 120,
+    temperature: float = 0.0,
+    top_p: float = 1.0,
+    *,
+    openai_compat: bool = False,
+    gen_api_base: str = "",
+) -> str:
+    if openai_compat:
+        return call_llm_openai_compat(
+            api_key,
+            gen_api_base,
+            system_prompt,
+            user_prompt,
+            model=model,
+            timeout=timeout,
+            temperature=temperature,
+            top_p=top_p,
+        )
+    return call_llm_ollama(
+        api_key,
+        system_prompt,
+        user_prompt,
+        model=model,
+        timeout=timeout,
+        temperature=temperature,
+        top_p=top_p,
+    )
 
 
 def format_evidence_block(
@@ -412,7 +547,31 @@ def main() -> int:
     )
 
     _load_dotenv()
-    api_key = get_api_key()
+    try:
+        openai_compat = openai_compat_enabled()
+    except RuntimeError as e:
+        logger.error("%s", e)
+        return 1
+
+    if openai_compat:
+        gen_base = (os.getenv("GEN_API_BASE") or "").strip()
+        if not gen_base:
+            logger.error(
+                "GENERATION_BACKEND=openai_compat requires GEN_API_BASE (e.g. https://.../v1 in run env)."
+            )
+            return 1
+        api_key = get_openai_compat_api_key()
+        effective_model = args.model
+        logger.info(
+            "Generation backend: OpenAI-compatible chat (%s) model=%s",
+            chat_completions_endpoint(gen_base),
+            effective_model,
+        )
+    else:
+        gen_base = ""
+        api_key = get_ollama_api_key()
+        effective_model = args.model
+        logger.info("Generation backend: Ollama model=%s", effective_model)
 
     # Default prompts directory: resolve relative to this script so layout is portable.
     # This works for both:
@@ -534,10 +693,12 @@ def main() -> int:
                     api_key,
                     system_text,
                     user_prompt,
-                    model=args.model,
+                    model=effective_model,
                     timeout=args.timeout,
                     temperature=args.temperature,
                     top_p=args.top_p,
+                    openai_compat=openai_compat,
+                    gen_api_base=gen_base,
                 )
                 if args.sleep > 0:
                     time.sleep(args.sleep)
