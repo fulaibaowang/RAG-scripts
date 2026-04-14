@@ -20,6 +20,12 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
+try:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+except ImportError:
+    plt = None  # type: ignore[assignment]
 
 _SHARED = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_SHARED))
@@ -185,6 +191,39 @@ def _load_gold_map(
     return gold_all
 
 
+def _write_kept_histograms(out_base: Path, per_split_kept: Dict[str, List[int]], pooled_kept: List[int]) -> None:
+    if plt is None:
+        print("warning: matplotlib not installed; skipping kept-count histograms", file=sys.stderr)
+        return
+    if not per_split_kept and not pooled_kept:
+        return
+
+    fig_dir = out_base / "figures"
+    fig_dir.mkdir(parents=True, exist_ok=True)
+
+    def _plot_one(values: List[int], title: str, out_path: Path) -> None:
+        if not values:
+            return
+        vmax = int(max(values))
+        bins = np.arange(0, vmax + 2) - 0.5
+        fig, ax = plt.subplots(figsize=(8, 5))
+        ax.hist(values, bins=bins, edgecolor="black", alpha=0.8)
+        ax.set_title(title)
+        ax.set_xlabel("Docs kept per query after t*")
+        ax.set_ylabel("Query count")
+        ax.grid(axis="y", alpha=0.3)
+        plt.tight_layout()
+        fig.savefig(out_path, dpi=150)
+        plt.close(fig)
+        print(f"wrote {out_path}")
+
+    for split_stem, vals in per_split_kept.items():
+        safe = split_stem.replace("/", "_")
+        _plot_one(vals, f"t* kept docs histogram ({split_stem})", fig_dir / f"tstar_kept_hist_{safe}.png")
+
+    _plot_one(pooled_kept, "t* kept docs histogram (pooled)", fig_dir / "tstar_kept_hist_pooled.png")
+
+
 def main() -> int:
     args = parse_args()
     tstar = float(args.tstar)
@@ -218,6 +257,7 @@ def main() -> int:
         gold_map = _load_gold_map(args.train_json, args.test_batch_jsons, query_field=None)
 
     summary_rows: List[dict] = []
+    per_split_kept: Dict[str, List[int]] = {}
     pooled_kept: List[int] = []
     pooled_res: List[float] = []
 
@@ -294,6 +334,7 @@ def main() -> int:
         out_df.to_csv(out_path, sep="\t", index=False)
 
         nq = len(kept_counts)
+        per_split_kept[fused_stem] = list(kept_counts)
         row = {
             "split_stem": fused_stem,
             "rerank_stem": rr_stem,
@@ -356,6 +397,7 @@ def main() -> int:
         sum_path = out_base / "tstar_cutoff_summary.csv"
         sdf.to_csv(sum_path, index=False)
         print(f"wrote {sum_path}")
+        _write_kept_histograms(out_base, per_split_kept, pooled_kept)
 
     meta = {
         "tstar": tstar,
