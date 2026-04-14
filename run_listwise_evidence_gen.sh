@@ -12,7 +12,7 @@
 #   ./run_listwise_evidence_gen.sh --config <path/to/config.env>
 #
 # Required config variables: WORKFLOW_OUTPUT_DIR, DOCS_JSONL
-# Optional: TRAIN_JSON, TEST_BATCH_JSONS, EVIDENCE_TOP_K, GENERATION_*
+# Optional: TRAIN_JSON, TEST_BATCH_JSONS, EVIDENCE_TOP_K (post_rerank top-k; default 10), GENERATION_*
 #
 set -e
 
