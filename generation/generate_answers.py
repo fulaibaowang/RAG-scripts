@@ -395,6 +395,39 @@ def snippets_to_contexts(snippets: List[Dict[str, Any]]) -> List[Dict[str, Any]]
     return contexts
 
 
+def resolve_schema_block(schemas_dir: Path, qtype: str) -> str:
+    """Resolve schema snippet: typed ``{qtype}.txt`` if present; untyped uses ``default.txt`` if present; else ``""``."""
+    raw = (qtype or "").strip().lower()
+    if raw:
+        path = schemas_dir / f"{raw}.txt"
+        if path.exists():
+            return path.read_text(encoding="utf-8").strip()
+        return ""
+    default_path = schemas_dir / "default.txt"
+    if default_path.exists():
+        return default_path.read_text(encoding="utf-8").strip()
+    return ""
+
+
+def format_user_prompt(
+    user_base_text: str,
+    *,
+    schema_block: str,
+    qtype: str,
+    question: str,
+    evidence_block: str,
+) -> str:
+    raw = (qtype or "").strip().lower()
+    schema_prefix = (schema_block.strip() + "\n\n") if schema_block.strip() else ""
+    question_header = (f"Question (type={raw}):\n" if raw else "Question:\n")
+    return (
+        user_base_text.replace("{SCHEMA_BLOCK}", schema_prefix)
+        .replace("{QUESTION_HEADER}", question_header)
+        .replace("{QUESTION}", question)
+        .replace("{EVIDENCE_BLOCK}", evidence_block)
+    )
+
+
 def build_full_prompt_for_record(
     record: Dict[str, Any],
     prompts_dir: Path,
@@ -414,16 +447,14 @@ def build_full_prompt_for_record(
         return ""
     system_text = system_path.read_text(encoding="utf-8").strip()
     user_base_text = user_path.read_text(encoding="utf-8").strip()
-    schema_path = schemas_dir / f"{qtype}.txt"
-    if not schema_path.exists():
-        schema_path = schemas_dir / "summary.txt"
-    schema_block = schema_path.read_text(encoding="utf-8").strip()
+    schema_block = resolve_schema_block(schemas_dir, record.get("type") or "")
     evidence_block = format_evidence_block(contexts, max_contexts, max_chars_per_context)
-    user_prompt = (
-        user_base_text.replace("{SCHEMA_BLOCK}", schema_block)
-        .replace("{QTYPE}", qtype)
-        .replace("{QUESTION}", question)
-        .replace("{EVIDENCE_BLOCK}", evidence_block)
+    user_prompt = format_user_prompt(
+        user_base_text,
+        schema_block=schema_block,
+        qtype=qtype,
+        question=question,
+        evidence_block=evidence_block,
     )
     return f"[SYSTEM]\n{system_text}\n\n[USER]\n{user_prompt}"
 
@@ -483,10 +514,10 @@ def parse_answer_json_for_type(raw: str, qtype: str, q_id: Optional[str] = None)
     if not isinstance(ev_ids, list) or not all(isinstance(x, str) for x in ev_ids):
         raise ValueError("'evidence_ids' must be a list of strings")
 
-    qtype = (qtype or "summary").strip().lower()
+    qt = (qtype or "").strip().lower()
     out: Dict[str, Any] = {"ideal_answer": ideal, "evidence_ids": ev_ids}
 
-    if qtype == "yesno":
+    if qt == "yesno":
         if "exact_answer" not in obj:
             raise ValueError("yesno type requires 'exact_answer'")
         ea = obj["exact_answer"]
@@ -495,26 +526,26 @@ def parse_answer_json_for_type(raw: str, qtype: str, q_id: Optional[str] = None)
         if ea.strip().lower() not in ("yes", "no"):
             raise ValueError(f"yesno exact_answer must be 'yes' or 'no', got: {ea!r}")
         out["exact_answer"] = ea.strip().lower()
-    elif qtype in ("factoid", "list"):
+    elif qt in ("factoid", "list"):
         if "exact_answer" not in obj:
-            raise ValueError(f"{qtype} type requires 'exact_answer'")
+            raise ValueError(f"{qt} type requires 'exact_answer'")
         ea = obj["exact_answer"]
         if not isinstance(ea, list):
-            raise ValueError(f"{qtype} exact_answer must be a list (or list of lists)")
+            raise ValueError(f"{qt} exact_answer must be a list (or list of lists)")
         if len(ea) == 0:
             out["exact_answer"] = []
         elif isinstance(ea[0], str):
             # Flat list of strings -> array-of-arrays (one inner array per answer)
             if not all(isinstance(x, str) for x in ea):
-                raise ValueError(f"{qtype} exact_answer list must contain only strings")
+                raise ValueError(f"{qt} exact_answer list must contain only strings")
             out["exact_answer"] = [[s] for s in ea]
         elif isinstance(ea[0], list):
             # Already array-of-arrays
             if not all(isinstance(inner, list) and all(isinstance(x, str) for x in inner) for inner in ea):
-                raise ValueError(f"{qtype} exact_answer must be list of lists of strings")
+                raise ValueError(f"{qt} exact_answer must be list of lists of strings")
             out["exact_answer"] = ea
         else:
-            raise ValueError(f"{qtype} exact_answer must be list of strings or list of lists of strings")
+            raise ValueError(f"{qt} exact_answer must be list of strings or list of lists of strings")
 
     return out
 
@@ -605,43 +636,17 @@ def main() -> int:
     with open(user_base_path, "r", encoding="utf-8") as f:
         user_base_text = f.read().strip()
 
-    SCHEMA_BLOCKS: Dict[str, str] = {}
+    schema_cache: Dict[str, str] = {}
 
     def get_schema_block(qtype: str) -> str:
-        """
-        Resolve schema text for a question type.
+        key = (qtype or "").strip().lower()
+        if key not in schema_cache:
+            schema_cache[key] = resolve_schema_block(schemas_dir, qtype)
+        return schema_cache[key]
 
-        - If qtype is empty/None, return "" (no schema block).
-        - If the specific schema file is missing, return "" instead of falling back to any default.
-        """
-        raw = (qtype or "").strip().lower()
-        if not raw:
-            return ""
-        if raw in SCHEMA_BLOCKS:
-            return SCHEMA_BLOCKS[raw]
-        path = schemas_dir / f"{raw}.txt"
-        if not path.exists():
-            # No schema for this type; treat schema as optional.
-            SCHEMA_BLOCKS[raw] = ""
-            return ""
-        with open(path, "r", encoding="utf-8") as f:
-            block = f.read().strip()
-        SCHEMA_BLOCKS[raw] = block
-        return block
-
-    # Priming specific schemas is no longer necessary now that schema blocks are optional,
-    # but we keep this call to warm the cache for standard types when schema files exist.
-    for _q in ("summary", "yesno", "factoid", "list"):
+    # Warm cache for common typed labels and untyped ("") default.txt resolution.
+    for _q in ("", "summary", "yesno", "factoid", "list"):
         get_schema_block(_q)
-
-    def fill_user_prompt(question: str, evidence_block: str, qtype: str, schema_block: str) -> str:
-        return (
-            user_base_text
-            .replace("{SCHEMA_BLOCK}", schema_block)
-            .replace("{QTYPE}", qtype)
-            .replace("{QUESTION}", question)
-            .replace("{EVIDENCE_BLOCK}", evidence_block)
-        )
 
     all_objs = load_contexts_json(args.input_path)
     total = len(all_objs)
@@ -658,7 +663,7 @@ def main() -> int:
 
     def process_one(idx: int, obj: Dict[str, Any]) -> tuple[int, Dict[str, Any]]:
         q_id = obj.get("id")
-        qtype = obj.get("type") or ""
+        qtype = (obj.get("type") or "").strip().lower()
         question = obj.get("body", "") or ""
         if args.evidence_source == "contexts":
             contexts = obj.get("contexts") or []
@@ -683,7 +688,13 @@ def main() -> int:
         evidence_block = format_evidence_block(
             contexts, args.max_contexts, args.max_chars_per_context
         )
-        user_prompt = fill_user_prompt(question, evidence_block, qtype, schema_block)
+        user_prompt = format_user_prompt(
+            user_base_text,
+            schema_block=schema_block,
+            qtype=qtype,
+            question=question,
+            evidence_block=evidence_block,
+        )
 
         raw = None
         last_error: Optional[Exception] = None
@@ -766,7 +777,7 @@ def main() -> int:
                 rec["ideal_answer"] = None
                 rec["evidence_ids"] = []
                 rec["error"] = str(e)
-                qtype = obj.get("type", "summary")
+                qtype = (obj.get("type") or "").strip().lower()
                 if qtype in ("yesno", "factoid", "list"):
                     rec["exact_answer"] = None
                 results_by_idx[idx] = rec
@@ -787,7 +798,7 @@ def main() -> int:
             rec["ideal_answer"] = None
             rec["evidence_ids"] = []
             rec["error"] = "missing_from_results"
-            if obj.get("type") in ("yesno", "factoid", "list"):
+            if (obj.get("type") or "").strip().lower() in ("yesno", "factoid", "list"):
                 rec["exact_answer"] = None
             records_out.append(rec)
             logger.warning("No result for index %d (id=%s); added record with error", i, obj.get("id"))

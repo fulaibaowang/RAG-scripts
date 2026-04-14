@@ -141,7 +141,7 @@ def main() -> int:
         q = {
             "id": r.get("id"),
             "body": r.get("body"),
-            "type": r.get("type", "summary"),
+            "type": r.get("type") or "",
             "documents": r.get("documents", []),
             "contexts": r.get("contexts", []),
         }
