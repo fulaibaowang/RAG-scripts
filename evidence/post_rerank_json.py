@@ -42,7 +42,7 @@ def parse_args() -> argparse.Namespace:
         "--output-path",
         type=Path,
         required=True,
-        help="Path to output JSON (e.g. output/<workflow>/rerank_hybrid/post_rerank_13B1_golden.json).",
+        help="Path to output JSON (e.g. output/<workflow>/rerank/post_rerank_fusion/post_rerank_13B1_golden.json).",
     )
     parser.add_argument(
         "--top-k",

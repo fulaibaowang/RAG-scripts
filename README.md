@@ -2,8 +2,8 @@
 
 Run the pipeline via the workflow script and a config env. It supports:
 
-- **Baseline route**: BM25 → Dense → Hybrid → Reranker → RRF fusion (`rerank_hybrid/`) → evidence + generation
-- **Optional snippet-RRF route**: snippet window rerank (`snippet_rerank/`) → final fusion (`snippet_rrf/`) → snippet-based evidence + generation
+- **Baseline route**: BM25 → Dense → retrieval fusion → cross-encoder → post-rerank RRF (`rerank/post_rerank_fusion/`) → evidence + generation
+- **Optional snippet-RRF route**: snippet window rerank (`snippet/snippet_rerank/`) → final fusion (`snippet/snippet_doc_fusion/`) → snippet-based evidence + generation
 
 ## Workflow globals and naming
 
@@ -21,8 +21,8 @@ Required and common env (set by sourcing a config):
 | `BM25_INDEX_PATH` | Terrier index directory | Path to index |
 | `DENSE_INDEX_DIR` | Dense HNSW index directory | Path to index |
 | `DOCS_JSONL` | JSONL corpus for reranker | Path to docs |
-| `RUN_BASELINE` | Build baseline evidence/generation (`evidence_baseline/`, `generation_baseline/`) | `1` |
-| `RUN_SNIPPET_RRF` | Enable snippet-RRF route (steps 6–7 + `evidence_snippet/`, `generation_snippet/`) | `0` |
+| `RUN_BASELINE` | Build baseline evidence/generation (`evidence/evidence_baseline/`, `generation/generation_baseline/`) | `1` |
+| `RUN_SNIPPET_RRF` | Enable snippet-RRF route (steps 6–7 + `evidence/evidence_snippet/`, `generation/generation_snippet/`) | `0` |
 
 **Full options:** `workflow_config_full.env` lists every parameter with comments, including stage-specific overrides:
 
@@ -68,13 +68,13 @@ For multi-query fusion (running multiple query variants per stage and fusing wit
 
 - **Stage 2 / 2b: document reranking + post-rerank fusion** (`rerank/`)
   - [rerank/rerank_stage2.py](rerank/rerank_stage2.py) — Stage 2 cross-encoder document reranking.
-  - [rerank/rerank_rrf_hybrid.py](rerank/rerank_rrf_hybrid.py) — Stage 2b post-rerank RRF fusion of retrieval fusion (`hybrid/`) and reranker scores (`rerank_hybrid/`).
+  - [rerank/rerank_rrf_hybrid.py](rerank/rerank_rrf_hybrid.py) — Stage 2b post-rerank RRF fusion of retrieval fusion (`retrieval/fusion/`) and cross-encoder scores (`rerank/post_rerank_fusion/`).
   - [rerank/plot_rerank_eval.py](rerank/plot_rerank_eval.py) — plots recall/MAP curves from rerank outputs.
 
 - **Stage 3 / 3b: snippet-aware evidence and fusion** (`evidence/`)
   - [evidence/snippet_rerank.py](evidence/snippet_rerank.py) — Stage 3 snippet window extraction and two-stage dense + CE reranking.
-  - [evidence/build_contexts_from_snippets.py](evidence/build_contexts_from_snippets.py) — Stage 3b snippet-based evidence JSONL from `snippet_rrf/`.
-  - [evidence/build_contexts_from_documents.py](evidence/build_contexts_from_documents.py) — Stage 3b document-based evidence JSONL from `rerank_hybrid/`.
+  - [evidence/build_contexts_from_snippets.py](evidence/build_contexts_from_snippets.py) — Stage 3b snippet-based evidence JSONL from `snippet/snippet_doc_fusion/`.
+  - [evidence/build_contexts_from_documents.py](evidence/build_contexts_from_documents.py) — Stage 3b document-based evidence JSONL from `rerank/post_rerank_fusion/`.
   - [evidence/post_rerank_json.py](evidence/post_rerank_json.py) — convert rerank TSV outputs into BioASQ-style JSON runs.
 
 - **Stage 4: LLM answer generation** (`generation/`)
@@ -92,7 +92,7 @@ All stages write runs as TSV with columns: `qid`, `docno`, `rank`, `score`. No p
 
 ## Snippet windows, run log, and logging
 
-- **Snippet windows:** Snippet evidence uses windows written by **split** (logical id, e.g. `13B1_golden`). Files live under `snippet_rerank/windows/` as `{split}.jsonl`. The pipeline and `build_contexts_from_snippets.py` use this name; no separate "windows stem" is used.
+- **Snippet windows:** Snippet evidence uses windows written by **split** (logical id, e.g. `13B1_golden`). Files live under `snippet/snippet_rerank/windows/` as `{split}.jsonl`. The pipeline and `build_contexts_from_snippets.py` use this name; no separate "windows stem" is used.
 - **Pipeline run log:** The script appends a run log to `$WORKFLOW_OUTPUT_DIR/pipeline_run.log` (override with `PIPELINE_RUN_LOG`). Each line has timestamp, step name, and duration or `skip`. A short config snapshot (steps, output dir, config file, `RUN_SNIPPET_RRF`) is written at start; an `end` line is written when the pipeline finishes.
 - **Logging config:** Pipeline Python scripts (snippet_rerank, build_contexts_from_snippets, post_rerank_json, generation, etc.) read `LOG_LEVEL` (default `INFO`) and `LOG_FILE`. When `LOG_FILE` is set (default: `$WORKFLOW_OUTPUT_DIR/pipeline.log`), they add a file handler so script logs go there. Set `LOG_LEVEL=DEBUG` or unset `LOG_FILE` to change behaviour.
 - **Model-loading progress:** The pipeline sets `HF_HUB_DISABLE_PROGRESS_BARS=1` and `TRANSFORMERS_VERBOSITY=error` so Hugging Face “Loading weights” / “Materializing param” lines do not flood sbatch `.err` or console. Override with `HF_HUB_DISABLE_PROGRESS_BARS=0` or `TRANSFORMERS_VERBOSITY=info` if you want progress output.
@@ -118,15 +118,15 @@ All stages write runs as TSV with columns: `qid`, `docno`, `rank`, `score`. No p
 
    You can still source then run: `source scripts/public/shared_scripts/workflow_config_baseline.env && ./scripts/public/shared_scripts/run_retrieval_rerank_pipeline.sh`
 
+3. Outputs appear under `$WORKFLOW_OUTPUT_DIR/retrieval/{bm25,dense,fusion}/`. If `DOCS_JSONL` is set and you do not pass `--no-rerank`, the reranker runs and writes to `rerank/cross_encoder/`, then post-rerank fusion under `rerank/post_rerank_fusion/`. Set `RERANK_DISABLE_METRICS=1` when you have no ground truth. If a stage's key output already exists (e.g. fusion's `ranked_test_avg.csv` or `metrics.csv`), that stage is skipped; when retrieval fusion is done, the reranker uses those results and does not rerun earlier stages.
+
 4. Enable snippet-RRF (optional):
    - CLI: add `--snippet-rrf`
    - Or set in your config: `RUN_SNIPPET_RRF=1`
    - Outputs:
-     - `snippet_rerank/` (snippet window rerank outputs)
-     - `snippet_rrf/` (final fusion outputs)
-     - `evidence_snippet/`, `generation_snippet/` (snippet-based evidence/generation)
-
-3. Outputs appear under `$WORKFLOW_OUTPUT_DIR/bm25/`, `dense/`, `hybrid/`. If `DOCS_JSONL` is set and you do not pass `--no-rerank`, the reranker step runs and writes to `rerank/`. Set `RERANK_DISABLE_METRICS=1` when you have no ground truth. If a stage's key output already exists (e.g. hybrid's `ranked_test_avg.csv` or `metrics.csv`), that stage is skipped; when hybrid is done, the reranker uses hybrid results and does not rerun earlier stages.
+     - `snippet/snippet_rerank/` (snippet window rerank outputs)
+     - `snippet/snippet_doc_fusion/` (final fusion outputs)
+     - `evidence/evidence_snippet/`, `generation/generation_snippet/` (snippet-based evidence/generation)
 
 ## Prerequisites
 

@@ -2,7 +2,7 @@
 """
 Snippet (window) extraction and CE reranking.
 
-For each query, takes top-N docs from a rerank_hybrid run, generates overlapping
+For each query, takes top-N docs from a post_rerank_fusion (or snippet-route) run, generates overlapping
 sentence windows from each abstract, applies two-stage selection:
   Stage A  – BM25 + dense hybrid (RRF) to keep top-W windows per doc
   Stage B  – Cross-encoder rerank on the kept windows
@@ -477,7 +477,7 @@ def parse_args() -> argparse.Namespace:
     )
 
     inp = p.add_argument_group("inputs")
-    inp.add_argument("--runs-dir", type=Path, default=None, help="Dir with rerank_hybrid run TSVs.")
+    inp.add_argument("--runs-dir", type=Path, default=None, help="Dir with post_rerank_fusion (or snippet pool) run TSVs.")
     inp.add_argument("--run-files", type=Path, nargs="*", default=None, help="Explicit run TSV files.")
     inp.add_argument("--run-glob", type=str, default="*.tsv", help="Glob under --runs-dir.")
     inp.add_argument("--docs-jsonl", type=str, required=True, help="JSONL corpus path or glob.")

@@ -2,7 +2,7 @@
 #
 # Listwise reranking (RankZephyr) – runs in its own container after the main pipeline.
 #
-# Reads snippet_rrf/runs and snippet_rerank/windows produced by
+# Reads snippet/snippet_doc_fusion/runs and snippet/snippet_rerank/windows produced by
 # run_retrieval_rerank_pipeline.sh (with --snippet-rrf or --run-both-routes)
 # and produces listwise_rerank/{single_window,sliding_window}/runs/*.tsv.
 #
@@ -63,17 +63,17 @@ if [ -z "${WORKFLOW_OUTPUT_DIR:-}" ]; then
   exit 1
 fi
 
-SNIPPET_RRF_RUNS="${WORKFLOW_OUTPUT_DIR}/snippet_rrf/runs"
-SNIPPET_WINDOWS="${WORKFLOW_OUTPUT_DIR}/snippet_rerank/windows"
+SNIPPET_DOC_FUSION_RUNS="${WORKFLOW_OUTPUT_DIR}/snippet/snippet_doc_fusion/runs"
+SNIPPET_WINDOWS="${WORKFLOW_OUTPUT_DIR}/snippet/snippet_rerank/windows"
 
-if [ ! -d "$SNIPPET_RRF_RUNS" ]; then
-  echo "Error: snippet_rrf/runs not found at $SNIPPET_RRF_RUNS" >&2
+if [ ! -d "$SNIPPET_DOC_FUSION_RUNS" ]; then
+  echo "Error: snippet/snippet_doc_fusion/runs not found at $SNIPPET_DOC_FUSION_RUNS" >&2
   echo "  The main pipeline must run with --snippet-rrf or RUN_SNIPPET_RRF=1 first." >&2
   exit 1
 fi
 
 if [ ! -d "$SNIPPET_WINDOWS" ]; then
-  echo "Error: snippet_rerank/windows not found at $SNIPPET_WINDOWS" >&2
+  echo "Error: snippet/snippet_rerank/windows not found at $SNIPPET_WINDOWS" >&2
   echo "  The main pipeline must run with --snippet-rrf or RUN_SNIPPET_RRF=1 first." >&2
   exit 1
 fi
@@ -102,7 +102,7 @@ LISTWISE_FUSE_SLIDING="${LISTWISE_FUSE_SLIDING:-0}"
 
 echo "[listwise] Configuration:"
 echo "  WORKFLOW_OUTPUT_DIR:  $WORKFLOW_OUTPUT_DIR"
-echo "  Input runs:           $SNIPPET_RRF_RUNS"
+echo "  Input runs:           $SNIPPET_DOC_FUSION_RUNS"
 echo "  Input windows:        $SNIPPET_WINDOWS"
 echo "  Output:               $LISTWISE_OUTPUT_DIR"
 echo "  Model:                $LISTWISE_MODEL"
@@ -130,7 +130,7 @@ cat > "$LISTWISE_OUTPUT_DIR/config.json" <<CONFIGEOF
   "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "config_file": "${CONFIG_FILE:-null}",
   "workflow_output_dir": "$WORKFLOW_OUTPUT_DIR",
-  "input_runs": "$SNIPPET_RRF_RUNS",
+  "input_runs": "$SNIPPET_DOC_FUSION_RUNS",
   "input_windows": "$SNIPPET_WINDOWS",
   "output_dir": "$LISTWISE_OUTPUT_DIR",
   "reranking": {
@@ -189,7 +189,7 @@ else
   # Build arguments & run reranking
   # ---------------------------------------------------------------------------
   LISTWISE_ARGS=(
-    --runs-dir "$SNIPPET_RRF_RUNS"
+    --runs-dir "$SNIPPET_DOC_FUSION_RUNS"
     --windows-dir "$SNIPPET_WINDOWS"
     --output-dir "$LISTWISE_OUTPUT_DIR"
     --single-k "$LISTWISE_SINGLE_K"
@@ -223,7 +223,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# RRF Fusion: listwise single_window + snippet_rrf
+# RRF Fusion: listwise single_window + snippet_doc_fusion
 # ---------------------------------------------------------------------------
 _FUSED_DIR="${LISTWISE_OUTPUT_DIR}/listwise_fused"
 _FUSED_SLIDING_DIR="${LISTWISE_OUTPUT_DIR}/listwise_fused_sliding"
@@ -235,7 +235,7 @@ _build_fusion_args() {
 
   local _FUSION_ARGS=(
     --listwise-runs-dir "$_lw_runs"
-    --snippet-rrf-runs-dir "$SNIPPET_RRF_RUNS"
+    --snippet-doc-fusion-runs-dir "$SNIPPET_DOC_FUSION_RUNS"
     --output-dir "$_out"
     --pool-top "$_pool_top"
     --k-rrf "$LISTWISE_FUSION_K_RRF"
@@ -264,7 +264,7 @@ _HAS_FUSED=0
 if [ "$_HAS_FUSED" = "1" ]; then
   echo "[listwise] Fused single-window output already exists in $_FUSED_DIR – skipping."
 else
-  echo "[listwise] RRF fusion: single_window + snippet_rrf -> listwise_fused (pool_top=$LISTWISE_FUSION_POOL_TOP)..."
+  echo "[listwise] RRF fusion: single_window + snippet_doc_fusion -> listwise_fused (pool_top=$LISTWISE_FUSION_POOL_TOP)..."
   FUSION_ARGS=($(_build_fusion_args "$_SINGLE_RUNS_DIR" "$_FUSED_DIR" "$LISTWISE_FUSION_POOL_TOP"))
   python3 "$SCRIPT_DIR/rerank/listwise_rrf_fusion.py" "${FUSION_ARGS[@]}"
 fi
@@ -277,7 +277,7 @@ if [ "$LISTWISE_RUN_SLIDING" = "1" ] && [ "$LISTWISE_FUSE_SLIDING" = "1" ]; then
   if [ "$_HAS_FUSED_SLIDING" = "1" ]; then
     echo "[listwise] Fused sliding-window output already exists in $_FUSED_SLIDING_DIR – skipping."
   else
-    echo "[listwise] RRF fusion: sliding_window + snippet_rrf -> listwise_fused_sliding (pool_top=$LISTWISE_POOL)..."
+    echo "[listwise] RRF fusion: sliding_window + snippet_doc_fusion -> listwise_fused_sliding (pool_top=$LISTWISE_POOL)..."
     FUSION_SLIDING_ARGS=($(_build_fusion_args "$_SLIDING_RUNS_DIR" "$_FUSED_SLIDING_DIR" "$LISTWISE_POOL"))
     python3 "$SCRIPT_DIR/rerank/listwise_rrf_fusion.py" "${FUSION_SLIDING_ARGS[@]}"
   fi

@@ -200,8 +200,8 @@ Run all stages with one script and a config file. The script skips any stage who
 
 If `DOCS_JSONL` is set, the pipeline will also build:
 
-- `evidence_baseline/` and `generation_baseline/` (baseline route)
-- Optionally, `evidence_snippet/` and `generation_snippet/` (snippet-RRF route)
+- `evidence/evidence_baseline/` and `generation/generation_baseline/` (baseline route)
+- Optionally, `evidence/evidence_snippet/` and `generation/generation_snippet/` (snippet-RRF route)
 
 ```bash
 ./scripts/public/shared_scripts/run_retrieval_rerank_pipeline.sh --config scripts/public/shared_scripts/workflow_config_baseline.env
@@ -211,7 +211,7 @@ If `DOCS_JSONL` is set, the pipeline will also build:
 
 ### Snippet-RRF route (optional)
 
-The snippet route runs snippet window extraction + CE reranking and then a final evidence fusion step against `rerank_hybrid` to produce a snippet-driven run (`snippet_rrf/`) and snippet-driven contexts (`evidence_snippet/`).
+The snippet route runs snippet window extraction + CE reranking and then a final evidence fusion step against doc-side post-rerank fusion (`rerank/post_rerank_fusion_snippet/`) to produce a snippet-driven run (`snippet/snippet_doc_fusion/`) and snippet-driven contexts (`evidence/evidence_snippet/`).
 
 You can enable snippet-RRF either via a CLI flag:
 
@@ -231,7 +231,7 @@ RUN_SNIPPET_RRF=1
 - **Baseline only**: `RUN_BASELINE=1`, `RUN_SNIPPET_RRF=0`
 - **Snippet only**: `RUN_BASELINE=0`, `RUN_SNIPPET_RRF=1`
 
-Generation is handled inside the same pipeline script: once evidence JSONL files exist under `evidence_baseline/` or `evidence_snippet/`, the script runs the LLM answer generation step and writes `*_answers.json` under the corresponding `generation_*` directory.
+Generation is handled inside the same pipeline script: once evidence JSONL files exist under `evidence/evidence_baseline/` or `evidence/evidence_snippet/`, the script runs the LLM answer generation step and writes `*_answers.json` under the corresponding `generation/generation_*` directory.
 
 ## Output
 

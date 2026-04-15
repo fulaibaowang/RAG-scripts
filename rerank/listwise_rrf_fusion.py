@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-RRF fusion between listwise reranking output and snippet_rrf output.
+RRF fusion between listwise reranking output and snippet_doc_fusion output.
 
 Takes two sets of runs:
   - Listwise runs (simple names: ``{split}.tsv``)
-  - Snippet-RRF runs (long names: ``best_rrf_{split}_top5000_...tsv``)
+  - Snippet doc fusion runs (long names: ``best_rrf_{split}_top5000_...tsv``)
 
 Matches them by parsed split name, applies weighted RRF fusion,
 and outputs fused TSVs with simple ``{split}.tsv`` names for
@@ -41,7 +41,7 @@ from retrieval_eval.common import (  # type: ignore
 # ---------------------------------------------------------------------------
 
 def _parse_split_from_long_stem(run_stem: str) -> Optional[str]:
-    """Extract split from a ``best_rrf_*`` run stem (snippet_rrf naming)."""
+    """Extract split from a ``best_rrf_*`` run stem (snippet doc fusion naming)."""
     m = re.fullmatch(
         r"best_rrf_(.+?)_top\d+(?:_rrf_pool[^\s]+)?",
         run_stem,
@@ -127,13 +127,19 @@ def _rrf_fuse(
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="RRF fusion of listwise reranking runs with snippet_rrf runs.",
+        description="RRF fusion of listwise reranking runs with snippet_doc_fusion runs.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument("--listwise-runs-dir", type=Path, required=True,
                     help="Listwise runs directory ({split}.tsv).")
-    p.add_argument("--snippet-rrf-runs-dir", type=Path, required=True,
-                    help="Snippet-RRF runs directory (best_rrf_*.tsv).")
+    p.add_argument(
+        "--snippet-doc-fusion-runs-dir", "--snippet-rrf-runs-dir",
+        type=Path,
+        dest="snippet_doc_fusion_runs_dir",
+        required=True,
+        metavar="PATH",
+        help="Snippet doc fusion runs directory (best_rrf_*.tsv). Alias: --snippet-rrf-runs-dir.",
+    )
     p.add_argument("--output-dir", type=Path, required=True,
                     help="Output directory for fused runs, metrics, and figures.")
     p.add_argument("--pool-top", type=int, default=15,
@@ -222,7 +228,7 @@ def main() -> None:
     args = parse_args()
 
     listwise_dir: Path = args.listwise_runs_dir
-    snippet_dir: Path = args.snippet_rrf_runs_dir
+    snippet_dir: Path = args.snippet_doc_fusion_runs_dir
     out_dir: Path = args.output_dir
     out_runs = out_dir / "runs"
     out_per_query = out_dir / "per_query"
@@ -230,7 +236,7 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     out_runs.mkdir(parents=True, exist_ok=True)
 
-    # Build a map: split_name -> snippet_rrf TSV path
+    # Build a map: split_name -> snippet doc fusion TSV path
     snippet_by_split: Dict[str, Path] = {}
     for p in sorted(snippet_dir.glob("*.tsv")):
         split = _parse_split_from_long_stem(p.stem)
@@ -238,9 +244,9 @@ def main() -> None:
             snippet_by_split[split] = p
 
     if not snippet_by_split:
-        print(f"Error: no parseable snippet_rrf runs in {snippet_dir}")
+        print(f"Error: no parseable snippet doc fusion runs in {snippet_dir}")
         sys.exit(1)
-    print(f"Found {len(snippet_by_split)} snippet_rrf splits: {list(snippet_by_split.keys())}")
+    print(f"Found {len(snippet_by_split)} snippet_doc_fusion splits: {list(snippet_by_split.keys())}")
 
     # Iterate over listwise runs (simple {split}.tsv names)
     fused_dfs: Dict[str, pd.DataFrame] = {}
@@ -250,7 +256,7 @@ def main() -> None:
     for lw_path in sorted(listwise_dir.glob("*.tsv")):
         split = lw_path.stem
         if split not in snippet_by_split:
-            print(f"skip {lw_path.name}: no matching snippet_rrf run for split '{split}'")
+            print(f"skip {lw_path.name}: no matching snippet_doc_fusion run for split '{split}'")
             continue
 
         sn_path = snippet_by_split[split]

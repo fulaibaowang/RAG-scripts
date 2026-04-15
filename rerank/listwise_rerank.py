@@ -2,7 +2,7 @@
 """
 Listwise reranking with RankZephyr 7B via RankLLM.
 
-Reads snippet_rrf runs + snippet_rerank windows produced by the main pipeline
+Reads snippet_doc_fusion runs + snippet_rerank windows produced by the main pipeline
 and produces reranked runs in the same TSV format (qid, docno, rank) that
 downstream evidence/generation scripts expect.
 
@@ -45,15 +45,15 @@ logger = logging.getLogger(__name__)
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Listwise reranking (RankZephyr) on snippet-rrf pipeline output.",
+        description="Listwise reranking (RankZephyr) on snippet doc fusion pipeline output.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
     # Input paths
     p.add_argument("--runs-dir", type=Path, required=True,
-                   help="Directory with snippet_rrf run TSVs (qid, docno, rank).")
+                   help="Directory with snippet_doc_fusion run TSVs (qid, docno, rank).")
     p.add_argument("--windows-dir", type=Path, required=True,
-                   help="Directory with snippet_rerank window JSONLs ({split}.jsonl).")
+                   help="Directory with snippet/snippet_rerank window JSONLs ({split}.jsonl).")
     p.add_argument("--output-dir", type=Path, required=True,
                    help="Root output directory (e.g. <workflow>/listwise_rerank).")
 

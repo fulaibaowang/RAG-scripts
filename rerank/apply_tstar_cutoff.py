@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Apply global rerank score threshold t* to rerank_hybrid (RRF) runs by joining doc scores from rerank runs.
+"""Apply global rerank score threshold t* to post_rerank_fusion (RRF) runs by joining doc scores from cross-encoder runs.
 
-Hybrid+RRF fused TSVs may omit scores; this script looks up (qid, docno) -> score from the matching
-rerank run (same logical stem without ``_rrf_poolR*_poolH*_k*`` suffix). Optional CAP truncates after
+Fused TSVs may omit scores; this script looks up (qid, docno) -> score from the matching
+cross-encoder run (same logical stem without ``_rrf_poolR*_poolH*_k*`` suffix). Optional CAP truncates after
 thresholding; FLOOR guarantees at least FLOOR docs by top-up in original fused order.
 
-When ``--rerank-sub-runs-dir`` is given one or more times (multi-query rerank: ``rerank/_sub_*/runs``),
+When ``--rerank-sub-runs-dir`` is given one or more times (multi-query rerank: ``rerank/cross_encoder/_sub_*/runs``),
 scores are max over those sub-run TSVs per (qid, docno) — not the RRF-fused scores in
-``rerank/runs``. Otherwise scores come from a single ``--rerank-runs-dir`` TSV.
+``rerank/cross_encoder/runs``. Otherwise scores come from a single ``--rerank-runs-dir`` TSV.
 """
 from __future__ import annotations
 
@@ -145,7 +145,7 @@ def apply_cutoff_for_query(
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    p.add_argument("--input-runs-dir", type=Path, required=True, help="Fused rerank_hybrid runs/*.tsv")
+    p.add_argument("--input-runs-dir", type=Path, required=True, help="Fused post_rerank_fusion runs/*.tsv")
     p.add_argument(
         "--rerank-runs-dir",
         type=Path,

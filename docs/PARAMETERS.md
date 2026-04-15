@@ -105,15 +105,15 @@ See [notebooks/analyze_workflow_results.ipynb](../../../notebooks/analyze_workfl
 
 The snippet-RRF route adds a snippet window reranking stage and a second fusion stage:
 
-- `rerank_hybrid/` → `snippet_rerank/` (window extraction + two-stage window selection + CE rerank)
-- `rerank_hybrid/` + `snippet_rerank/` → `snippet_rrf/` (final RRF fusion)
-- Evidence/generation can then use `evidence_snippet/` + `generation_snippet/`.
+- `rerank/post_rerank_fusion_snippet/` → `snippet/snippet_rerank/` (window extraction + two-stage window selection + CE rerank)
+- Doc-side fused runs + `snippet/snippet_rerank/` → `snippet/snippet_doc_fusion/` (final RRF fusion)
+- Evidence/generation can then use `evidence/evidence_snippet/` + `generation/generation_snippet/`.
 
-### Snippet extraction + window rerank (`snippet_rerank/`)
+### Snippet extraction + window rerank (`snippet/snippet_rerank/`)
 
 | Parameter | Suggested Range | Default | Notes |
 |-----------|----------------|---------|-------|
-| `SNIPPET_N_DOCS` | 50 – 200 | **100** | Top docs per query (from `rerank_hybrid`) used for windowing |
+| `SNIPPET_N_DOCS` | 50 – 200 | **100** | Top docs per query (from `rerank/post_rerank_fusion_snippet`) used for windowing |
 | `SNIPPET_WINDOW_SIZE` | 2 – 5 | **3** | Sentences per window |
 | `SNIPPET_WINDOW_STRIDE` | 1 – 2 | **1** | Sliding stride in sentences |
 | `SNIPPET_TOP_W` | 4 – 16 | **8** | Top windows per doc kept after Stage A |
@@ -123,14 +123,14 @@ The snippet-RRF route adds a snippet window reranking stage and a second fusion 
 | `SNIPPET_CE_BATCH` | — | **84** | CE batch size (tune for GPU memory) |
 | `SNIPPET_CE_MAX_LENGTH` | 200 – 512 | **512** | CE truncation length |
 
-### Final fusion (`snippet_rrf/`)
+### Final fusion (`snippet/snippet_doc_fusion/`)
 
 | Parameter | Suggested Range | Default | Notes |
 |-----------|----------------|---------|-------|
 | `SNIPPET_FINAL_POOL` | 50 – 200 | **SNIPPET_N_DOCS** | Pool size on both sides of final fusion |
 | `SNIPPET_RRF_K` | 30 – 100 | **60** | RRF constant in \(1 / (k + rank)\) |
-| `SNIPPET_RRF_W_DOCS` | 0.5 – 0.9 | **0.8** | Weight on `rerank_hybrid` |
-| `SNIPPET_RRF_W_SNIPPET` | 0.1 – 0.5 | **0.2** | Weight on `snippet_rerank` |
+| `SNIPPET_RRF_W_DOCS` | 0.5 – 0.9 | **0.8** | Weight on doc-side post-rerank fusion (`rerank/post_rerank_fusion_snippet`) |
+| `SNIPPET_RRF_W_SNIPPET` | 0.1 – 0.5 | **0.2** | Weight on `snippet/snippet_rerank` |
 
 ### Snippet evidence contexts
 

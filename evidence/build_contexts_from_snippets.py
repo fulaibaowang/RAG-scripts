@@ -59,7 +59,7 @@ def parse_args() -> argparse.Namespace:
         "--snippet-windows-dir",
         type=Path,
         required=True,
-        help="Path to snippet_rerank windows directory (contains per-split JSONL).",
+        help="Path to snippet/snippet_rerank/windows directory (contains per-split JSONL).",
     )
     parser.add_argument(
         "--split-name",

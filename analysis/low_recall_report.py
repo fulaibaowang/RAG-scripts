@@ -536,8 +536,9 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     ap.add_argument(
         "--stage", default="hybrid",
         help="Retrieval stage to analyze (default: hybrid). "
-             "Common: bm25, dense, hybrid, rerank, rerank_hybrid, "
-             "rerank_hybrid_200, snippet_rerank, snippet_rrf",
+             "Common: retrieval/bm25, retrieval/dense, retrieval/fusion, "
+             "rerank/cross_encoder, rerank/post_rerank_fusion, rerank/post_rerank_fusion_snippet, "
+             "snippet/snippet_rerank, snippet/snippet_doc_fusion",
     )
     ap.add_argument(
         "--recall-k", type=int, default=5000,

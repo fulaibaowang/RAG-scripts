@@ -29,7 +29,7 @@ def _parse_split_from_run_stem(run_stem: str) -> Optional[str]:
     Supports:
       - best_rrf_<split>_top5000
       - best_rrf_<split>_top5000_rrf_pool50_k60
-      - best_rrf_<split>_top5000_rrf_poolR200_poolH200_k60  (rerank_hybrid / snippet_rerank output)
+      - best_rrf_<split>_top5000_rrf_poolR200_poolH200_k60  (post_rerank_fusion / snippet_rerank output)
     """
     # Optional suffix: _rrf_pool50_k60 (legacy) or _rrf_poolR\d+_poolH\d+_k\d+
     m = re.fullmatch(
