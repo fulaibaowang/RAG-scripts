@@ -9,12 +9,12 @@ JSON file to output_dir (e.g. output_dir/<stem>_answers.json).
 
 Backend and model come **only** from the process environment and CLI (sourced run
 ``config.env``, ``export``, scheduler, etc.). Repo-root ``.env`` is read **only**
-for ``GEN_API_KEY`` (``setdefault`` — never overrides an already-exported key).
-It does **not** load ``GENERATION_BACKEND``, ``GENERATION_MODEL``, ``GEN_API_BASE``,
-or ``LLAMA_API_KEY`` from that file.
+for ``GEN_API_KEY`` and ``LLAMA_API_KEY`` (``setdefault`` — never overrides an
+already-exported key). It does **not** load ``GENERATION_BACKEND``,
+``GENERATION_MODEL``, or ``GEN_API_BASE`` from that file.
 
 - ``GENERATION_BACKEND`` (default ``ollama`` when unset): ``ollama`` — HTTP to
-  ``OLLAMA_URL`` with ``LLAMA_API_KEY`` (must be set in the environment).
+  ``OLLAMA_URL`` with ``LLAMA_API_KEY`` (export, scheduler, or ``LLAMA_API_KEY`` in repo-root ``.env``).
   ``openai_compat`` (aliases: ``openrouter``, ``openai``) — POST
   ``{GEN_API_BASE}/chat/completions`` with ``GEN_API_KEY``. Requires ``GEN_API_BASE``.
 
@@ -74,11 +74,11 @@ def _is_retryable_request_error(exc: BaseException) -> bool:
 
 
 # Only these keys are read from repo-root .env (never override existing exports).
-_DOTENV_ALLOWED_KEYS = frozenset({"GEN_API_KEY"})
+_DOTENV_ALLOWED_KEYS = frozenset({"GEN_API_KEY", "LLAMA_API_KEY"})
 
 
 def _load_gen_api_key_from_dotenv() -> None:
-    """Set GEN_API_KEY from repo-root .env if unset. Ignores all other keys in that file."""
+    """Set GEN_API_KEY / LLAMA_API_KEY from repo-root .env if unset. Ignores all other keys in that file."""
     env_path = REPO_ROOT / ".env"
     if not env_path.is_file():
         return
@@ -102,7 +102,7 @@ def _load_gen_api_key_from_dotenv() -> None:
                 if val:
                     os.environ.setdefault(key, val)
     except OSError as e:
-        logger.warning("Could not read .env for GEN_API_KEY: %s", e)
+        logger.warning("Could not read .env for generation API keys: %s", e)
 
 
 def parse_args() -> argparse.Namespace:
@@ -229,8 +229,9 @@ def get_ollama_api_key() -> str:
     key = (os.getenv("LLAMA_API_KEY") or "").strip()
     if not key:
         raise RuntimeError(
-            "Missing LLAMA_API_KEY in environment (Ollama backend). "
-            "Export it or inject via scheduler; repo .env is not used for this key."
+            "Missing LLAMA_API_KEY (Ollama backend). "
+            "Export it, inject via scheduler, or set LLAMA_API_KEY in repo-root .env "
+            "(read if unset, same rule as GEN_API_KEY)."
         )
     return key
 
