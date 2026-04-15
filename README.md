@@ -5,6 +5,30 @@ Run the pipeline via the workflow script and a config env. It supports:
 - **Baseline route**: BM25 → Dense → retrieval fusion → cross-encoder → post-rerank RRF (`rerank/post_rerank_fusion/`) → evidence + generation
 - **Optional snippet-RRF route**: snippet window rerank (`snippet/snippet_rerank/`) → final fusion (`snippet/snippet_doc_fusion/`) → snippet-based evidence + generation
 
+## Quickstart
+
+### First time on a new machine
+
+**Recommended: Docker** — reproduces Java 21, CUDA 12.8 / PyTorch cu128, Terrier, and Python deps without hand-tuning a venv.
+
+1. From the **BioASQ repo root** (a normal `git clone` so `.git` exists, or set paths in config to absolute locations):
+   ```bash
+   docker build -t bioasq-pipeline -f Dockerfile .
+   ```
+2. Mount the repo (or your data) and run the pipeline inside the container, e.g.:
+   ```bash
+   docker run --rm -it --gpus all \
+     -v "$PWD:/app" -w /app \
+     bioasq-pipeline \
+     bash -lc './scripts/public/shared_scripts/run_retrieval_rerank_pipeline.sh \
+       --config scripts/public/shared_scripts/workflow_config_baseline.env'
+   ```
+   Copy `workflow_config_baseline.env` to a private file, set `WORKFLOW_OUTPUT_DIR`, `TRAIN_JSON`, `BM25_INDEX_PATH`, `DENSE_INDEX_DIR`, and (for rerank+) `DOCS_JSONL`. Use `HAVE_GROUND_TRUTH=0` when you have no qrels.
+
+**Local venv (optional)** — Python deps for the main image live at repo root: [requirements-docker-pytorch.txt](../../../requirements-docker-pytorch.txt) (PyTorch only; CUDA wheel index) and [requirements-docker.txt](../../../requirements-docker.txt) (everything else). Install a **matching** `torch` for your OS/GPU from [pytorch.org](https://pytorch.org), activate your venv (e.g. `source /path/to/.venv/bin/activate`), then from repo root `pip install -r requirements-docker.txt`. You still need **Java** and OS libraries the Dockerfile installs.
+
+**Where outputs go** — under `$WORKFLOW_OUTPUT_DIR`: `retrieval/{bm25,dense,fusion}/`, `rerank/{cross_encoder,post_rerank_fusion,...}/`, optional `snippet/...`, then `evidence/...` and `generation/...`. Full layout: [docs/output.md](docs/output.md).
+
 ## Workflow globals and naming
 
 **Unified retrieval depth:** `TOP_K` is the single config for "how many docs per query" and is used by every stage. Scripts use different CLI flags internally (`k_eval`, `topk`, `cap`, `candidate_limit`), but the pipeline sets them all from `TOP_K` (or stage overrides like `BM25_TOP_K`, `DENSE_TOP_K`, etc.).

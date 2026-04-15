@@ -105,9 +105,9 @@ while [ $# -gt 0 ]; do
     -h|--help)
       echo "Usage: $0 [--config|-c <config.env>] [--no-rerank] [--no-rrf-fusion] [--snippet-rrf] [--run-both-routes] [--no-generation] [--bm25-query-field F] ..."
       echo "  -c, --config PATH       Source PATH as config (env vars) before running."
-      echo "  --no-rerank             Run only BM25, Dense, Hybrid; skip reranker even if DOCS_JSONL is set."
-      echo "  --no-rrf-fusion         Disable RRF fusion (Hybrid + Rerank) step after reranker."
-      echo "  --snippet-rrf           Use snippet RRF route: upstream pool=200, snippet extraction, final RRF, snippet-based contexts (writes evidence/, generation/)."
+      echo "  --no-rerank             Run only BM25, Dense, retrieval fusion; skip reranker even if DOCS_JSONL is set."
+      echo "  --no-rrf-fusion         Disable post-rerank RRF fusion (retrieval fusion + cross-encoder) after reranker."
+      echo "  --snippet-rrf           Snippet route: pool=200, snippet CE, doc+snippet fusion (snippet/); evidence/evidence_snippet/, generation/generation_snippet/."
       echo "  --run-both-routes        Run baseline and snippet routes; write evidence/evidence_baseline/, evidence/evidence_snippet/, generation/generation_baseline/, generation/generation_snippet/ (no overwrite)."
       echo "  --no-generation          Skip LLM generation (and rescue) for both baseline and snippet routes."
       echo "  --no-generation-baseline  Skip LLM generation for baseline route only (evidence still built)."
