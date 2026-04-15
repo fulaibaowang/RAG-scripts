@@ -3,8 +3,8 @@
 Rescue failed questions from a generation output JSON.
 
 Loads an answers JSON file, finds records with an "error" field (optionally
-only 504 timeouts), re-runs generation with a longer client timeout and a
-lower max-chars-per-context (default 1100) to reduce JSON parse errors.
+only 504 timeouts), re-runs generation with a longer client timeout, optional --max-contexts
+(default 10), and a lower max-chars-per-context (default 1100) to reduce JSON parse errors.
 Note: 504 Gateway Time-out is set by the server/proxy, not by --timeout;
 retrying with concurrency 1 or during off-peak may help.
 By default overwrites the input file; use --output to write to a new file instead.
@@ -60,6 +60,12 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=300,
         help="Client-side seconds to wait per LLM response (default: 300). 504 is usually from the server/gateway timeout; increasing this only avoids us giving up before the server responds.",
+    )
+    parser.add_argument(
+        "--max-contexts",
+        type=int,
+        default=10,
+        help="Cap on contexts in evidence block for rescue run (default: 10, same as generate_answers.py).",
     )
     parser.add_argument(
         "--max-chars-per-context",
@@ -174,6 +180,7 @@ def main() -> int:
             "--output-dir", str(out_dir),
             "--timeout", str(args.timeout),
             "--retry-sleep", str(args.retry_sleep),
+            "--max-contexts", str(args.max_contexts),
             "--max-chars-per-context", str(args.max_chars_per_context),
             "--concurrency", "1",
         ]
@@ -227,7 +234,7 @@ def main() -> int:
         full_prompt = build_full_prompt_for_record(
             rec,
             prompts_dir,
-            max_contexts=8,
+            max_contexts=args.max_contexts,
             max_chars_per_context=args.max_chars_per_context,
         )
         if full_prompt:
