@@ -7,16 +7,19 @@ documents, contexts), calls an LLM per question, parses ideal_answer and
 evidence_ids (and exact_answer for yesno/factoid/list), and writes a single
 JSON file to output_dir (e.g. output_dir/<stem>_answers.json).
 
-Backend (env after loading repo-root .env if present):
+Backend and model come **only** from the process environment and CLI (sourced run
+``config.env``, ``export``, scheduler, etc.). Repo-root ``.env`` is read **only**
+for ``GEN_API_KEY`` (``setdefault`` — never overrides an already-exported key).
+It does **not** load ``GENERATION_BACKEND``, ``GENERATION_MODEL``, ``GEN_API_BASE``,
+or ``LLAMA_API_KEY`` from that file.
 
-- ``GENERATION_BACKEND`` (default ``ollama`` when unset): choose transport. Values:
-  ``ollama`` — HTTP to ``OLLAMA_URL`` with ``LLAMA_API_KEY``; ``GEN_API_*`` ignored.
+- ``GENERATION_BACKEND`` (default ``ollama`` when unset): ``ollama`` — HTTP to
+  ``OLLAMA_URL`` with ``LLAMA_API_KEY`` (must be set in the environment).
   ``openai_compat`` (aliases: ``openrouter``, ``openai``) — POST
   ``{GEN_API_BASE}/chat/completions`` with ``GEN_API_KEY``. Requires ``GEN_API_BASE``.
 
-- **Model id** for both backends: ``--model`` / ``GENERATION_MODEL`` (default
-  ``llama3.3:latest`` for Ollama). Do not commit API keys in run config templates;
-  set ``GEN_API_KEY`` / ``LLAMA_API_KEY`` via gitignored ``.env``, exports, or scheduler secrets.
+- **Model id**: ``--model`` (pipeline may set ``GENERATION_MODEL`` for the same value).
+  Default when ``--model`` is omitted: ``llama3.3:latest`` (Ollama tag).
 
 OpenAI-compatible path is equivalent to the OpenAI client's ``base_url`` +
 ``chat.completions``; this script uses ``requests`` only.
@@ -70,19 +73,36 @@ def _is_retryable_request_error(exc: BaseException) -> bool:
     return False
 
 
-def _load_dotenv() -> None:
+# Only these keys are read from repo-root .env (never override existing exports).
+_DOTENV_ALLOWED_KEYS = frozenset({"GEN_API_KEY"})
+
+
+def _load_gen_api_key_from_dotenv() -> None:
+    """Set GEN_API_KEY from repo-root .env if unset. Ignores all other keys in that file."""
     env_path = REPO_ROOT / ".env"
+    if not env_path.is_file():
+        return
     try:
-        from dotenv import load_dotenv as _load
-        _load(env_path)
-    except ImportError:
-        if env_path.exists():
-            with open(env_path, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith("#") and "=" in line:
-                        k, _, v = line.partition("=")
-                        os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+        with open(env_path, "r", encoding="utf-8") as f:
+            for raw_line in f:
+                line = raw_line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if line.lower().startswith("export "):
+                    line = line[7:].strip()
+                if "=" not in line:
+                    continue
+                key, _, rest = line.partition("=")
+                key = key.strip()
+                if key not in _DOTENV_ALLOWED_KEYS:
+                    continue
+                val = rest.split("#", 1)[0].strip()
+                if len(val) >= 2 and val[0] == val[-1] and val[0] in "\"'":
+                    val = val[1:-1]
+                if val:
+                    os.environ.setdefault(key, val)
+    except OSError as e:
+        logger.warning("Could not read .env for GEN_API_KEY: %s", e)
 
 
 def parse_args() -> argparse.Namespace:
@@ -208,7 +228,10 @@ def chat_completions_endpoint(gen_api_base: str) -> str:
 def get_ollama_api_key() -> str:
     key = (os.getenv("LLAMA_API_KEY") or "").strip()
     if not key:
-        raise RuntimeError("Missing LLAMA_API_KEY in environment or .env (Ollama backend)")
+        raise RuntimeError(
+            "Missing LLAMA_API_KEY in environment (Ollama backend). "
+            "Export it or inject via scheduler; repo .env is not used for this key."
+        )
     return key
 
 
@@ -216,7 +239,9 @@ def get_openai_compat_api_key() -> str:
     key = (os.getenv("GEN_API_KEY") or "").strip()
     if not key:
         raise RuntimeError(
-            "Missing GEN_API_KEY in environment or .env (required when GENERATION_BACKEND=openai_compat)"
+            "Missing GEN_API_KEY (required when GENERATION_BACKEND=openai_compat). "
+            "Export it, inject via scheduler, or set only GEN_API_KEY in repo-root .env "
+            "(generate_answers reads that key from .env if unset)."
         )
     return key
 
@@ -571,13 +596,12 @@ def main() -> int:
         configure_logging_from_env()
     except ImportError:
         pass
+    _load_gen_api_key_from_dotenv()
     args = parse_args()
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(levelname)s: %(message)s",
     )
-
-    _load_dotenv()
     try:
         openai_compat = openai_compat_enabled()
     except RuntimeError as e:

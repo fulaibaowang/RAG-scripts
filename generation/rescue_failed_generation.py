@@ -13,6 +13,8 @@ Usage:
   python rescue_failed_generation.py --input output/.../generation/13B3_golden_answers.json
   python rescue_failed_generation.py --input 13B3_golden_answers.json --output rescued.json
   python rescue_failed_generation.py --input 13B3_golden_answers.json --only-504 --timeout 300
+  # With openai_compat: export GENERATION_MODEL (or pass --model); GEN_API_KEY may come from repo .env
+  # (generate_answers loads only that key from .env). Backend/base/model otherwise come from the shell.
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import subprocess
 import sys
 import tempfile
@@ -69,6 +72,15 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=60,
         help="Seconds to sleep between retries after a failed LLM call (default: 60 = 1 min).",
+    )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default=None,
+        help=(
+            "Model id passed to generate_answers.py (OpenRouter / openai_compat). "
+            "Default: GENERATION_MODEL env if set; otherwise generate_answers uses its own default."
+        ),
     )
     parser.add_argument(
         "--only-504",
@@ -167,6 +179,10 @@ def main() -> int:
         ]
         if args.verbose:
             cmd.append("--verbose")
+        # Match pipeline: forward provider model id when using openai_compat (generate_answers default is Ollama).
+        _gen_model = (args.model or os.getenv("GENERATION_MODEL") or "").strip()
+        if _gen_model:
+            cmd.extend(["--model", _gen_model])
         logger.info("Running: %s", " ".join(cmd))
         result = subprocess.run(cmd, check=False)
         if result.returncode != 0:
