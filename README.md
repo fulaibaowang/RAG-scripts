@@ -25,19 +25,82 @@ flowchart TD
 
 Output layout (directories, fusion names, run format, logs): [docs/output.md](docs/output.md).
 
+## JSONL shapes (examples)
+
+The pipeline uses **one JSON object per line** (JSONL). Wrapped BioASQ files with a top-level `questions` array are not accepted; convert with `scripts/public/format/bioasq_json_to_queries_jsonl.py` if needed. More detail: [docs/PARAMETERS.md](docs/PARAMETERS.md), [docs/USAGE.md](docs/USAGE.md).
+
+### Input query JSONL
+
+Each line is a single question. You must be able to resolve an **`id`** (`id`, `qid`, or `query_id` / `bioasq.id` after merge). The retrieval topic text is read from **`body`**, or **`query`**, or **`question`**. Optional **`type`** is a BioASQ task label (`summary`, `yesno`, `factoid`, `list`).
+
+You can either use a flat BioASQ-shaped object or a thin wrapper with aliases:
+
+```json
+{
+  "id": "680fe1e3353a4a2e6b00000f",
+  "type": "yesno",
+  "body": "Is a single-nucleotide polymorphism (SNP) the same as a mutation?"
+}
+```
+
+```json
+{
+  "query_id": "67d723d918b1e36f2e000039",
+  "query_type": "summary",
+  "query_text": "Are there biomarkers of depression?",
+  "bioasq": {
+    "id": "67d723d918b1e36f2e000039",
+    "type": "summary",
+    "body": "Are there biomarkers of depression?"
+  }
+}
+```
+
+### Post-rerank JSONL
+
+Produced by `evidence/post_rerank_jsonl.py` (rerank TSV + the same query JSONL). Carries the question fields with gold/oracle keys stripped, plus **`doc_ids`**: the top-`k` **docno** strings from the run (for PubMed, numeric PMIDs), in rank order. There are **no** PubMed URLs in this file; those are added later when exporting to BioASQ JSON.
+
+```json
+{
+  "id": "680fe1e3353a4a2e6b00000f",
+  "type": "yesno",
+  "body": "Is a single-nucleotide polymorphism (SNP) the same as a mutation?",
+  "doc_ids": ["26173390", "28431642", "21453671", "30498395", "12741168"]
+}
+```
+
+On the snippet-RRF path, the same script may add **`doc_snippet_windows`** (per-doc snippet windows merged from optional `--windows-jsonl`).
+
+### Generation output JSONL (`*_answers.jsonl`)
+
+Written by `generation/generate_answers.py` from a **contexts** JSONL (e.g. output of `build_contexts_from_*.py`). Each output line is the input record **plus** model fields. On success: **`ideal_answer`** (string), **`evidence_ids`** (strings matching context `id` values, e.g. `PMID-1`), and for `yesno` / `factoid` / `list` also **`exact_answer`**. On failure, those may be null and an **`error`** string is set.
+
+```json
+{
+  "id": "680fe1e3353a4a2e6b00000f",
+  "type": "yesno",
+  "body": "Is a single-nucleotide polymorphism (SNP) the same as a mutation?",
+  "doc_ids": ["26173390", "28431642"],
+  "contexts": [
+    {
+      "id": "26173390-1",
+      "doc_id": "26173390",
+      "text": "Title: …\n\nAbstract: …"
+    }
+  ],
+  "ideal_answer": "No. SNPs are defined as common variants (often ≥1% frequency), whereas “mutation” often denotes rarer or pathogenic change; usage overlaps and context matters.",
+  "evidence_ids": ["26173390-1", "28431642-1"],
+  "exact_answer": "no"
+}
+```
+
 ## Quickstart
 
-**Docker (recommended)** — from the **root of this tree** (the directory that contains this `README.md` and `Dockerfile`):
+**Docker (recommended)** TODO: add demo here
 
 ```bash
 docker build -t rag-scripts .
 ```
-
-Python dependencies are pinned in [requirements-docker-pytorch.txt](requirements-docker-pytorch.txt) and [requirements-docker.txt](requirements-docker.txt).
-
-**Local venv (optional):** install a matching `torch` for your OS/GPU from [pytorch.org](https://pytorch.org), then `pip install -r requirements-docker-pytorch.txt` and `pip install -r requirements-docker.txt`. You still need Java and the system packages installed in the [Dockerfile](Dockerfile).
-
-**BioASQ** (Docker on host data, task JSON, adapt-in/out): [BioASQ docs/USAGE.md](https://github.com/fulaibaowang/BioASQ/blob/main/docs/USAGE.md).
 
 ## Running the pipeline (high level)
 
@@ -67,8 +130,12 @@ Other stage scripts are invoked by the orchestrator; see [docs/USAGE.md](docs/US
 ## Prerequisites
 
 - Python environment with pipeline dependencies (PyTerrier, hnswlib, sentence-transformers, pandas, …).
+
+Python dependencies are pinned in [requirements-docker-pytorch.txt](requirements-docker-pytorch.txt) and [requirements-docker.txt](requirements-docker.txt).
+
+**Local venv (optional):** install a matching `torch` for your OS/GPU from [pytorch.org](https://pytorch.org), then `pip install -r requirements-docker-pytorch.txt` and `pip install -r requirements-docker.txt`. You still need Java and the system packages installed in the [Dockerfile](Dockerfile).
+
 - Terrier BM25 index and dense HNSW index (see [docs/USAGE.md](docs/USAGE.md)).
-- Query streams as `.jsonl` (see [docs/PARAMETERS.md](docs/PARAMETERS.md)). 
 
 ## related repo
 

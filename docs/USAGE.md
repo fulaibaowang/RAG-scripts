@@ -2,19 +2,11 @@
 
 **This file** documents **generic** indexing, per-stage CLIs, and placeholder paths. Commands assume your current working directory is the **RAG-scripts repository root** (the folder that contains `run_retrieval_rerank_pipeline.sh`, `index/`, `retrieval/`, etc.).
 
-For **BioASQ** (Docker on host data, task paths, adapt-in/out), see [BioASQ docs/USAGE.md](https://github.com/fulaibaowang/BioASQ/blob/main/docs/USAGE.md).
-
-## Data preparation
-
-### Parse PubMed XML to JSONL
-
-PubMed baseline XML → JSONL is **not** part of this repository. An example parser used in the BioASQ project is [`parse_pubmed_local.py`](https://github.com/fulaibaowang/BioASQ/blob/main/scripts/public/data/parse_pubmed_local.py).
-
-## Indexing & Retrieval
+## Indexing
 
 ### BM25 index
 
-Build a Terrier-based BM25 index from JSONL shards:
+Build a Terrier-based BM25 index from JSONL shards e.g pubmed corpus or [MS MARCO V2.1 document corpus](https://trec-rag.github.io/annoucements/2024-corpus-finalization/#where-can-i-find-the-corpus):
 
 ```bash
 python index/build_bm25_index_from_jsonl_shards.py \
@@ -58,7 +50,28 @@ python index/build_dense_hnsw_index_from_jsonl_shards.py \
 - `--max_docs`: Limit index to N docs (for testing)
 - `--dedup_pmids`: De-duplicate documents by PMID
 
-## Evaluation
+
+## Full pipeline (orchestrator)
+
+Run all stages with one script and a config file. The script skips stages whose outputs already exist. Use `--no-rerank` for retrieval only; use `--no-generation` to skip LLM generation while still building evidence.
+
+```bash
+./run_retrieval_rerank_pipeline.sh --config /path/to/your.env
+```
+
+Example templates in the repository root: [workflow_config_baseline.env](../workflow_config_baseline.env), [workflow_config_snippet.env](../workflow_config_snippet.env), [workflow_config_full.env](../workflow_config_full.env). Every variable is commented in [workflow_config_full.env](../workflow_config_full.env); tuning notes: [PARAMETERS.md](PARAMETERS.md). BioASQ + Docker walkthrough: [BioASQ docs/USAGE.md](https://github.com/fulaibaowang/BioASQ/blob/main/docs/USAGE.md). Public script index (format, adapt-out): [BioASQ scripts/public/README.md](https://github.com/fulaibaowang/BioASQ/blob/main/scripts/public/README.md).
+
+### Snippet-RRF route (optional)
+
+```bash
+./run_retrieval_rerank_pipeline.sh \
+  --config workflow_config_baseline.env \
+  --snippet-rrf
+```
+
+Or set `RUN_SNIPPET_RRF=1` (and `RUN_BASELINE` / `RUN_SNIPPET_RRF` as needed) in your env file.
+
+## Retrieval
 
 Replace paths below with your index, corpus JSONL, and train/test query `.jsonl` files.
 
@@ -140,25 +153,46 @@ python rerank/rerank_stage2.py \
   --model-max-length 512
 ```
 
-## Full pipeline (orchestrator)
+## Evidence and generation (after reranking)
 
-Run all stages with one script and a config file. The script skips stages whose outputs already exist. Use `--no-rerank` for retrieval only; use `--no-generation` to skip LLM generation while still building evidence.
+`run_retrieval_rerank_pipeline.sh` does **not** stop at the cross-encoder. It continues with:
+
+1. **Post-rerank JSONL** — merge each query split with the ranked doc list from the chosen run TSV (`post_rerank_<split>.jsonl` under `rerank/post_rerank_fusion/` or the snippet fusion tree; see [output.md](output.md)).
+2. **Contexts JSONL** — attach evidence text from the corpus (`evidence/evidence_*/*_contexts.jsonl`), either full title+abstract per doc (`build_contexts_from_documents.py`) or snippet windows (`build_contexts_from_snippets.py` on the snippet route).
+3. **LLM generation** — `generate_answers.py` then optional `rescue_failed_generation.py` under `generation/generation_*`.
+
+Use `--no-generation` (or `RUN_GENERATION_*=0`) to build evidence only. Env knobs (`POST_RERANK_DOC_POOL`, `EVIDENCE_TOP_K*`, `GENERATION_*`, backends): [PARAMETERS.md](PARAMETERS.md).
+
+### Manual CLI (baseline: document contexts)
+
+Assume a rerank run TSV (e.g. `output/.../rerank/post_rerank_fusion/runs/best_rrf_<split>_top....tsv`) and the same query `.jsonl` you used for retrieval:
 
 ```bash
-./run_retrieval_rerank_pipeline.sh --config /path/to/your.env
+python evidence/post_rerank_jsonl.py \
+  --run-path "output/.../rerank/post_rerank_fusion/runs/best_rrf_my_split_top50.tsv" \
+  --query-jsonl "/path/to/my_split.jsonl" \
+  --output-path "output/.../rerank/post_rerank_fusion/post_rerank_my_split.jsonl" \
+  --top-k 30
+
+python evidence/build_contexts_from_documents.py \
+  --post-rerank-jsonl "output/.../rerank/post_rerank_fusion/post_rerank_my_split.jsonl" \
+  --corpus-path "/path/to/corpus.jsonl" \
+  --output-path "output/.../evidence/my_split_contexts.jsonl" \
+  --evidence-top-k 10
 ```
 
-Example templates in the repository root: [workflow_config_baseline.env](../workflow_config_baseline.env), [workflow_config_snippet.env](../workflow_config_snippet.env), [workflow_config_full.env](../workflow_config_full.env). Every variable is commented in [workflow_config_full.env](../workflow_config_full.env); tuning notes: [PARAMETERS.md](PARAMETERS.md). BioASQ + Docker walkthrough: [BioASQ docs/USAGE.md](https://github.com/fulaibaowang/BioASQ/blob/main/docs/USAGE.md). Public script index (format, adapt-out): [BioASQ scripts/public/README.md](https://github.com/fulaibaowang/BioASQ/blob/main/scripts/public/README.md).
-
-### Snippet-RRF route (optional)
+Set **`GENERATION_BACKEND=openai_compat`**, **`GEN_API_BASE`** (OpenAI-compatible `.../v1` base URL for chat completions), and **`GEN_API_KEY`**, then:
 
 ```bash
-./run_retrieval_rerank_pipeline.sh \
-  --config workflow_config_baseline.env \
-  --snippet-rrf
+export GENERATION_BACKEND=openai_compat
+export GEN_API_BASE="https://openrouter.ai/api/v1"
+export GEN_API_KEY="openrouter-api-key"
+python generation/generate_answers.py \
+  --input-path "output/.../evidence/my_split_contexts.jsonl" \
+  --output-dir "output/.../generation" \
+  --schemas-dir "/path/to/prompt/schemas" \
+  --model "your-provider-model-id"
 ```
-
-Or set `RUN_SNIPPET_RRF=1` (and `RUN_BASELINE` / `RUN_SNIPPET_RRF` as needed) in your env file.
 
 ## Output
 

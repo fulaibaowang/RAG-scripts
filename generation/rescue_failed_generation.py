@@ -41,6 +41,14 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 GENERATE_ANSWERS = SCRIPT_DIR / "generate_answers.py"
 
 
+def answers_jsonl_stem_for_input(input_jsonl: Path) -> str:
+    """Match generate_answers.py: <stem>_answers.jsonl with optional *_contexts stem strip."""
+    stem = input_jsonl.stem
+    if stem.endswith("_contexts"):
+        stem = stem[: -len("_contexts")]
+    return stem
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Re-run generation for failed questions (e.g. 504) with longer timeout."
@@ -220,7 +228,7 @@ def main() -> int:
             logger.error("generate_answers.py exited with code %s", result.returncode)
             return result.returncode
 
-        rescued_path = out_dir / "rescue_contexts_answers.jsonl"
+        rescued_path = out_dir / f"{answers_jsonl_stem_for_input(contexts_path)}_answers.jsonl"
         if not rescued_path.exists():
             logger.error("Expected output not found: %s", rescued_path)
             return 1
