@@ -1,6 +1,6 @@
 # Usage Guide (shared pipeline)
 
-**This file** documents **generic** indexing, per-stage CLIs, and placeholder paths. For 
+**This file** documents **generic** indexing, per-stage CLIs, and placeholder paths. For BioASQ-oriented Docker, indexes, and task workflows, see [docs/USAGE.md](../../../docs/USAGE.md) at the repository root.
 
 ## Data Preparation
 

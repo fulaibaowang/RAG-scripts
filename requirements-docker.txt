@@ -1,0 +1,28 @@
+# Python dependencies for the main BioASQ Dockerfile (after PyTorch from
+# requirements-docker-pytorch.txt). Docker remains the gold path; for a local
+# venv, install a matching torch stack from https://pytorch.org then:
+#   pip install -r requirements-docker.txt
+
+nltk
+rank_bm25
+lxml
+pubmed-parser
+tqdm
+requests
+orjson
+ujson
+numpy
+pandas
+pyarrow
+polars
+python-terrier
+ranx
+beautifulsoup4
+accelerate
+jupyterlab
+matplotlib
+scikit-learn
+transformers==4.44.2
+sentence-transformers
+hnswlib
+FlagEmbedding==1.3.4

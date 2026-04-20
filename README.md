@@ -1,6 +1,6 @@
 # Public scripts (retrieval pipeline)
 
-This directory is the **shared** hybrid retrieval and reranking stack: BM25 + RM3, dense HNSW retrieval, retrieval fusion (RRF), cross-encoder reranking, optional post-rerank fusion, optional snippet-RRF, evidence construction, and LLM generation. For **BioASQ Task 14b / 2026** paths, Docker-first setup, and adapt-in examples, start at the repo runbook [docs/USAGE.md](../../../docs/USAGE.md). For **generic** CLI recipes and placeholder paths, see [docs/USAGE.md](docs/USAGE.md) in this folder. For **tuning and cap chains**, see [docs/PARAMETERS.md](docs/PARAMETERS.md) and the commented template [workflow_config_full.env](workflow_config_full.env).
+This directory is the **shared** hybrid retrieval and reranking stack: BM25 + RM3, dense HNSW retrieval, retrieval fusion (RRF), cross-encoder reranking, optional post-rerank fusion, optional snippet-RRF, evidence construction, and LLM generation. 
 
 ## What the pipeline does
 
@@ -33,15 +33,15 @@ Output layout (directories, fusion names, run format, logs): [docs/output.md](do
 
 ## Running the pipeline (high level)
 
-1. Copy an example env ([workflow_config_baseline.env](workflow_config_baseline.env), [workflow_config_full.env](workflow_config_full.env)) or use [scripts/private_scripts/config.env](../../private_scripts/config.env) for machine paths.
-2. Set `WORKFLOW_OUTPUT_DIR`, query `.jsonl` paths (`INPUT_JSONL` / `INPUT_BATCH_JSONLS`), index paths, and `DOCS_JSONL` when reranking or building evidence.
+1. Copy an example env ([workflow_config_baseline.env](workflow_config_baseline.env), [workflow_config_full.env](workflow_config_full.env)) or create your own env.
+2. Set `WORKFLOW_OUTPUT_DIR`, query `.jsonl` paths (`INPUT_JSONL` / `INPUT_BATCH_JSONLS`), index paths, and `DOCS_JSONL` for reranking or building evidence.
 3. From the repo root:
 
    ```bash
    ./scripts/public/shared_scripts/run_retrieval_rerank_pipeline.sh --config /path/to/your.env
    ```
 
-   Use `--no-rerank` for retrieval only; `--no-generation` to skip LLM calls; `--snippet-rrf` or `RUN_SNIPPET_RRF=1` for the snippet route.
+   Use `--no-rerank` for retrieval only; `--no-generation` to skip LLM calls; `RUN_SNIPPET_RRF=1` for the snippet route.
 
 Stages whose key outputs already exist are skipped. Per-stage **standalone** commands and argument lists: [docs/USAGE.md](docs/USAGE.md).
 

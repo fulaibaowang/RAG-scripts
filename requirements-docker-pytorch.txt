@@ -1,0 +1,7 @@
+# Install alone first (replaces index for this step only):
+#   pip install -r requirements-docker-pytorch.txt
+# Used by the CUDA 12.8 image in Dockerfile (B200-friendly cu128 wheels).
+--index-url https://download.pytorch.org/whl/cu128
+torch
+torchvision
+torchaudio
