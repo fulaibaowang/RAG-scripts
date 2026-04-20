@@ -25,75 +25,6 @@ flowchart TD
 
 Output layout (directories, fusion names, run format, logs): [docs/output.md](docs/output.md).
 
-## JSONL shapes (examples)
-
-The pipeline uses **one JSON object per line** (JSONL). Wrapped BioASQ files with a top-level `questions` array are not accepted; convert with `scripts/public/format/bioasq_json_to_queries_jsonl.py` if needed. More detail: [docs/PARAMETERS.md](docs/PARAMETERS.md), [docs/USAGE.md](docs/USAGE.md).
-
-### Input query JSONL
-
-Each line is a single question. You must be able to resolve an **`id`** (`id`, `qid`, or `query_id` / `bioasq.id` after merge). The retrieval topic text is read from **`body`**, or **`query`**, or **`question`**. Optional **`type`** is a BioASQ task label (`summary`, `yesno`, `factoid`, `list`).
-
-You can either use a flat BioASQ-shaped object or a thin wrapper with aliases:
-
-```json
-{
-  "id": "680fe1e3353a4a2e6b00000f",
-  "type": "yesno",
-  "body": "Is a single-nucleotide polymorphism (SNP) the same as a mutation?"
-}
-```
-
-```json
-{
-  "query_id": "67d723d918b1e36f2e000039",
-  "query_type": "summary",
-  "query_text": "Are there biomarkers of depression?",
-  "bioasq": {
-    "id": "67d723d918b1e36f2e000039",
-    "type": "summary",
-    "body": "Are there biomarkers of depression?"
-  }
-}
-```
-
-### Post-rerank JSONL
-
-Produced by `evidence/post_rerank_jsonl.py` (rerank TSV + the same query JSONL). Carries the question fields with gold/oracle keys stripped, plus **`doc_ids`**: the top-`k` **docno** strings from the run (for PubMed, numeric PMIDs), in rank order. There are **no** PubMed URLs in this file; those are added later when exporting to BioASQ JSON.
-
-```json
-{
-  "id": "680fe1e3353a4a2e6b00000f",
-  "type": "yesno",
-  "body": "Is a single-nucleotide polymorphism (SNP) the same as a mutation?",
-  "doc_ids": ["26173390", "28431642", "21453671", "30498395", "12741168"]
-}
-```
-
-On the snippet-RRF path, the same script may add **`doc_snippet_windows`** (per-doc snippet windows merged from optional `--windows-jsonl`).
-
-### Generation output JSONL (`*_answers.jsonl`)
-
-Written by `generation/generate_answers.py` from a **contexts** JSONL (e.g. output of `build_contexts_from_*.py`). Each output line is the input record **plus** model fields. On success: **`ideal_answer`** (string), **`evidence_ids`** (strings matching context `id` values, e.g. `PMID-1`), and for `yesno` / `factoid` / `list` also **`exact_answer`**. On failure, those may be null and an **`error`** string is set.
-
-```json
-{
-  "id": "680fe1e3353a4a2e6b00000f",
-  "type": "yesno",
-  "body": "Is a single-nucleotide polymorphism (SNP) the same as a mutation?",
-  "doc_ids": ["26173390", "28431642"],
-  "contexts": [
-    {
-      "id": "26173390-1",
-      "doc_id": "26173390",
-      "text": "Title: …\n\nAbstract: …"
-    }
-  ],
-  "ideal_answer": "No. SNPs are defined as common variants (often ≥1% frequency), whereas “mutation” often denotes rarer or pathogenic change; usage overlaps and context matters.",
-  "evidence_ids": ["26173390-1", "28431642-1"],
-  "exact_answer": "no"
-}
-```
-
 ## Quickstart
 
 **Docker (recommended)** TODO: add demo here
@@ -126,6 +57,102 @@ Stages whose key outputs already exist are skipped. Per-stage **standalone** com
 | LLM answers | [generation/generate_answers.py](generation/generate_answers.py) |
 
 Other stage scripts are invoked by the orchestrator; see [docs/USAGE.md](docs/USAGE.md) for direct CLI examples.
+
+## Input and output schema (JSONL examples)
+
+The pipeline uses **one JSON object per line** (JSONL). 
+
+### Input query JSONL
+
+Each line is a single question. You must be able to resolve an **`id`** (`id`, `qid`, or `query_id`). The retrieval topic text is read from **`body`**, or **`query_text`**. Optional **`query_type`** or **`type`**. 
+
+```json
+{
+  "query_id": "67d723d918b1e36f2e000039",
+  "query_text": "Are there biomarkers of depression?"
+}
+```
+
+### Post-rerank JSONL output
+
+Carries the question fields with retrieved **`doc_ids`** in rank order.
+
+```json
+{
+  "id": "680fe1e3353a4a2e6b00000f",
+  "body": "Is a single-nucleotide polymorphism (SNP) the same as a mutation?",
+  "doc_ids": ["26173390", "28431642", "21453671", "30498395", "12741168"]
+}
+```
+
+On the snippet-RRF path, the same script may add **`doc_snippet_windows`** (per-doc snippet windows merged from optional `--windows-jsonl`).
+
+### Snippet route (example outputs)
+
+With `RUN_SNIPPET_RRF=1` (or `--snippet-rrf`), the orchestrator also writes under `$WORKFLOW_OUTPUT_DIR/snippet/` (see [docs/output.md](docs/output.md)). Two JSONL shapes that differ from the baseline doc-only post-rerank line:
+
+**Post-rerank JSONL (snippet branch)** — same question fields plus ranked **`doc_ids`**, and optional **`doc_snippet_windows`**: map **PMID string → list** of max-pooled windows (`window_idx`, `ce_score`; `query_field` only when multi-query rerank was used).
+
+```json
+{
+  "id": "680fe1e3353a4a2e6b00000f",
+  "body": "Is a single-nucleotide polymorphism (SNP) the same as a mutation?",
+  "doc_ids": ["26173390", "28431642"],
+  "doc_snippet_windows": {
+    "26173390": [
+      { "window_idx": 2, "ce_score": 12.5 },
+      { "window_idx": 7, "ce_score": 9.1 }
+    ],
+    "28431642": [
+      { "window_idx": 0, "ce_score": 11.0 }
+    ]
+  }
+}
+```
+
+**Contexts JSONL (`evidence/evidence_snippet/*_contexts.jsonl`)** — produced by `evidence/build_contexts_from_snippets.py`. Each **`contexts`** entry is built from the selected sentence windows; **`selected_windows`** / **`rejected_windows`** carry CE metadata (`sent_ids` indexes sentences in the title+abstract split used for windows).
+
+```json
+{
+  "id": "680fe1e3353a4a2e6b00000f",
+  "body": "Is a single-nucleotide polymorphism (SNP) the same as a mutation?",
+  "doc_ids": ["26173390"],
+  "contexts": [
+    {
+      "id": "26173390-1",
+      "doc_id": "26173390",
+      "text": "Title: Example title\n\nMerged sentences from the best CE window(s) …",
+      "selected_windows": [
+        { "window_idx": 2, "ce_score": 12.5, "sent_ids": [2, 3, 4] }
+      ],
+      "rejected_windows": []
+    }
+  ]
+}
+```
+
+**Generation** for this route is the same **`*_answers.jsonl`** schema as below, written under **`generation/generation_snippet/`** (from the snippet contexts file).
+
+### Generation output JSONL (`*_answers.jsonl`)
+
+Written by `generation/generate_answers.py` from a **contexts** JSONL (e.g. output of `build_contexts_from_*.py`). Each output line is the input record **plus** model fields. On success: **`ideal_answer`** (string), **`evidence_ids`** (strings matching context `id` values, e.g. `PMID-1`), and for `yesno` / `factoid` / `list` also **`exact_answer`**. On failure, those may be null and an **`error`** string is set.
+
+```json
+{
+  "id": "680fe1e3353a4a2e6b00000f",
+  "body": "Is a single-nucleotide polymorphism (SNP) the same as a mutation?",
+  "doc_ids": ["26173390", "28431642"],
+  "contexts": [
+    {
+      "id": "26173390-1",
+      "doc_id": "26173390",
+      "text": "Title: …\n\nAbstract: …"
+    }
+  ],
+  "ideal_answer": "No. SNPs are defined as common variants (often ≥1% frequency), whereas “mutation” often denotes rarer or pathogenic change; usage overlaps and context matters.",
+  "evidence_ids": ["26173390-1", "28431642-1"]
+}
+```
 
 ## Prerequisites
 
