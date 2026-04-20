@@ -12,8 +12,9 @@
 # Config file sets: WORKFLOW_OUTPUT_DIR, INPUT_JSONL / INPUT_BATCH_JSONLS (optional; .jsonl only), TOP_K,
 # RECALL_KS, BM25_INDEX_PATH, DENSE_INDEX_DIR, DOCS_JSONL (optional),
 # BM25_QUERY_FIELD / DENSE_QUERY_FIELD (comma-separated = multi-query RRF fusion per stage),
-# and stage overrides (BM25_*, DENSE_*, HYBRID_*, RERANK_*). Evidence: EVIDENCE_TOP_K and optional
-# EVIDENCE_TOP_K_BASELINE / EVIDENCE_TOP_K_SNIPPET. See workflow_config_full.env.
+# and stage overrides (BM25_*, DENSE_*, HYBRID_*, RERANK_*). Evidence: POST_RERANK_DOC_POOL (docs written
+# to post_rerank_*.jsonl), EVIDENCE_TOP_K and optional EVIDENCE_TOP_K_BASELINE / EVIDENCE_TOP_K_SNIPPET
+# (caps in build_contexts_from_*). See workflow_config_full.env.
 #
 set -e
 
@@ -132,7 +133,8 @@ while [ $# -gt 0 ]; do
       echo "  RUN_GENERATION_BASELINE=0|1   Run generation for baseline route (default 1)."
       echo "  RUN_GENERATION_SNIPPET=0|1    Run generation for snippet route (default 1)."
       echo "  GENERATION_SCHEMAS_DIR       Directory of schema *.txt for LLM prompts (default: scripts/public/shared_scripts/prompts/schemas under repo root)."
-      echo "  EVIDENCE_TOP_K_BASELINE / EVIDENCE_TOP_K_SNIPPET   Per-route cap for post_rerank JSON (default: EVIDENCE_TOP_K or 10)."
+      echo "  POST_RERANK_DOC_POOL         Max docs per query written into post_rerank_*.jsonl (default: 30)."
+      echo "  EVIDENCE_TOP_K / EVIDENCE_TOP_K_BASELINE / EVIDENCE_TOP_K_SNIPPET   Max docs per question for contexts (build_contexts; default: EVIDENCE_TOP_K or 10)."
       echo ""
       echo "Example: $0 --config scripts/private_scripts/config.env"
       echo "Example: $0 -c config.env --no-rerank --bm25-query-field body_expansion_long --dense-query-field body"
@@ -1187,9 +1189,10 @@ _DOCS_JSONL_OK=0
       else
         _EVIDENCE_TOP_K="${EVIDENCE_TOP_K_SNIPPET:-${EVIDENCE_TOP_K:-10}}"
       fi
+      _POST_RERANK_POOL="${POST_RERANK_DOC_POOL:-30}"
       [ ! -d "$_EVIDENCE_RUNS_DIR" ] && continue
       mkdir -p "$WORKFLOW_OUTPUT_DIR/$_EVIDENCE_SUBDIR"
-      echo "[Evidence] Route: $_route -> $_EVIDENCE_SUBDIR, $_GEN_SUBDIR (post_rerank top_k=$_EVIDENCE_TOP_K)"
+      echo "[Evidence] Route: $_route -> $_EVIDENCE_SUBDIR, $_GEN_SUBDIR (post_rerank doc_pool=$_POST_RERANK_POOL evidence_top_k=$_EVIDENCE_TOP_K)"
     for _tsv in "$_EVIDENCE_RUNS_DIR/"*.tsv; do
       [ -f "$_tsv" ] || continue
       _stem=$(basename "$_tsv" .tsv)
@@ -1219,11 +1222,23 @@ _DOCS_JSONL_OK=0
       _post_json="$_EVIDENCE_POST_DIR/post_rerank_${_split}.jsonl"
       if [ ! -f "$_post_json" ]; then
         echo "[Evidence] Post-rerank JSONL ($_split)..."
-        python "$SCRIPT_DIR/evidence/post_rerank_json.py" \
-          --run-path "$_tsv" \
-          --query-jsonl "$_query_jsonl" \
-          --output-path "$_post_json" \
-          --top-k "$_EVIDENCE_TOP_K"
+        if [ "$_USE_SNIPPET_CTX" = "1" ] && [ -f "$SNIPPET_RERANK_OUT/windows/${_split}.jsonl" ]; then
+          python "$SCRIPT_DIR/evidence/post_rerank_jsonl.py" \
+            --run-path "$_tsv" \
+            --query-jsonl "$_query_jsonl" \
+            --output-path "$_post_json" \
+            --top-k "$_POST_RERANK_POOL" \
+            --windows-jsonl "$SNIPPET_RERANK_OUT/windows/${_split}.jsonl"
+        else
+          if [ "$_USE_SNIPPET_CTX" = "1" ]; then
+            echo "[Evidence] Warning: no windows file $SNIPPET_RERANK_OUT/windows/${_split}.jsonl; post_rerank without CE merge" >&2
+          fi
+          python "$SCRIPT_DIR/evidence/post_rerank_jsonl.py" \
+            --run-path "$_tsv" \
+            --query-jsonl "$_query_jsonl" \
+            --output-path "$_post_json" \
+            --top-k "$_POST_RERANK_POOL"
+        fi
       else
         echo "[Evidence] Post-rerank JSONL ($_split)... (skip: output exists)"
       fi
@@ -1239,13 +1254,15 @@ _DOCS_JSONL_OK=0
             --corpus-path "$DOCS_JSONL" \
             --output-path "$_ctx_json" \
             --window-size "${SNIPPET_WINDOW_SIZE:-3}" \
-            --top-windows "${SNIPPET_CONTEXT_TOP_WINDOWS:-2}"
+            --top-windows "${SNIPPET_CONTEXT_TOP_WINDOWS:-2}" \
+            --evidence-top-k "$_EVIDENCE_TOP_K"
         else
           echo "[Evidence] Contexts from documents ($_split)..."
           python "$SCRIPT_DIR/evidence/build_contexts_from_documents.py" \
             --post-rerank-jsonl "$_post_json" \
             --corpus-path "$DOCS_JSONL" \
-            --output-path "$_ctx_json"
+            --output-path "$_ctx_json" \
+            --evidence-top-k "$_EVIDENCE_TOP_K"
         fi
       else
         echo "[Evidence] Contexts ($_split)... (skip: output exists)"

@@ -2,9 +2,11 @@
 """
 Build contexts (title + abstract) from post-rerank JSONL and literature corpus.
 
-Reads post_rerank_json.py output (``doc_ids`` per question), looks up title and abstract
-for each doc id in a PubMed JSONL corpus (``pmid`` field must match doc_id for PubMed),
-appends a ``contexts`` list with ``doc_id`` per row (no PubMed URLs). Legacy post-rerank
+Reads post-rerank JSONL (``post_rerank_jsonl.py`` output: ``doc_ids`` per question), looks up
+title and abstract for each doc id in a PubMed JSONL corpus (``pmid`` field must match doc_id
+for PubMed), appends a ``contexts`` list with ``doc_id`` per row (no PubMed URLs). Only the
+first ``--evidence-top-k`` ranked ``doc_ids`` are used (post-rerank may list a larger pool).
+Legacy post-rerank
 with URL ``documents`` or ``docnos`` is still accepted.
 """
 
@@ -16,7 +18,7 @@ import re
 import sys
 import unicodedata
 from pathlib import Path
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +26,7 @@ _SHARED_SCRIPTS = Path(__file__).resolve().parents[1]
 if str(_SHARED_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SHARED_SCRIPTS))
 from retrieval_eval.common import iter_questions_jsonl, write_questions_jsonl
-from retrieval_eval.doc_id_util import ranked_doc_ids_from_question
+from retrieval_eval.doc_id_util import ranked_doc_ids_for_evidence
 
 
 def parse_args() -> argparse.Namespace:
@@ -37,7 +39,13 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         required=True,
         dest="post_rerank_jsonl",
-        help="Path to post-rerank .jsonl (output of post_rerank_json.py).",
+        help="Path to post-rerank .jsonl (output of post_rerank_jsonl.py).",
+    )
+    parser.add_argument(
+        "--evidence-top-k",
+        type=int,
+        default=10,
+        help="Max doc_ids per question used for contexts and corpus indexing (default: 10).",
     )
     parser.add_argument(
         "--corpus-path",
@@ -55,12 +63,15 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_post_rerank_questions(post_rerank_path: Path) -> Tuple[List[dict], Set[str]]:
-    """Load post-rerank JSONL and return (questions list, set of all corpus lookup ids)."""
+def load_post_rerank_questions(
+    post_rerank_path: Path,
+    evidence_top_k: Optional[int],
+) -> Tuple[List[dict], Set[str]]:
+    """Load post-rerank JSONL; ``needed`` is PMIDs for capped doc lists."""
     questions = list(iter_questions_jsonl(post_rerank_path))
     needed: Set[str] = set()
     for q in questions:
-        for doc_id in ranked_doc_ids_from_question(q):
+        for doc_id in ranked_doc_ids_for_evidence(q, evidence_top_k):
             needed.add(doc_id)
     return questions, needed
 
@@ -190,9 +201,10 @@ def main() -> int:
         logger.error("Post-rerank JSONL not found: %s", args.post_rerank_jsonl)
         return 1
 
+    etk = args.evidence_top_k if args.evidence_top_k > 0 else None
     logger.info("Loading post-rerank JSONL: %s", args.post_rerank_jsonl)
-    questions, needed_pmids = load_post_rerank_questions(args.post_rerank_jsonl)
-    logger.info("Questions: %d, unique PMIDs: %d", len(questions), len(needed_pmids))
+    questions, needed_pmids = load_post_rerank_questions(args.post_rerank_jsonl, etk)
+    logger.info("Questions: %d, unique PMIDs (evidence cap): %d", len(questions), len(needed_pmids))
 
     logger.info("Indexing corpus: %s", args.corpus_path)
     pmid_to_text = build_pmid_to_text(args.corpus_path, needed_pmids)
@@ -206,7 +218,7 @@ def main() -> int:
         if qid is None:
             continue
         contexts = []
-        for doc_id in ranked_doc_ids_from_question(q):
+        for doc_id in ranked_doc_ids_for_evidence(q, etk):
             pair = pmid_to_text.get(doc_id)
             if pair is None:
                 missing_total += 1

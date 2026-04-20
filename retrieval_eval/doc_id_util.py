@@ -33,3 +33,11 @@ def ranked_doc_ids_from_question(q: Dict[str, Any]) -> List[str]:
         if did:
             out.append(did)
     return out
+
+
+def ranked_doc_ids_for_evidence(q: Dict[str, Any], evidence_top_k: Optional[int]) -> List[str]:
+    """Like ``ranked_doc_ids_from_question`` but capped to the first ``evidence_top_k`` when that is set and positive."""
+    ids = ranked_doc_ids_from_question(q)
+    if evidence_top_k is not None and evidence_top_k > 0:
+        return ids[:evidence_top_k]
+    return ids

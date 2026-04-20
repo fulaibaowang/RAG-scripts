@@ -147,6 +147,8 @@ The snippet-RRF route adds a snippet window reranking stage and a second fusion 
 
 | Parameter | Suggested Range | Default | Notes |
 |-----------|----------------|---------|-------|
+| `POST_RERANK_DOC_POOL` | 10 – 200 | **30** | Max docs per query written into `post_rerank_*.jsonl` from the fused run TSV. Snippet route may merge `doc_snippet_windows` into that file when `snippet/snippet_rerank/windows/{split}.jsonl` exists. |
+| `EVIDENCE_TOP_K` / `EVIDENCE_TOP_K_BASELINE` / `EVIDENCE_TOP_K_SNIPPET` | 1 – `POST_RERANK_DOC_POOL` | **10** | Max docs per question when building `evidence/*/_contexts.jsonl` (`build_contexts_from_* --evidence-top-k`). |
 | `SNIPPET_CONTEXT_TOP_WINDOWS` | **1 or 2** | **2** | Top CE windows per doc; with 2, second is kept only if disjoint from the first |
 
 See also: [notebooks/snippet_extraction.ipynb](../../../notebooks/snippet_extraction.ipynb) and [notebooks/snippet_extraction_MedCPT.ipynb](../../../notebooks/snippet_extraction_MedCPT.ipynb) for window-size and fusion exploration.
