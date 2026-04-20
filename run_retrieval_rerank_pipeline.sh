@@ -138,7 +138,7 @@ while [ $# -gt 0 ]; do
       echo ""
       echo "Example: $0 --config scripts/private_scripts/config.env"
       echo "Example: $0 -c config.env --no-rerank --bm25-query-field body_expansion_long --dense-query-field body"
-      echo "Example: source workflow_config_small.env && $0"
+      echo "Example: source workflow_config_baseline.env && $0"
       exit 0
       ;;
     *)
