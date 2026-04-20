@@ -1,6 +1,6 @@
 # Public scripts (retrieval pipeline)
 
-This directory is the **[RAG-scripts](https://github.com/fulaibaowang/RAG-scripts)** hybrid retrieval and reranking stack: BM25 + RM3, dense HNSW retrieval, retrieval fusion (RRF), cross-encoder reranking, optional post-rerank fusion, optional snippet-RRF, evidence construction, and LLM generation. When embedded in the [BioASQ](https://github.com/fulaibaowang/BioASQ) repository, it appears as `scripts/public/shared_scripts/`.
+This directory is the **[RAG-scripts](https://github.com/fulaibaowang/RAG-scripts)** hybrid retrieval and reranking stack: BM25 + RM3, dense HNSW retrieval, retrieval fusion (RRF), cross-encoder reranking, optional post-rerank fusion, optional snippet-RRF, evidence construction, and LLM generation.
 
 ## What the pipeline does
 
