@@ -344,5 +344,3 @@ See [notebooks/generation_test.ipynb](../../../notebooks/generation_test.ipynb) 
 | 2 | Fusion (BGE + Hybrid) | `k_rrf=60, w_bge=0.8, w_hybrid=0.2, pool_top_rerank=50, pool_top_hybrid=50` (pools 200 when snippet route is active) |
 | 2.5 (optional) | Snippet rerank + fusion | `SNIPPET_N_DOCS=100, window=3/1, top_w=8, final_pool=SNIPPET_N_DOCS, weights=0.8/0.2` |
 | 3 | Generation | `temperature=0.0, max_contexts=10` |
-
-For multi-query fusion, HyDE, and deduplication, see [../query_parsing/MULTI_QUERY_HYDE.md](../query_parsing/MULTI_QUERY_HYDE.md).
