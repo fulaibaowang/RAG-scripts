@@ -85,13 +85,7 @@ Carries the question fields with retrieved **`doc_ids`** in rank order.
 }
 ```
 
-On the snippet-RRF path, the same script may add **`doc_snippet_windows`** (per-doc snippet windows merged from optional `--windows-jsonl`).
-
-### Snippet route (example outputs)
-
-With `RUN_SNIPPET_RRF=1` (or `--snippet-rrf`), the orchestrator also writes under `$WORKFLOW_OUTPUT_DIR/snippet/` (see [docs/output.md](docs/output.md)). Two JSONL shapes that differ from the baseline doc-only post-rerank line:
-
-**Post-rerank JSONL (snippet branch)** — same question fields plus ranked **`doc_ids`**, and optional **`doc_snippet_windows`**: map **PMID string → list** of max-pooled windows (`window_idx`, `ce_score`; `query_field` only when multi-query rerank was used).
+#### Snippet route (example outputs)
 
 ```json
 {
@@ -109,29 +103,6 @@ With `RUN_SNIPPET_RRF=1` (or `--snippet-rrf`), the orchestrator also writes unde
   }
 }
 ```
-
-**Contexts JSONL (`evidence/evidence_snippet/*_contexts.jsonl`)** — produced by `evidence/build_contexts_from_snippets.py`. Each **`contexts`** entry is built from the selected sentence windows; **`selected_windows`** / **`rejected_windows`** carry CE metadata (`sent_ids` indexes sentences in the title+abstract split used for windows).
-
-```json
-{
-  "id": "680fe1e3353a4a2e6b00000f",
-  "body": "Is a single-nucleotide polymorphism (SNP) the same as a mutation?",
-  "doc_ids": ["26173390"],
-  "contexts": [
-    {
-      "id": "26173390-1",
-      "doc_id": "26173390",
-      "text": "Title: Example title\n\nMerged sentences from the best CE window(s) …",
-      "selected_windows": [
-        { "window_idx": 2, "ce_score": 12.5, "sent_ids": [2, 3, 4] }
-      ],
-      "rejected_windows": []
-    }
-  ]
-}
-```
-
-**Generation** for this route is the same **`*_answers.jsonl`** schema as below, written under **`generation/generation_snippet/`** (from the snippet contexts file).
 
 ### Generation output JSONL (`*_answers.jsonl`)
 
