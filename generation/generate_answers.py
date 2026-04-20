@@ -2,8 +2,9 @@
 """
 Generate BioASQ answers from contexts JSON using an LLM.
 
-Reads the JSON produced by build_contexts_from_documents.py (id, body, type,
-documents, contexts), calls an LLM per question, parses ideal_answer and
+Reads contexts JSONL from build_contexts_from_documents.py / build_contexts_from_snippets.py
+(id, body, type, contexts with ``doc_id`` per row; optional ``doc_ids`` on the question),
+calls an LLM per question, parses ideal_answer and
 evidence_ids (and exact_answer for yesno/factoid/list), and writes a single
 JSONL file to output_dir (e.g. output_dir/<stem>_answers.jsonl).
 
@@ -415,23 +416,34 @@ def snippets_to_contexts(snippets: List[Dict[str, Any]]) -> List[Dict[str, Any]]
         if raw_id:
             cid = str(raw_id)
         else:
-            doc_url = str(snip.get("document") or snip.get("doc") or "")
-            m = pmid_re.search(doc_url)
+            doc_ref = str(snip.get("document") or snip.get("doc") or "").strip()
+            m = pmid_re.search(doc_ref)
             if m:
-                pmid = m.group(1)
-                offset_raw = snip.get("offsetInBeginSection")
-                cid = pmid
-                if offset_raw is not None:
-                    try:
-                        offset_int = int(offset_raw)
-                        cid = f"{pmid}-{offset_int}"
-                    except (TypeError, ValueError):
-                        cid = pmid
+                doc_id = m.group(1)
+            elif doc_ref.isdigit():
+                doc_id = doc_ref
             else:
-                cid = f"snippet-{idx}"
-        doc_url = str(snip.get("document") or snip.get("doc") or "")
+                doc_id = ""
+            offset_raw = snip.get("offsetInBeginSection")
+            cid = doc_id if doc_id else f"snippet-{idx}"
+            if doc_id and offset_raw is not None:
+                try:
+                    offset_int = int(offset_raw)
+                    cid = f"{doc_id}-{offset_int}"
+                except (TypeError, ValueError):
+                    cid = doc_id
+        doc_ref = str(snip.get("document") or snip.get("doc") or "").strip()
         text = str(snip.get("text", "")).strip()
-        contexts.append({"id": cid, "doc": doc_url, "text": text})
+        ctx: Dict[str, Any] = {"id": cid, "text": text}
+        if doc_ref:
+            if doc_ref.isdigit():
+                ctx["doc_id"] = doc_ref
+            else:
+                ctx["doc"] = doc_ref
+                m2 = pmid_re.search(doc_ref)
+                if m2:
+                    ctx["doc_id"] = m2.group(1)
+        contexts.append(ctx)
     return contexts
 
 
@@ -732,10 +744,13 @@ def main() -> int:
         else:
             snippets = obj.get("snippets") or []
             contexts = snippets_to_contexts(snippets) if snippets else []
-        documents = obj.get("documents", [])
-
         out = dict(obj)
-        out.setdefault("documents", documents)
+        doc_ids = obj.get("doc_ids") or obj.get("docnos")
+        if isinstance(doc_ids, list) and doc_ids:
+            out["doc_ids"] = list(doc_ids)
+            out.pop("documents", None)
+        else:
+            out.setdefault("documents", obj.get("documents", []))
         out.setdefault("contexts", contexts)
 
         if not question or not contexts:
@@ -834,7 +849,12 @@ def main() -> int:
             except Exception as e:
                 logger.warning("Task failed for id=%s: %s; recording as error", obj.get("id"), e)
                 rec = dict(obj)
-                rec.setdefault("documents", obj.get("documents", []))
+                _ids = obj.get("doc_ids") or obj.get("docnos")
+                if isinstance(_ids, list) and _ids:
+                    rec["doc_ids"] = list(_ids)
+                    rec.pop("documents", None)
+                else:
+                    rec.setdefault("documents", obj.get("documents", []))
                 rec.setdefault("contexts", obj.get("contexts", []))
                 rec["ideal_answer"] = None
                 rec["evidence_ids"] = []
@@ -855,7 +875,12 @@ def main() -> int:
         else:
             obj = all_objs[i - 1]
             rec = dict(obj)
-            rec.setdefault("documents", obj.get("documents", []))
+            _ids2 = obj.get("doc_ids") or obj.get("docnos")
+            if isinstance(_ids2, list) and _ids2:
+                rec["doc_ids"] = list(_ids2)
+                rec.pop("documents", None)
+            else:
+                rec.setdefault("documents", obj.get("documents", []))
             rec.setdefault("contexts", obj.get("contexts", []))
             rec["ideal_answer"] = None
             rec["evidence_ids"] = []

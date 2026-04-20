@@ -172,16 +172,20 @@ def main() -> int:
         logger.info("Dry run: would retry %d question(s).", len(failed))
         return 0
 
-    # Build contexts-style input for failed questions (need id, body, type, documents, contexts)
+    # Build contexts-style input for failed questions (doc_ids or legacy documents + contexts)
     failed_questions = []
     for r in failed:
-        q = {
+        q: Dict[str, Any] = {
             "id": r.get("id"),
             "body": r.get("body"),
             "type": r.get("type") or "",
-            "documents": r.get("documents", []),
             "contexts": r.get("contexts", []),
         }
+        _ids = r.get("doc_ids") or r.get("docnos")
+        if isinstance(_ids, list) and _ids:
+            q["doc_ids"] = list(_ids)
+        else:
+            q["documents"] = r.get("documents", [])
         failed_questions.append(q)
 
     with tempfile.TemporaryDirectory(prefix="rescue_gen_") as tmpdir:

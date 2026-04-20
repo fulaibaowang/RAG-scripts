@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Build contexts (title + abstract) from post-rerank JSON and literature corpus.
+Build contexts (title + abstract) from post-rerank JSONL and literature corpus.
 
-Reads the JSON produced by post_rerank_json.py (questions with body, type, id,
-documents), looks up title and abstract for each document PMID from a PubMed
-JSONL corpus, appends a "contexts" field to each question, and writes a single
-JSONL file (one question object per line) with the full question objects preserved.
+Reads post_rerank_json.py output (``doc_ids`` per question), looks up title and abstract
+for each doc id in a PubMed JSONL corpus (``pmid`` field must match doc_id for PubMed),
+appends a ``contexts`` list with ``doc_id`` per row (no PubMed URLs). Legacy post-rerank
+with URL ``documents`` or ``docnos`` is still accepted.
 """
 
 import argparse
@@ -24,8 +24,7 @@ _SHARED_SCRIPTS = Path(__file__).resolve().parents[1]
 if str(_SHARED_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SHARED_SCRIPTS))
 from retrieval_eval.common import iter_questions_jsonl, write_questions_jsonl
-
-PUBMED_URL_PATTERN = re.compile(r"pubmed/(\d+)/?$", re.I)
+from retrieval_eval.doc_id_util import ranked_doc_ids_from_question
 
 
 def parse_args() -> argparse.Namespace:
@@ -56,24 +55,14 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def pmid_from_url(url: str):
-    """Extract PMID from a PubMed URL, or return None."""
-    if not url:
-        return None
-    m = PUBMED_URL_PATTERN.search(url.strip())
-    return m.group(1) if m else None
-
-
 def load_post_rerank_questions(post_rerank_path: Path) -> Tuple[List[dict], Set[str]]:
-    """Load post-rerank JSONL and return (questions list, set of all PMIDs in documents)."""
+    """Load post-rerank JSONL and return (questions list, set of all corpus lookup ids)."""
     questions = list(iter_questions_jsonl(post_rerank_path))
-    needed_pmids: Set[str] = set()
+    needed: Set[str] = set()
     for q in questions:
-        for url in q.get("documents") or []:
-            pmid = pmid_from_url(url)
-            if pmid:
-                needed_pmids.add(pmid)
-    return questions, needed_pmids
+        for doc_id in ranked_doc_ids_from_question(q):
+            needed.add(doc_id)
+    return questions, needed
 
 
 def _resolve_corpus_paths(path_or_glob: str) -> List[Path]:
@@ -217,21 +206,17 @@ def main() -> int:
         if qid is None:
             continue
         contexts = []
-        for rank, url in enumerate(q.get("documents") or [], start=1):
-            pmid = pmid_from_url(url)
-            if not pmid:
-                continue
-            pair = pmid_to_text.get(pmid)
+        for doc_id in ranked_doc_ids_from_question(q):
+            pair = pmid_to_text.get(doc_id)
             if pair is None:
                 missing_total += 1
                 continue
             title, abstract = pair
             text = build_context_text(title, abstract)
-            # One context per document (one title+abstract per PMID); id is pmid-1
             contexts.append(
                 {
-                    "id": f"{pmid}-1",
-                    "doc": f"http://www.ncbi.nlm.nih.gov/pubmed/{pmid}",
+                    "id": f"{doc_id}-1",
+                    "doc_id": doc_id,
                     "text": text,
                 }
             )

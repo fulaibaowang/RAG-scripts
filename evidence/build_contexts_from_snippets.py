@@ -4,7 +4,7 @@ Build contexts from post-rerank JSON using top CE windows from snippet reranking
 
 Reads the JSON produced by post_rerank_json.py and the window JSONL from
 snippet_rerank (qid, docno, window_idx, ce_score, optional query_field).
-For each (qid, doc) in the post-rerank documents, max-pools CE scores per
+For each (qid, doc_id) in the post-rerank ``doc_ids``, max-pools CE scores per
 window_idx across lines (multi-query concat), ranks distinct windows, then:
 
 - top-windows=1: keep the best window only.
@@ -36,8 +36,7 @@ _SHARED_SCRIPTS = Path(__file__).resolve().parents[1]
 if str(_SHARED_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SHARED_SCRIPTS))
 from retrieval_eval.common import iter_questions_jsonl, write_questions_jsonl
-
-PUBMED_URL_PATTERN = re.compile(r"pubmed/(\d+)/?$", re.I)
+from retrieval_eval.doc_id_util import ranked_doc_ids_from_question
 # When ce_score ties, prefer lexicographically smaller query_field; missing sorts last.
 _QF_TIE_SENTINEL = "\uffff"
 
@@ -122,24 +121,14 @@ def default_stats_output_path(output_path: Path) -> Path:
     return output_path.parent / f"{base}_snippet_window_stats.json"
 
 
-def pmid_from_url(url: str) -> Optional[str]:
-    """Extract PMID from a PubMed URL, or return None."""
-    if not url:
-        return None
-    m = PUBMED_URL_PATTERN.search(url.strip())
-    return m.group(1) if m else None
-
-
 def load_post_rerank_questions(post_rerank_path: Path) -> Tuple[List[dict], Set[str]]:
-    """Load post-rerank JSONL and return (questions list, set of all PMIDs in documents)."""
+    """Load post-rerank JSONL and return (questions list, set of all doc ids for corpus / windows)."""
     questions = list(iter_questions_jsonl(post_rerank_path))
-    needed_pmids: Set[str] = set()
+    needed: Set[str] = set()
     for q in questions:
-        for url in q.get("documents") or []:
-            pmid = pmid_from_url(url)
-            if pmid:
-                needed_pmids.add(pmid)
-    return questions, needed_pmids
+        for doc_id in ranked_doc_ids_from_question(q):
+            needed.add(doc_id)
+    return questions, needed
 
 
 def _sent_ids_for_window(window_idx: int, window_size: int) -> List[int]:
@@ -412,12 +401,9 @@ def compute_snippet_window_stats(
         if qid is None:
             continue
         qid_s = str(qid)
-        for url in q.get("documents") or []:
-            pmid = pmid_from_url(url)
-            if not pmid:
-                continue
+        for doc_id in ranked_doc_ids_from_question(q):
             doc_pairs_considered += 1
-            key = (qid_s, pmid)
+            key = (qid_s, doc_id)
             sw = selected_by_pair.get(key, [])
             aux = pair_aux.get(
                 key,
@@ -430,7 +416,7 @@ def compute_snippet_window_stats(
 
             use_fallback = len(sw) == 0
             if not use_fallback and track_corpus_fallback and pmid_to_title_sents is not None:
-                pair = pmid_to_title_sents.get(pmid)
+                pair = pmid_to_title_sents.get(doc_id)
                 if pair is None:
                     use_fallback = True
                 else:
@@ -599,24 +585,21 @@ def main() -> int:
         if qid is None:
             continue
         contexts: List[dict] = []
-        for url in q.get("documents") or []:
-            pmid = pmid_from_url(url)
-            if not pmid:
-                continue
-            pair = pmid_to_title_sents.get(pmid)
+        for doc_id in ranked_doc_ids_from_question(q):
+            pair = pmid_to_title_sents.get(doc_id)
             if pair is None:
                 missing_total += 1
                 continue
             title, sentences = pair
-            key = (str(qid), str(pmid))
+            key = (str(qid), str(doc_id))
             indices = merged_by_pair.get(key)
             sw = selected_by_pair.get(key, [])
             rw = rejected_by_pair.get(key, [])
             if indices is not None and sentences and len(sw) > 0:
                 text = build_context_from_sentences(title, sentences, indices)
                 ctx: dict = {
-                    "id": f"{pmid}-1",
-                    "doc": f"http://www.ncbi.nlm.nih.gov/pubmed/{pmid}",
+                    "id": f"{doc_id}-1",
+                    "doc_id": doc_id,
                     "text": text,
                     "selected_windows": sw,
                     "rejected_windows": rw,
@@ -625,8 +608,8 @@ def main() -> int:
                 abstract = " ".join(sentences) if sentences else ""
                 text = build_context_title_abstract(title, abstract)
                 ctx = {
-                    "id": f"{pmid}-1",
-                    "doc": f"http://www.ncbi.nlm.nih.gov/pubmed/{pmid}",
+                    "id": f"{doc_id}-1",
+                    "doc_id": doc_id,
                     "text": text,
                     "selected_windows": [],
                     "rejected_windows": [],

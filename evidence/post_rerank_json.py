@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """
-Post-hybrid-reranking: attach top-k documents from rerank run to query JSONL.
+Post-hybrid-reranking: attach top-k document ids from rerank run to query JSONL.
 
-Reads a hybrid rerank TSV (qid, docno, rank), picks at most top-k docno (PMID) per query,
-and writes JSONL (one question object per line) with a "documents" field (list of
-PubMed URLs). Oracle fields (snippets, documents, ideal_answer, exact_answer)
-are removed from each source question so the output is suitable for
-post-reranking use without gold labels.
+Reads a hybrid rerank TSV (qid, docno, rank), picks at most top-k docno strings per query,
+and writes JSONL (one question object per line) with ``doc_ids`` (ordered list, same
+values as TSV docno — for PubMed today, numeric PMIDs). PubMed URLs are not written here;
+use adapt-out (queries_jsonl_to_bioasq_json.py) for BioASQ ``documents`` URLs.
+
+Oracle fields (snippets, documents, ideal_answer, exact_answer) are removed from each
+source question so the output is suitable for post-reranking use without gold labels.
 """
 
 import argparse
-import json
 import logging
 import sys
 from pathlib import Path
@@ -18,8 +19,7 @@ from typing import Dict, List, Tuple
 
 logger = logging.getLogger(__name__)
 
-ORACLE_KEYS = frozenset({"snippets", "documents", "ideal_answer", "exact_answer"})
-PUBMED_URL_PREFIX = "http://www.ncbi.nlm.nih.gov/pubmed/"
+ORACLE_KEYS = frozenset({"snippets", "documents", "ideal_answer", "exact_answer", "doc_ids", "docnos"})
 
 
 def parse_args() -> argparse.Namespace:
@@ -56,10 +56,8 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_rerank_topk_urls(run_path: Path, top_k: int) -> Dict[str, List[str]]:
-    """
-    Read rerank TSV and return qid -> list of top-k PubMed URLs (ordered by rank).
-    """
+def load_rerank_topk_doc_ids(run_path: Path, top_k: int) -> Dict[str, List[str]]:
+    """Read rerank TSV and return qid -> list of top-k docno strings (ordered by rank)."""
     qid_to_docs: Dict[str, List[Tuple[int, str]]] = {}
 
     with open(run_path, "r") as f:
@@ -82,17 +80,18 @@ def load_rerank_topk_urls(run_path: Path, top_k: int) -> Dict[str, List[str]]:
                 continue
             if rank > top_k:
                 continue
-            pmid = str(docno).strip()
+            doc_id = str(docno).strip()
+            if not doc_id:
+                continue
             if qid not in qid_to_docs:
                 qid_to_docs[qid] = []
             if len(qid_to_docs[qid]) < top_k:
-                qid_to_docs[qid].append((rank, pmid))
+                qid_to_docs[qid].append((rank, doc_id))
 
-    # Sort by rank and convert to URLs
     result: Dict[str, List[str]] = {}
     for qid, pairs in qid_to_docs.items():
         pairs_sorted = sorted(pairs, key=lambda x: x[0])[:top_k]
-        result[qid] = [f"{PUBMED_URL_PREFIX}{pmid}" for _, pmid in pairs_sorted]
+        result[qid] = [doc_id for _, doc_id in pairs_sorted]
     return result
 
 
@@ -124,8 +123,8 @@ def main() -> int:
         return 1
 
     logger.info("Reading rerank run: %s (top-k=%d)", args.run_path, args.top_k)
-    qid_to_urls = load_rerank_topk_urls(args.run_path, args.top_k)
-    logger.info("Queries in rerank: %d", len(qid_to_urls))
+    qid_to_doc_ids = load_rerank_topk_doc_ids(args.run_path, args.top_k)
+    logger.info("Queries in rerank: %d", len(qid_to_doc_ids))
 
     out_questions = []
     for q in iter_questions_jsonl(args.query_jsonl):
@@ -133,7 +132,7 @@ def main() -> int:
         if qid is None:
             continue
         new_q = {k: v for k, v in q.items() if k not in ORACLE_KEYS}
-        new_q["documents"] = qid_to_urls.get(str(qid), [])
+        new_q["doc_ids"] = qid_to_doc_ids.get(str(qid), [])
         out_questions.append(new_q)
 
     if not out_questions:
