@@ -106,7 +106,7 @@ For multi-query fusion (running multiple query variants per stage and fusing wit
   - [generation/rescue_failed_generation.py](generation/rescue_failed_generation.py) — retry/repair failed generations.
 
 - **Utilities**
-  - [compare_result_dirs.py](compare_result_dirs.py) — compare metrics across two pipeline output directories.
+  - [analysis/compare_result_dirs.py](analysis/compare_result_dirs.py) — compare metrics across two pipeline output directories.
   - [logging_config.py](logging_config.py) — shared logging configuration (LOG_LEVEL, LOG_FILE).
   - [retrieval_eval/common.py](retrieval_eval/common.py) — shared retrieval evaluation helpers (metrics, I/O).
 

@@ -875,7 +875,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
       )
       [ -n "${INPUT_JSONL:-}" ] && COMPARE_ARGS+=(--train-jsonl "$INPUT_JSONL")
       [ -n "${INPUT_BATCH_JSONLS:-}" ] && COMPARE_ARGS+=(--test-batch-jsonls $INPUT_BATCH_JSONLS)
-      python "$SCRIPT_DIR/compare_result_dirs.py" "${COMPARE_ARGS[@]}"
+      python "$SCRIPT_DIR/analysis/compare_result_dirs.py" "${COMPARE_ARGS[@]}"
       STEP_COMPARE_END=$(date +%s)
       echo "[timing] Compare step: $((STEP_COMPARE_END-STEP_COMPARE_START))s"
       _log_run "step" "Compare" "$((STEP_COMPARE_END-STEP_COMPARE_START))s"
@@ -910,7 +910,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
       )
       [ -n "${INPUT_JSONL:-}" ] && COMPARE_200_ARGS+=(--train-jsonl "$INPUT_JSONL")
       [ -n "${INPUT_BATCH_JSONLS:-}" ] && COMPARE_200_ARGS+=(--test-batch-jsonls $INPUT_BATCH_JSONLS)
-      python "$SCRIPT_DIR/compare_result_dirs.py" "${COMPARE_200_ARGS[@]}"
+      python "$SCRIPT_DIR/analysis/compare_result_dirs.py" "${COMPARE_200_ARGS[@]}"
       STEP_COMPARE_200_END=$(date +%s)
       echo "[timing] Compare (pool=200) step: $((STEP_COMPARE_200_END-STEP_COMPARE_200_START))s"
       _log_run "step" "Compare200" "$((STEP_COMPARE_200_END-STEP_COMPARE_200_START))s"
@@ -1125,7 +1125,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
       )
       [ -n "${INPUT_JSONL:-}" ] && SNIPPET_COMPARE_ARGS+=(--train-jsonl "$INPUT_JSONL")
       [ -n "${INPUT_BATCH_JSONLS:-}" ] && SNIPPET_COMPARE_ARGS+=(--test-batch-jsonls $INPUT_BATCH_JSONLS)
-      python "$SCRIPT_DIR/compare_result_dirs.py" "${SNIPPET_COMPARE_ARGS[@]}"
+      python "$SCRIPT_DIR/analysis/compare_result_dirs.py" "${SNIPPET_COMPARE_ARGS[@]}"
       STEP_SNIPPET_COMPARE_END=$(date +%s)
       echo "[timing] Snippet compare step: $((STEP_SNIPPET_COMPARE_END-STEP_SNIPPET_COMPARE_START))s"
       _log_run "step" "SnippetCompare" "$((STEP_SNIPPET_COMPARE_END-STEP_SNIPPET_COMPARE_START))s"

@@ -16,15 +16,12 @@
 set -e
 
 # ---------------------------------------------------------------------------
-# Resolve SCRIPT_DIR = shared_scripts root (Python lives under rerank/, etc.).
-# This file lives in listwise_script/; parent is shared_scripts unless vendored.
+# Resolve LISTWISE_SCRIPT_DIR = this directory (listwise Python modules live here).
+# Portable: run from repo root, from this folder, or with a symlink; paths are absolute.
+# Optional SHARED_SCRIPTS_DIR does not affect these entrypoints (Python adds shared_scripts
+# to sys.path via __file__ for retrieval_eval).
 # ---------------------------------------------------------------------------
 LISTWISE_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ -n "${SHARED_SCRIPTS_DIR:-}" ]; then
-  SCRIPT_DIR="$SHARED_SCRIPTS_DIR"
-else
-  SCRIPT_DIR="$(cd "$LISTWISE_SCRIPT_DIR/.." && pwd)"
-fi
 
 # ---------------------------------------------------------------------------
 # Parse CLI
@@ -235,7 +232,7 @@ else
   [ "$LISTWISE_RUN_SLIDING" != "1" ] && LISTWISE_ARGS+=(--no-sliding)
 
   echo "[listwise] Running listwise reranking..."
-  python3 "$SCRIPT_DIR/rerank/listwise_rerank.py" "${LISTWISE_ARGS[@]}"
+  python3 "$LISTWISE_SCRIPT_DIR/listwise_rerank.py" "${LISTWISE_ARGS[@]}"
 
   RERANK_END=$(date +%s)
   echo "[listwise] Reranking completed in $((RERANK_END - STEP_START))s"
@@ -285,7 +282,7 @@ if [ "$_HAS_FUSED" = "1" ]; then
 else
   echo "[listwise] RRF fusion: single_window + snippet_doc_fusion -> listwise_fused (pool_top=$LISTWISE_FUSION_POOL_TOP)..."
   FUSION_ARGS=($(_build_fusion_args "$_SINGLE_RUNS_DIR" "$_FUSED_DIR" "$LISTWISE_FUSION_POOL_TOP"))
-  python3 "$SCRIPT_DIR/rerank/listwise_rrf_fusion.py" "${FUSION_ARGS[@]}"
+  python3 "$LISTWISE_SCRIPT_DIR/listwise_rrf_fusion.py" "${FUSION_ARGS[@]}"
 fi
 
 # Sliding-window fusion (optional)
@@ -298,7 +295,7 @@ if [ "$LISTWISE_RUN_SLIDING" = "1" ] && [ "$LISTWISE_FUSE_SLIDING" = "1" ]; then
   else
     echo "[listwise] RRF fusion: sliding_window + snippet_doc_fusion -> listwise_fused_sliding (pool_top=$LISTWISE_POOL)..."
     FUSION_SLIDING_ARGS=($(_build_fusion_args "$_SLIDING_RUNS_DIR" "$_FUSED_SLIDING_DIR" "$LISTWISE_POOL"))
-    python3 "$SCRIPT_DIR/rerank/listwise_rrf_fusion.py" "${FUSION_SLIDING_ARGS[@]}"
+    python3 "$LISTWISE_SCRIPT_DIR/listwise_rrf_fusion.py" "${FUSION_SLIDING_ARGS[@]}"
   fi
 else
   echo "[listwise] Sliding-window fusion skipped (LISTWISE_RUN_SLIDING=$LISTWISE_RUN_SLIDING, LISTWISE_FUSE_SLIDING=$LISTWISE_FUSE_SLIDING)"

@@ -8,7 +8,7 @@ result directories (e.g. rerank vs rerank_sentence, or hybrid vs rerank).
 For MAP@k curve, runs/*.tsv and gold are required.
 
 Example (stage 2 vs stage 3 sentence, with MAP curve 10–200):
-  python scripts/public/shared_scripts/compare_result_dirs.py \\
+  python scripts/public/shared_scripts/analysis/compare_result_dirs.py \\
     --dirs output/workflow_local_3pct_hpc_bge/rerank output/workflow_local_3pct_hpc_bge/rerank_sentence \\
     --labels "Stage 2" "Stage 3 sentence" \\
     --plot both \\
@@ -37,9 +37,9 @@ except ImportError:
 
 import sys
 _THIS_FILE = Path(__file__).resolve()
-_SCRIPT_DIR = _THIS_FILE.parent  # shared_scripts/ (this file lives at its root)
-if str(_SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(_SCRIPT_DIR))
+_SHARED_SCRIPTS = _THIS_FILE.parents[1]  # analysis/ -> shared_scripts/
+if str(_SHARED_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(_SHARED_SCRIPTS))
 
 from retrieval_eval.common import (
     ap_at_k,
