@@ -10,13 +10,10 @@ Authoritative commented list of **every** workflow variable: [workflow_config_fu
 | `WORKFLOW_OUTPUT_DIR`, `INPUT_JSONL`, `INPUT_BATCH_JSONLS`, `DOCS_JSONL`, `TOP_K`, `RECALL_KS` | [Shared paths and retrieval depth](#shared-paths-and-retrieval-depth) |
 | `BM25_INDEX_PATH`, `DENSE_INDEX_DIR` | [Index paths](#index-paths) |
 | Multi-field query fusion | [Query text fields](#query-text-fields-optional) |
-| RM3 feedback | [BM25 + RM3](#bm25--rm3) |
 | HNSW query/build | [Dense retrieval (HNSW)](#dense-retrieval-hnsw) |
-| RRF fusion weights | [Hybrid retrieval (RRF)](#hybrid-retrieval-rrf) |
 | Cross-encoder pool, post-RRF fusion | [Stage 2 rerank and post-rerank fusion](#stage-2-rerank-and-post-rerank-fusion) |
 | `RERANK_TSTAR_*` | [Post-fusion score cutoff](#post-fusion-score-cutoff-t-star) |
 | Snippet windows, CE, final fusion | [Snippet-RRF route](#snippet-rrf-route-optional) |
-| RankZephyr / listwise | [Listwise reranking (optional)](#listwise-reranking-optional) |
 | `POST_RERANK_DOC_POOL`, `EVIDENCE_TOP_K*` | [Evidence (contexts)](#evidence-contexts) |
 | `GENERATION_*`, backends | [Answer generation (LLM)](#answer-generation-llm) |
 
