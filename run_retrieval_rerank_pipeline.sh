@@ -38,8 +38,10 @@ else
   REPO_ROOT="$_d"
 fi
 
-# Parse -c / --config, --no-rerank, --no-rrf-fusion, --snippet-rrf, --run-both-routes, --no-generation*, -h / --help
+# Parse -c / --config, --no-rerank, --no-rrf-fusion, --snippet-rrf, --run-both-routes, --no-generation*,
+# --generation-schemas-dir, -h / --help
 CONFIG_FILE=""
+_PIPELINE_GENERATION_SCHEMAS_DIR=""
 # Allow environment to override defaults (and keep CLI flags as explicit overrides below).
 RUN_RERANK="${RUN_RERANK:-1}"
 RUN_RRF_FUSION="${RUN_RRF_FUSION:-1}"
@@ -102,8 +104,13 @@ while [ $# -gt 0 ]; do
       RUN_GENERATION_SNIPPET=0
       shift
       ;;
+    --generation-schemas-dir)
+      [ -z "${2:-}" ] && { echo "Error: --generation-schemas-dir requires a path." >&2; exit 1; }
+      _PIPELINE_GENERATION_SCHEMAS_DIR="$2"
+      shift 2
+      ;;
     -h|--help)
-      echo "Usage: $0 [--config|-c <config.env>] [--no-rerank] [--no-rrf-fusion] [--snippet-rrf] [--run-both-routes] [--no-generation] [--bm25-query-field F] ..."
+      echo "Usage: $0 [--config|-c <config.env>] [--no-rerank] [--no-rrf-fusion] [--snippet-rrf] [--run-both-routes] [--no-generation] [--generation-schemas-dir DIR] [--bm25-query-field F] ..."
       echo "  -c, --config PATH       Source PATH as config (env vars) before running."
       echo "  --no-rerank             Run only BM25, Dense, retrieval fusion; skip reranker even if DOCS_JSONL is set."
       echo "  --no-rrf-fusion         Disable post-rerank RRF fusion (retrieval fusion + cross-encoder) after reranker."
@@ -112,6 +119,7 @@ while [ $# -gt 0 ]; do
       echo "  --no-generation          Skip LLM generation (and rescue) for both baseline and snippet routes."
       echo "  --no-generation-baseline  Skip LLM generation for baseline route only (evidence still built)."
       echo "  --no-generation-snippet   Skip LLM generation for snippet route only (evidence still built)."
+      echo "  --generation-schemas-dir DIR  Schema *.txt directory for generate_answers.py (overrides GENERATION_SCHEMAS_DIR in config)."
       echo "  --bm25-query-field F    Use F as query text for BM25 (overrides env). Comma-separated = multi-query RRF fuse."
       echo "  --dense-query-field F   Use F as query text for Dense (overrides env). Comma-separated = multi-query RRF fuse."
       echo "  --rerank-query-field F  Use F for reranker and snippet CE (overrides env). Comma-separated = multi-query RRF fuse."
@@ -123,6 +131,7 @@ while [ $# -gt 0 ]; do
       echo "  RUN_RRF_FUSION=0|1      Control Hybrid+Rerank RRF fusion (default 1; 0 is same as --no-rrf-fusion)."
       echo "  RUN_GENERATION_BASELINE=0|1   Run generation for baseline route (default 1)."
       echo "  RUN_GENERATION_SNIPPET=0|1    Run generation for snippet route (default 1)."
+      echo "  GENERATION_SCHEMAS_DIR       Directory of schema *.txt for LLM prompts (default: scripts/public/shared_scripts/prompts/schemas under repo root)."
       echo "  EVIDENCE_TOP_K_BASELINE / EVIDENCE_TOP_K_SNIPPET   Per-route cap for post_rerank JSON (default: EVIDENCE_TOP_K or 10)."
       echo ""
       echo "Example: $0 --config scripts/private_scripts/config.env"
@@ -173,6 +182,15 @@ if [ "${HAVE_GROUND_TRUTH:-1}" = "0" ]; then
 fi
 
 cd "$REPO_ROOT"
+
+# Generation schema snippets: default portable path under shared_scripts; override with
+# GENERATION_SCHEMAS_DIR in config or --generation-schemas-dir (CLI wins over config).
+_DEFAULT_GENERATION_SCHEMAS_DIR="$REPO_ROOT/scripts/public/shared_scripts/prompts/schemas"
+if [ -n "${_PIPELINE_GENERATION_SCHEMAS_DIR:-}" ]; then
+  export GENERATION_SCHEMAS_DIR="$_PIPELINE_GENERATION_SCHEMAS_DIR"
+else
+  export GENERATION_SCHEMAS_DIR="${GENERATION_SCHEMAS_DIR:-$_DEFAULT_GENERATION_SCHEMAS_DIR}"
+fi
 
 # Required env (set by config file or by sourcing before run)
 : "${WORKFLOW_OUTPUT_DIR:?Set WORKFLOW_OUTPUT_DIR (e.g. output/workflow_run)}"
@@ -1235,6 +1253,7 @@ _DOCS_JSONL_OK=0
           GENERATION_ARGS=(
             --input-path "$_ctx_json"
             --output-dir "$WORKFLOW_OUTPUT_DIR/$_GEN_SUBDIR"
+            --schemas-dir "$GENERATION_SCHEMAS_DIR"
           )
           [ -n "${GENERATION_CONCURRENCY:-}" ] && GENERATION_ARGS+=(--concurrency "$GENERATION_CONCURRENCY")
           if [ "$_route" = "baseline" ]; then

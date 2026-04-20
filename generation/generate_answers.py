@@ -23,6 +23,11 @@ already-exported key). It does **not** load ``GENERATION_BACKEND``,
 
 OpenAI-compatible path is equivalent to the OpenAI client's ``base_url`` +
 ``chat.completions``; this script uses ``requests`` only.
+
+Schema snippets for ``{SCHEMA_BLOCK}`` in ``user_base.txt``: directory of ``*.txt``
+(typed names + optional ``default.txt``). Resolution: ``--schemas-dir``, then
+``GENERATION_SCHEMAS_DIR``, then ``<prompts-dir>/schemas`` (default prompts dir is
+next to this script under ``shared_scripts/prompts``).
 """
 
 from __future__ import annotations
@@ -150,6 +155,15 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=None,
         help="Prompts directory (default: REPO_ROOT/scripts/public/shared_scripts/prompts).",
+    )
+    parser.add_argument(
+        "--schemas-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Directory of schema *.txt files (per question type + optional default.txt). "
+            "Overrides GENERATION_SCHEMAS_DIR; if both unset, uses <prompts-dir>/schemas."
+        ),
     )
     parser.add_argument(
         "--timeout",
@@ -459,8 +473,13 @@ def build_full_prompt_for_record(
     prompts_dir: Path,
     max_contexts: int = 8,
     max_chars_per_context: int = 1200,
+    schemas_dir: Optional[Path] = None,
 ) -> str:
-    """Build the exact prompt that would be sent for this record. Used by rescue script."""
+    """Build the exact prompt that would be sent for this record. Used by rescue script.
+
+    Schema snippets: explicit ``schemas_dir`` if passed; else ``GENERATION_SCHEMAS_DIR``;
+    else ``prompts_dir / "schemas"`` (same order as ``main()`` without ``--schemas-dir``).
+    """
     qtype = (record.get("type") or "").strip().lower()
     question = (record.get("body") or "").strip()
     contexts = record.get("contexts") or []
@@ -468,12 +487,19 @@ def build_full_prompt_for_record(
         return ""
     system_path = prompts_dir / "system.txt"
     user_path = prompts_dir / "user_base.txt"
-    schemas_dir = prompts_dir / "schemas"
+    if schemas_dir is not None:
+        _schemas = schemas_dir.expanduser().resolve()
+    else:
+        env_schemas = (os.getenv("GENERATION_SCHEMAS_DIR") or "").strip()
+        if env_schemas:
+            _schemas = Path(env_schemas).expanduser().resolve()
+        else:
+            _schemas = (prompts_dir / "schemas").resolve()
     if not system_path.exists() or not user_path.exists():
         return ""
     system_text = system_path.read_text(encoding="utf-8").strip()
     user_base_text = user_path.read_text(encoding="utf-8").strip()
-    schema_block = resolve_schema_block(schemas_dir, record.get("type") or "")
+    schema_block = resolve_schema_block(_schemas, record.get("type") or "")
     evidence_block = format_evidence_block(contexts, max_contexts, max_chars_per_context)
     user_prompt = format_user_prompt(
         user_base_text,
@@ -637,17 +663,22 @@ def main() -> int:
     prompts_dir = args.prompts_dir or default_prompts_dir
     system_path = prompts_dir / "system.txt"
     user_base_path = prompts_dir / "user_base.txt"
-    schemas_dir = prompts_dir / "schemas"
 
-    # Optional overrides from environment/config:
+    # Schema snippets: --schemas-dir > GENERATION_SCHEMAS_DIR > <prompts-dir>/schemas
+    if args.schemas_dir is not None:
+        schemas_dir = args.schemas_dir.expanduser().resolve()
+    else:
+        schemas_override = (os.getenv("GENERATION_SCHEMAS_DIR") or "").strip()
+        if schemas_override:
+            schemas_dir = Path(schemas_override).expanduser().resolve()
+        else:
+            schemas_dir = (prompts_dir / "schemas").resolve()
+
+    # Optional override from environment/config:
     # - GENERATION_SYSTEM_PATH: path to system.txt replacement
-    # - GENERATION_SCHEMAS_DIR: directory containing schema *.txt files
     system_override = (os.getenv("GENERATION_SYSTEM_PATH") or "").strip()
     if system_override:
         system_path = Path(system_override)
-    schemas_override = (os.getenv("GENERATION_SCHEMAS_DIR") or "").strip()
-    if schemas_override:
-        schemas_dir = Path(schemas_override)
 
     if not system_path.exists() or not user_base_path.exists():
         logger.error("Prompts not found under %s", prompts_dir)

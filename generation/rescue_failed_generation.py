@@ -15,6 +15,8 @@ Usage:
   python rescue_failed_generation.py --input 13B3_golden_answers.json --only-504 --timeout 300
   # With openai_compat: export GENERATION_MODEL (or pass --model); GEN_API_KEY may come from repo .env
   # (generate_answers loads only that key from .env). Backend/base/model otherwise come from the shell.
+  # Schema snippets: export GENERATION_SCHEMAS_DIR (e.g. from pipeline config) or pass --schemas-dir;
+  # otherwise generate_answers uses shared_scripts/prompts/schemas.
 """
 
 from __future__ import annotations
@@ -27,7 +29,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 # Import from sibling module for building prompts
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -89,6 +91,15 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--schemas-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Directory of schema *.txt forwarded to generate_answers.py. "
+            "Default: GENERATION_SCHEMAS_DIR if set; else generate_answers resolves under --prompts-dir."
+        ),
+    )
+    parser.add_argument(
         "--only-504",
         action="store_true",
         dest="only_504",
@@ -118,6 +129,14 @@ def main() -> int:
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(levelname)s: %(message)s",
     )
+
+    schemas_path: Optional[Path] = None
+    if args.schemas_dir is not None:
+        schemas_path = args.schemas_dir.expanduser().resolve()
+    else:
+        _env_schemas = (os.getenv("GENERATION_SCHEMAS_DIR") or "").strip()
+        if _env_schemas:
+            schemas_path = Path(_env_schemas).expanduser().resolve()
 
     if not args.input.exists():
         logger.error("Input file not found: %s", args.input)
@@ -190,6 +209,8 @@ def main() -> int:
         _gen_model = (args.model or os.getenv("GENERATION_MODEL") or "").strip()
         if _gen_model:
             cmd.extend(["--model", _gen_model])
+        if schemas_path is not None:
+            cmd.extend(["--schemas-dir", str(schemas_path)])
         logger.info("Running: %s", " ".join(cmd))
         result = subprocess.run(cmd, check=False)
         if result.returncode != 0:
@@ -236,6 +257,7 @@ def main() -> int:
             prompts_dir,
             max_contexts=args.max_contexts,
             max_chars_per_context=args.max_chars_per_context,
+            schemas_dir=schemas_path,
         )
         if full_prompt:
             prompt_path = out_path.parent / f"{safe_id}.txt"

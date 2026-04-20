@@ -92,6 +92,23 @@ echo "  LISTWISE_OUTPUT_DIR: $LISTWISE_OUTPUT_DIR"
 echo "  DOCS_JSONL:          $DOCS_JSONL"
 echo "  SNIPPET_WINDOWS:     $SNIPPET_WINDOWS"
 
+# Portable default for generation schema snippets (same as run_retrieval_rerank_pipeline.sh).
+if [ -z "${REPO_ROOT:-}" ]; then
+  _lr_d="$SCRIPT_DIR"
+  while [ "$_lr_d" != "/" ]; do
+    if [ -d "$_lr_d/.git" ]; then
+      REPO_ROOT="$_lr_d"
+      break
+    fi
+    _lr_d="$(dirname "$_lr_d")"
+  done
+fi
+if [ -n "${REPO_ROOT:-}" ]; then
+  _LISTWISE_DEFAULT_SCHEMAS="$REPO_ROOT/scripts/public/shared_scripts/prompts/schemas"
+  export GENERATION_SCHEMAS_DIR="${GENERATION_SCHEMAS_DIR:-$_LISTWISE_DEFAULT_SCHEMAS}"
+fi
+[ -n "${GENERATION_SCHEMAS_DIR:-}" ] && echo "  GENERATION_SCHEMAS_DIR: $GENERATION_SCHEMAS_DIR"
+
 STEP_START=$(date +%s)
 
 # ---------------------------------------------------------------------------
@@ -211,6 +228,7 @@ _process_route() {
         --input-path "$_ctx_json"
         --output-dir "$WORKFLOW_OUTPUT_DIR/$_gen_subdir"
       )
+      [ -n "${GENERATION_SCHEMAS_DIR:-}" ] && GENERATION_ARGS+=(--schemas-dir "$GENERATION_SCHEMAS_DIR")
       [ -n "${GENERATION_CONCURRENCY:-}" ] && GENERATION_ARGS+=(--concurrency "$GENERATION_CONCURRENCY")
       _max_ctx="${GENERATION_MAX_CONTEXTS_SNIPPET:-${GENERATION_MAX_CONTEXTS:-10}}"
       [ -n "$_max_ctx" ] && GENERATION_ARGS+=(--max-contexts "$_max_ctx")

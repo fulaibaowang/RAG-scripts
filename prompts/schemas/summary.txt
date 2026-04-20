@@ -1,6 +1,0 @@
-Return valid JSON exactly in this format:
-{"ideal_answer":"...","evidence_ids":["E01"]}
-
-Rules:
-- ideal_answer: 2–5 concise sentences grounded in evidence.
-- If insufficient evidence: ideal_answer="Insufficient evidence.", evidence_ids=[].
