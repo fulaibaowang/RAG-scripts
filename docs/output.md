@@ -28,9 +28,9 @@ We refer to three fusion steps:
   - `evidence/evidence_baseline/`, `generation/generation_baseline/` – baseline document contexts and answers.
   - `evidence/evidence_snippet/`, `generation/generation_snippet/` – snippet-route contexts and answers.
 
-- **Listwise** (optional, separate stage; see `run_listwise_rerank.sh`)
+- **Listwise** (optional, separate stage; see `listwise_script/run_listwise_rerank.sh`)
   - `listwise_rerank/` – listwise runs, `listwise_fused/`, optional `listwise_fused_sliding/`.
-  - `run_listwise_evidence_gen.sh` writes `evidence/evidence_listwise/`, `generation/generation_listwise/` (and `*_listwise_sliding/` when used).
+  - `listwise_script/run_listwise_evidence_gen.sh` writes `evidence/evidence_listwise/`, `generation/generation_listwise/` (and `*_listwise_sliding/` when used).
 
 ## Migrating an existing workflow directory
 

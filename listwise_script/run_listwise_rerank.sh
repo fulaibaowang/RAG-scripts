@@ -16,12 +16,14 @@
 set -e
 
 # ---------------------------------------------------------------------------
-# Resolve SCRIPT_DIR (handles vendored copies via SHARED_SCRIPTS_DIR env)
+# Resolve SCRIPT_DIR = shared_scripts root (Python lives under rerank/, etc.).
+# This file lives in listwise_script/; parent is shared_scripts unless vendored.
 # ---------------------------------------------------------------------------
+LISTWISE_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -n "${SHARED_SCRIPTS_DIR:-}" ]; then
   SCRIPT_DIR="$SHARED_SCRIPTS_DIR"
 else
-  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  SCRIPT_DIR="$(cd "$LISTWISE_SCRIPT_DIR/.." && pwd)"
 fi
 
 # ---------------------------------------------------------------------------
