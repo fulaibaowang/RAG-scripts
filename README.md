@@ -33,15 +33,15 @@ Output layout (directories, fusion names, run format, logs): [docs/output.md](do
 
 ## Running the pipeline (high level)
 
-1. Copy an example env ([workflow_config_baseline.env](workflow_config_baseline.env), [workflow_config_full.env](workflow_config_full.env)).
-2. Set `WORKFLOW_OUTPUT_DIR`, query `.jsonl` paths (`INPUT_JSONL` / `INPUT_BATCH_JSONLS`), index paths, and `DOCS_JSONL` when reranking or building evidence.
+1. Copy an example env ([workflow_config_baseline.env](workflow_config_baseline.env), [workflow_config_full.env](workflow_config_full.env)) or create your own env.
+2. Set `WORKFLOW_OUTPUT_DIR`, query `.jsonl` paths (`INPUT_JSONL` / `INPUT_BATCH_JSONLS`), index paths, and `DOCS_JSONL` for reranking or building evidence.
 3. From the repo root:
 
    ```bash
    ./scripts/public/shared_scripts/run_retrieval_rerank_pipeline.sh --config /path/to/your.env
    ```
 
-   Use `--no-rerank` for retrieval only; `--no-generation` to skip LLM calls; `--snippet-rrf` or `RUN_SNIPPET_RRF=1` for the snippet route.
+   Use `--no-rerank` for retrieval only; `--no-generation` to skip LLM calls; `RUN_SNIPPET_RRF=1` for the snippet route.
 
 Stages whose key outputs already exist are skipped. Per-stage **standalone** commands and argument lists: [docs/USAGE.md](docs/USAGE.md).
 
