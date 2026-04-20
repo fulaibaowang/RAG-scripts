@@ -170,8 +170,15 @@ def parse_args() -> argparse.Namespace:
         help="Max docs after threshold (before floor top-up). Omit for no extra cap beyond input length.",
     )
     p.add_argument("--pattern", type=str, default="*.tsv", help="Glob under input-runs-dir")
-    p.add_argument("--train-json", type=Path, default=None)
-    p.add_argument("--test-batch-jsons", type=Path, nargs="*", default=None)
+    p.add_argument("--train-jsonl", "--train-json", type=Path, default=None, dest="train_jsonl")
+    p.add_argument(
+        "--test-batch-jsonls",
+        "--test-batch-jsons",
+        type=Path,
+        nargs="*",
+        default=None,
+        dest="test_batch_jsonls",
+    )
     p.add_argument("--disable-metrics", action="store_true", help="Skip gold / residual-loss stats")
     return p.parse_args()
 
@@ -254,7 +261,7 @@ def main() -> int:
 
     gold_map: Dict[str, List[str]] = {}
     if not args.disable_metrics:
-        gold_map = _load_gold_map(args.train_json, args.test_batch_jsons, query_field=None)
+        gold_map = _load_gold_map(args.train_jsonl, args.test_batch_jsonls, query_field=None)
 
     summary_rows: List[dict] = []
     per_split_kept: Dict[str, List[int]] = {}

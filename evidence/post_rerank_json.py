@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Post-hybrid-reranking: attach top-k documents from rerank run to query JSON.
+Post-hybrid-reranking: attach top-k documents from rerank run to query JSONL.
 
 Reads a hybrid rerank TSV (qid, docno, rank), picks at most top-k docno (PMID) per query,
-and writes a single JSON whose questions have a "documents" field (list of
+and writes JSONL (one question object per line) with a "documents" field (list of
 PubMed URLs). Oracle fields (snippets, documents, ideal_answer, exact_answer)
-are removed from the source query JSON so the output is suitable for
+are removed from each source question so the output is suitable for
 post-reranking use without gold labels.
 """
 
@@ -24,7 +24,7 @@ PUBMED_URL_PREFIX = "http://www.ncbi.nlm.nih.gov/pubmed/"
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Build post-rerank JSON: top-k documents from rerank TSV attached to query JSON."
+        description="Build post-rerank JSONL: top-k documents from rerank TSV attached to query JSONL."
     )
     parser.add_argument(
         "--run-path",
@@ -33,16 +33,18 @@ def parse_args() -> argparse.Namespace:
         help="Path to rerank-hybrid TSV (columns: qid, docno, rank).",
     )
     parser.add_argument(
+        "--query-jsonl",
         "--query-json",
         type=Path,
         required=True,
-        help="Path to query JSON (e.g. clean/13B1_golden.json) with questions having id, body, type.",
+        dest="query_jsonl",
+        help="Path to query .jsonl (one question record per line). --query-json is deprecated.",
     )
     parser.add_argument(
         "--output-path",
         type=Path,
         required=True,
-        help="Path to output JSON (e.g. output/<workflow>/rerank/post_rerank_fusion/post_rerank_13B1_golden.json).",
+        help="Path to output .jsonl (e.g. post_rerank_13B1_golden.jsonl).",
     )
     parser.add_argument(
         "--top-k",
@@ -95,7 +97,6 @@ def load_rerank_topk_urls(run_path: Path, top_k: int) -> Dict[str, List[str]]:
 
 
 def main() -> int:
-    import sys
     _shared = Path(__file__).resolve().parents[1]
     if str(_shared) not in sys.path:
         sys.path.insert(0, str(_shared))
@@ -104,6 +105,8 @@ def main() -> int:
         configure_logging_from_env()
     except ImportError:
         pass
+    from retrieval_eval.common import iter_questions_jsonl, write_questions_jsonl
+
     args = parse_args()
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
@@ -113,35 +116,31 @@ def main() -> int:
     if not args.run_path.exists():
         logger.error("Rerank run file not found: %s", args.run_path)
         return 1
-    if not args.query_json.exists():
-        logger.error("Query JSON not found: %s", args.query_json)
+    if not args.query_jsonl.exists():
+        logger.error("Query JSONL not found: %s", args.query_jsonl)
+        return 1
+    if args.output_path.suffix.lower() != ".jsonl":
+        logger.error("--output-path must end with .jsonl, got %s", args.output_path)
         return 1
 
     logger.info("Reading rerank run: %s (top-k=%d)", args.run_path, args.top_k)
     qid_to_urls = load_rerank_topk_urls(args.run_path, args.top_k)
     logger.info("Queries in rerank: %d", len(qid_to_urls))
 
-    with open(args.query_json, "r") as f:
-        data = json.load(f)
-    questions = data.get("questions", [])
-    if not questions:
-        logger.error("No questions in query JSON")
-        return 1
-
     out_questions = []
-    for q in questions:
+    for q in iter_questions_jsonl(args.query_jsonl):
         qid = q.get("id")
         if qid is None:
             continue
-        # Copy question but drop oracle keys; then set documents from rerank or []
         new_q = {k: v for k, v in q.items() if k not in ORACLE_KEYS}
         new_q["documents"] = qid_to_urls.get(str(qid), [])
         out_questions.append(new_q)
 
-    args.output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(args.output_path, "w") as f:
-        json.dump({"questions": out_questions}, f, indent=2, ensure_ascii=False)
+    if not out_questions:
+        logger.error("No questions in query JSONL")
+        return 1
 
+    write_questions_jsonl(args.output_path, out_questions)
     logger.info("Wrote %d questions to %s", len(out_questions), args.output_path)
     return 0
 

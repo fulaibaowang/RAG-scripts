@@ -113,18 +113,22 @@ def parse_args() -> argparse.Namespace:
         help="JSONL corpus path or glob pattern (e.g. /pubmed/*.jsonl).",
     )
     inputs.add_argument(
+        "--train-jsonl",
         "--train-json",
         type=Path,
         default=None,
-        help="Training questions JSON (BioASQ format).",
+        dest="train_jsonl",
+        help="Training queries .jsonl.",
     )
     inputs.add_argument(
+        "--test-batch-jsonls",
         "--test-batch-jsons",
         "--test_batch_jsons",
         type=Path,
         nargs="*",
         default=None,
-        help="BioASQ test batch JSONs (queries + gold).",
+        dest="test_batch_jsonls",
+        help="Test batch .jsonl files (queries + gold).",
     )
     inputs.add_argument("--candidate-limit", type=int, default=2000, help="Stage-1 candidate cutoff per query.")
     inputs.add_argument("--max-queries", type=int, default=None, help="Max queries per split.")
@@ -631,7 +635,9 @@ def _llm_rerank_worker(
     if not run_maps:
         return
     topics_map: Dict[str, str] = {}
-    for json_path in [worker_args.get("train_json")] + list(worker_args.get("test_batch_jsons") or []):
+    _tj = worker_args.get("train_jsonl") or worker_args.get("train_json")
+    _tb = worker_args.get("test_batch_jsonls") or worker_args.get("test_batch_jsons") or []
+    for json_path in [_tj] + list(_tb):
         if not json_path or not Path(json_path).exists():
             continue
         questions = load_questions(Path(json_path))
@@ -706,8 +712,8 @@ def main() -> None:
 
     runs_dir = args.runs_dir
     docs_jsonl = Path(args.docs_jsonl)
-    train_json = args.train_json
-    test_batch_jsons = args.test_batch_jsons or []
+    train_json = args.train_jsonl
+    test_batch_jsons = args.test_batch_jsonls or []
     output_dir = args.output_dir
 
     output_cfg = _build_output_config(output_dir)
@@ -916,8 +922,8 @@ def main() -> None:
         "runs_dir": str(runs_dir),
         "run_files": [str(p) for p in run_files],
         "docs_jsonl": str(docs_jsonl),
-        "train_json": str(train_json) if train_json else "",
-        "test_batch_jsons": [str(p) for p in test_batch_jsons],
+        "train_jsonl": str(train_json) if train_json else "",
+        "test_batch_jsonls": [str(p) for p in test_batch_jsons],
         "ks_recall": list(ks_recall),
         "split_to_role": split_to_role_cfg,
         "split_to_label": split_to_label_cfg,

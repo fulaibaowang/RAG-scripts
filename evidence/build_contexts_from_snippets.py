@@ -32,6 +32,11 @@ from typing import Dict, List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
+_SHARED_SCRIPTS = Path(__file__).resolve().parents[1]
+if str(_SHARED_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(_SHARED_SCRIPTS))
+from retrieval_eval.common import iter_questions_jsonl, write_questions_jsonl
+
 PUBMED_URL_PATTERN = re.compile(r"pubmed/(\d+)/?$", re.I)
 # When ce_score ties, prefer lexicographically smaller query_field; missing sorts last.
 _QF_TIE_SENTINEL = "\uffff"
@@ -46,14 +51,16 @@ def _top_windows_int(value: str) -> int:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Build contexts from post-rerank JSON and snippet window JSONL "
+        description="Build contexts from post-rerank JSONL and snippet window JSONL "
         "(max-pool CE, top 1–2 distinct windows; second kept only if disjoint, then merge sentences).",
     )
     parser.add_argument(
+        "--post-rerank-jsonl",
         "--post-rerank-json",
         type=Path,
         required=True,
-        help="Path to post-rerank JSON (output of post_rerank_json.py).",
+        dest="post_rerank_jsonl",
+        help="Path to post-rerank .jsonl (output of post_rerank_json.py). --post-rerank-json is deprecated.",
     )
     parser.add_argument(
         "--snippet-windows-dir",
@@ -77,7 +84,7 @@ def parse_args() -> argparse.Namespace:
         "--output-path",
         type=Path,
         default=None,
-        help="Path to output contexts JSON (not used with --stats-only).",
+        help="Path to output contexts .jsonl (not used with --stats-only).",
     )
     parser.add_argument(
         "--window-size",
@@ -124,10 +131,8 @@ def pmid_from_url(url: str) -> Optional[str]:
 
 
 def load_post_rerank_questions(post_rerank_path: Path) -> Tuple[List[dict], Set[str]]:
-    """Load post-rerank JSON and return (questions list, set of all PMIDs in documents)."""
-    with open(post_rerank_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    questions = data.get("questions", [])
+    """Load post-rerank JSONL and return (questions list, set of all PMIDs in documents)."""
+    questions = list(iter_questions_jsonl(post_rerank_path))
     needed_pmids: Set[str] = set()
     for q in questions:
         for url in q.get("documents") or []:
@@ -516,8 +521,8 @@ def main() -> int:
             logger.error("Without --stats-only, --corpus-path and --output-path are required")
             return 1
 
-    if not args.post_rerank_json.exists():
-        logger.error("Post-rerank JSON not found: %s", args.post_rerank_json)
+    if not args.post_rerank_jsonl.exists():
+        logger.error("Post-rerank JSONL not found: %s", args.post_rerank_jsonl)
         return 1
 
     windows_path = args.snippet_windows_dir / f"{args.split_name}.jsonl"
@@ -525,8 +530,13 @@ def main() -> int:
         logger.error("Snippet windows JSONL not found: %s", windows_path)
         return 1
 
-    logger.info("Loading post-rerank JSON: %s", args.post_rerank_json)
-    questions, needed_pmids = load_post_rerank_questions(args.post_rerank_json)
+    if not args.stats_only and args.output_path is not None:
+        if args.output_path.suffix.lower() != ".jsonl":
+            logger.error("--output-path must end with .jsonl, got %s", args.output_path)
+            return 1
+
+    logger.info("Loading post-rerank JSONL: %s", args.post_rerank_jsonl)
+    questions, needed_pmids = load_post_rerank_questions(args.post_rerank_jsonl)
     logger.info("Questions: %d, unique PMIDs: %d", len(questions), len(needed_pmids))
 
     logger.info("Loading snippet windows (max-pool + top-%d): %s", args.top_windows, windows_path)
@@ -626,8 +636,7 @@ def main() -> int:
         out_q["contexts"] = contexts
         out_questions.append(out_q)
 
-    with open(args.output_path, "w", encoding="utf-8") as f:
-        json.dump({"questions": out_questions}, f, ensure_ascii=False, indent=2)
+    write_questions_jsonl(args.output_path, out_questions)
 
     if missing_total:
         logger.warning("PMIDs missing from corpus: %d", missing_total)

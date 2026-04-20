@@ -11,7 +11,7 @@
 #   ./run_listwise_rerank.sh -c <path/to/config.env>
 #
 # Required config variables: WORKFLOW_OUTPUT_DIR
-# Optional:  TRAIN_JSON, TEST_BATCH_JSONS, LISTWISE_* (see workflow_config_full.env)
+# Optional: INPUT_JSONL / INPUT_BATCH_JSONLS (or legacy TRAIN_JSON / TEST_BATCH_JSONS; .jsonl only), LISTWISE_* (see workflow_config_full.env)
 #
 set -e
 
@@ -64,6 +64,23 @@ if [ -z "${WORKFLOW_OUTPUT_DIR:-}" ]; then
   echo "Error: WORKFLOW_OUTPUT_DIR is required (set in config or env)." >&2
   exit 1
 fi
+
+_legacy_train_var=TRAIN_JSON
+_legacy_batch_var=TEST_BATCH_JSONS
+[ -z "${INPUT_JSONL:-}" ] && [ -n "${!_legacy_train_var:-}" ] && INPUT_JSONL="${!_legacy_train_var}"
+[ -z "${INPUT_BATCH_JSONLS:-}" ] && [ -n "${!_legacy_batch_var:-}" ] && INPUT_BATCH_JSONLS="${!_legacy_batch_var}"
+case "${INPUT_JSONL:-}" in
+  "") ;;
+  *.jsonl) ;;
+  *) echo "Error: INPUT_JSONL must end with .jsonl or be empty: ${INPUT_JSONL}" >&2; exit 1 ;;
+esac
+for _pq in ${INPUT_BATCH_JSONLS:-}; do
+  [ -z "$_pq" ] && continue
+  case "$_pq" in
+    *.jsonl) ;;
+    *) echo "Error: INPUT_BATCH_JSONLS entries must be .jsonl: $_pq" >&2; exit 1 ;;
+  esac
+done
 
 SNIPPET_DOC_FUSION_RUNS="${WORKFLOW_OUTPUT_DIR}/snippet/snippet_doc_fusion/runs"
 SNIPPET_WINDOWS="${WORKFLOW_OUTPUT_DIR}/snippet/snippet_rerank/windows"
@@ -156,8 +173,8 @@ cat > "$LISTWISE_OUTPUT_DIR/config.json" <<CONFIGEOF
     "fuse_sliding": $LISTWISE_FUSE_SLIDING
   },
   "query_sources": {
-    "train_json": "${TRAIN_JSON:-null}",
-    "test_batch_jsons": "${TEST_BATCH_JSONS:-null}"
+    "train_jsonl": "${INPUT_JSONL:-null}",
+    "test_batch_jsonls": "${INPUT_BATCH_JSONLS:-null}"
   }
 }
 CONFIGEOF
@@ -204,14 +221,14 @@ else
     --query-field "$LISTWISE_QUERY_FIELD"
   )
 
-  [ -n "${TRAIN_JSON:-}" ] && [ -f "$TRAIN_JSON" ] && LISTWISE_ARGS+=(--train-json "$TRAIN_JSON")
-  if [ -n "${TEST_BATCH_JSONS:-}" ]; then
+  [ -n "${INPUT_JSONL:-}" ] && [ -f "$INPUT_JSONL" ] && LISTWISE_ARGS+=(--train-jsonl "$INPUT_JSONL")
+  if [ -n "${INPUT_BATCH_JSONLS:-}" ]; then
     _TEST_PATHS=()
-    for _p in $TEST_BATCH_JSONS; do
+    for _p in $INPUT_BATCH_JSONLS; do
       [ -f "$_p" ] && _TEST_PATHS+=("$_p")
     done
     if [ ${#_TEST_PATHS[@]} -gt 0 ]; then
-      LISTWISE_ARGS+=(--test-batch-jsons "${_TEST_PATHS[@]}")
+      LISTWISE_ARGS+=(--test-batch-jsonls "${_TEST_PATHS[@]}")
     fi
   fi
   [ "$LISTWISE_DISABLE_METRICS" = "1" ] && LISTWISE_ARGS+=(--disable-metrics)
@@ -244,14 +261,14 @@ _build_fusion_args() {
     --w-snippet-rrf "$LISTWISE_FUSION_W_SNIPPET"
     --w-listwise "$LISTWISE_FUSION_W_LISTWISE"
   )
-  [ -n "${TRAIN_JSON:-}" ] && [ -f "$TRAIN_JSON" ] && _FUSION_ARGS+=(--train-json "$TRAIN_JSON")
-  if [ -n "${TEST_BATCH_JSONS:-}" ]; then
+  [ -n "${INPUT_JSONL:-}" ] && [ -f "$INPUT_JSONL" ] && _FUSION_ARGS+=(--train-jsonl "$INPUT_JSONL")
+  if [ -n "${INPUT_BATCH_JSONLS:-}" ]; then
     local _TEST_PATHS=()
-    for _p in $TEST_BATCH_JSONS; do
+    for _p in $INPUT_BATCH_JSONLS; do
       [ -f "$_p" ] && _TEST_PATHS+=("$_p")
     done
     if [ ${#_TEST_PATHS[@]} -gt 0 ]; then
-      _FUSION_ARGS+=(--test-batch-jsons "${_TEST_PATHS[@]}")
+      _FUSION_ARGS+=(--test-batch-jsonls "${_TEST_PATHS[@]}")
     fi
   fi
   [ "$LISTWISE_DISABLE_METRICS" = "1" ] && _FUSION_ARGS+=(--disable-metrics)

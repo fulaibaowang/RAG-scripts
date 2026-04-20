@@ -32,8 +32,9 @@ python low_recall_report.py --output-dir bioasq14_output/batch_1 -q
 #
 #   {"by_run_file": {"dense_13b.tsv": "example/a.json"}, "default": "example/b.json"}
 #
-# Or set TEST_BATCH_JSONS in config*.env; any run filename containing a batch
-# file's stem (e.g. ``13b_golden_50q_sample``) uses that JSON before the default.
+# Or set INPUT_BATCH_JSONLS (or legacy TEST_BATCH_JSONS) in config*.env; any run
+# filename containing a batch file's stem (e.g. ``13b_golden_50q_sample``) uses that
+# JSONL before the default.
 """
 from __future__ import annotations
 
@@ -117,7 +118,7 @@ def _find_pipeline_config_env(output_dir: Path) -> Optional[Path]:
 
     Prefer ``config.env`` (batch default). Otherwise use any ``config*.env``
     (e.g. ``config_14b.env``) so ad-hoc or copied output trees still resolve
-    ``TRAIN_JSON`` without ``--ground-truth``.
+    ``INPUT_JSONL`` (or legacy ``TRAIN_JSON``) without ``--ground-truth``.
     """
     preferred = output_dir / "config.env"
     if preferred.is_file():
@@ -132,7 +133,7 @@ def _find_pipeline_config_env(output_dir: Path) -> Optional[Path]:
     for p in candidates:
         try:
             env = _parse_config_env(p)
-            if env.get("TRAIN_JSON"):
+            if env.get("INPUT_JSONL") or env.get("TRAIN_JSON"):
                 return p
         except OSError:
             continue
@@ -167,10 +168,10 @@ def _resolve_ground_truth(
         )
 
     env = _parse_config_env(config_path)
-    train_json_raw = env.get("TRAIN_JSON")
+    train_json_raw = env.get("INPUT_JSONL") or env.get("TRAIN_JSON")
     if not train_json_raw:
         raise KeyError(
-            f"TRAIN_JSON not found in {config_path.name}; pass --ground-truth explicitly"
+            f"INPUT_JSONL (or legacy TRAIN_JSON) not found in {config_path.name}; pass --ground-truth explicitly"
         )
 
     env["REPO_ROOT"] = str(repo_root)
@@ -180,7 +181,7 @@ def _resolve_ground_truth(
 
     raise FileNotFoundError(
         f"Resolved ground-truth path does not exist: {resolved}\n"
-        f"  (from TRAIN_JSON={train_json_raw!r}, REPO_ROOT={repo_root})\n"
+        f"  (from INPUT_JSONL/TRAIN_JSON={train_json_raw!r}, REPO_ROOT={repo_root})\n"
         "  Pass --ground-truth or --repo-root to override."
     )
 
@@ -205,7 +206,7 @@ def _parse_test_batch_jsons(
     env: Dict[str, str],
     repo_root: Path,
 ) -> List[Path]:
-    """Paths from TEST_BATCH_JSONS that exist (shell-tokenized)."""
+    """Paths from INPUT_BATCH_JSONLS or TEST_BATCH_JSONS that exist (shell-tokenized)."""
     if not (raw or "").strip():
         return []
     out: List[Path] = []
@@ -258,14 +259,13 @@ def _pick_ground_truth_for_run(
             if p.is_file():
                 return p, "ground-truth map default"
 
-    batches = _parse_test_batch_jsons(
-        config_env.get("TEST_BATCH_JSONS", ""), config_env, repo_root
-    )
+    batch_raw = config_env.get("INPUT_BATCH_JSONLS") or config_env.get("TEST_BATCH_JSONS", "")
+    batches = _parse_test_batch_jsons(batch_raw, config_env, repo_root)
     for bp in batches:
         if bp.stem in run_filename:
-            return bp, f"TEST_BATCH_JSONS → {bp.name}"
+            return bp, f"INPUT_BATCH_JSONLS/TEST_BATCH_JSONS → {bp.name}"
 
-    return default_gt, "default (TRAIN_JSON or --ground-truth)"
+    return default_gt, "default (INPUT_JSONL / TRAIN_JSON or --ground-truth)"
 
 # ---------------------------------------------------------------------------
 # Per-query recall loading
@@ -550,7 +550,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     )
     ap.add_argument(
         "--ground-truth", default=None,
-        help="Default ground-truth JSON; per-run overrides via map file or TEST_BATCH_JSONS",
+        help="Default ground-truth .jsonl; per-run overrides via map file or INPUT_BATCH_JSONLS",
     )
     ap.add_argument(
         "--ground-truth-map", default=None, type=Path,
@@ -572,7 +572,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     )
     ap.add_argument(
         "--repo-root", default=None,
-        help="Override $REPO_ROOT when resolving TRAIN_JSON from pipeline config.env",
+        help="Override $REPO_ROOT when resolving INPUT_JSONL from pipeline config.env",
     )
     ap.add_argument(
         "--no-titles", action="store_true",
@@ -600,7 +600,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         print(f"  Mode       : {mode}")
         print()
 
-    # 1. Default ground truth + env (for TEST_BATCH_JSONS and map substitution)
+    # 1. Default ground truth + env (for INPUT_BATCH_JSONLS / TEST_BATCH_JSONS and map substitution)
     default_gt, cfg_env, config_env = _resolve_ground_truth(
         output_dir, args.ground_truth, args.repo_root
     )
@@ -623,11 +623,13 @@ def main(argv: Optional[List[str]] = None) -> None:
     if not quiet:
         print(f"Default ground truth : {default_gt}")
         if cfg_env is not None and cfg_env.name != "config.env":
-            print(f"  (TRAIN_JSON from {cfg_env.name})")
+            print(f"  (INPUT_JSONL / TRAIN_JSON from {cfg_env.name})")
         if map_path_used is not None:
             print(f"  Ground-truth map    : {map_path_used.name}")
-        elif not args.no_ground_truth_map and config_env.get("TEST_BATCH_JSONS"):
-            print("  Per-run override   : TEST_BATCH_JSONS stem ⊆ run filename")
+        elif not args.no_ground_truth_map and (
+            config_env.get("INPUT_BATCH_JSONLS") or config_env.get("TEST_BATCH_JSONS")
+        ):
+            print("  Per-run override   : INPUT_BATCH_JSONLS (or TEST_BATCH_JSONS) stem ⊆ run filename")
         print()
 
     gt_bundle_cache: Dict[Path, Tuple[Dict[str, List[str]], Dict[str, dict]]] = {}
@@ -665,7 +667,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         if not quiet:
             print(f"--- Recall source {si + 1}/{len(sources)}: {run_key} ---")
             print(f"  Ground truth file : {gt_path} ({gt_reason})")
-            print(f"  {len(gold_map)} qids with gold in this JSON")
+            print(f"  {len(gold_map)} qids with gold in this file")
             if kind == "per_query":
                 print("  Loading per-query CSV…")
             else:
@@ -676,7 +678,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         if not recall_map:
             if not quiet:
                 print(
-                    "  Warning: no overlapping qids with gold (wrong TRAIN_JSON / run pair?)"
+                    "  Warning: no overlapping qids with gold (wrong INPUT_JSONL / run pair?)"
                 )
                 print()
             continue

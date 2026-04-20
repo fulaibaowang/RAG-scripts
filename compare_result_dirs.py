@@ -4,7 +4,7 @@ Compare metrics and optionally plot recall and/or MAP curves across two or more
 result directories (e.g. rerank vs rerank_sentence, or hybrid vs rerank).
 - Dirs with metrics.csv are used as-is.
 - Dirs with only runs/*.tsv (e.g. hybrid output) are supported: provide
-  --train-json and/or --test-batch-jsons so metrics are computed from runs.
+  --train-jsonl and/or --test-batch-jsonls so metrics are computed from runs.
 For MAP@k curve, runs/*.tsv and gold are required.
 
 Example (stage 2 vs stage 3 sentence, with MAP curve 10–200):
@@ -13,8 +13,8 @@ Example (stage 2 vs stage 3 sentence, with MAP curve 10–200):
     --labels "Stage 2" "Stage 3 sentence" \\
     --plot both \\
     --map-ks 10,20,50,100,200 \\
-    --train-json example/training14b_3pct_sample.json \\
-    --test-batch-jsons example/13b_golden_50q_sample.json \\
+    --train-jsonl example/training14b_3pct_sample.jsonl \\
+    --test-batch-jsonls example/13b_golden_50q_sample.jsonl \\
     --output-dir output/workflow_local_3pct_hpc_bge/compare_plots
 """
 from __future__ import annotations
@@ -219,7 +219,7 @@ def load_metrics_from_dirs(
             if not gold_map:
                 raise ValueError(
                     f"Dir {d} has no metrics.csv but has runs/*.tsv. "
-                    "Provide --train-json and/or --test-batch-jsons to compute metrics from runs."
+                    "Provide --train-jsonl and/or --test-batch-jsonls to compute metrics from runs."
                 )
             df = _metrics_from_runs_dir(
                 runs_dir, gold_map, ks_recall, result_dir=str(d), dir_label=label,
@@ -344,23 +344,32 @@ def parse_args() -> argparse.Namespace:
         description="Compare result dirs: plot recall and/or MAP@k curves.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("--dirs", type=Path, nargs="+", required=True, help="Result dirs: each with metrics.csv, or with runs/*.tsv only (e.g. hybrid; then provide --train-json/--test-batch-jsons).")
+    parser.add_argument("--dirs", type=Path, nargs="+", required=True, help="Result dirs: each with metrics.csv, or with runs/*.tsv only (e.g. hybrid; then provide --train-jsonl/--test-batch-jsonls).")
     parser.add_argument("--labels", type=str, nargs="*", default=None, help="Display labels for each dir (same order as --dirs). Default: dir name.")
     parser.add_argument("--plot", type=str, choices=("recall", "map", "both"), default="both", help="What to plot.")
     parser.add_argument("--output-dir", type=Path, default=None, help="Where to save figures. Default: first --dirs parent.")
     parser.add_argument("--map-ks", type=str, default="10,20,50,100,200", help="Comma-separated K values for MAP curve.")
     parser.add_argument("--recall-k-max", type=int, default=None, help="Max K for recall curve (default: use all in metrics).")
     parser.add_argument("--ks-recall", type=str, default="", help="Comma-separated K for MeanR@k when building metrics from runs (e.g. hybrid). Default: 50,100,200,...,5000.")
-    parser.add_argument("--train-json", type=Path, default=None, help="Training questions JSON (for gold; required for MAP curve and for dirs that only have runs/).")
     parser.add_argument(
+        "--train-jsonl",
+        "--train-json",
+        type=Path,
+        default=None,
+        dest="train_jsonl",
+        help="Training queries .jsonl (for gold; required for MAP curve and for dirs that only have runs/).",
+    )
+    parser.add_argument(
+        "--test-batch-jsonls",
         "--test-batch-jsons",
         "--test_batch_jsons",
         type=Path,
         nargs="*",
         default=None,
-        help="Test batch JSONs (for gold, needed for MAP curve). Supports both --test-batch-jsons and --test_batch_jsons.",
+        dest="test_batch_jsonls",
+        help="Test batch .jsonl (for gold, needed for MAP curve).",
     )
-    parser.add_argument("--query-field", type=str, default="body", help="Query field in question JSONs.")
+    parser.add_argument("--query-field", type=str, default="body", help="Query field in normalized question dicts (from .jsonl).")
     parser.add_argument("--log-x", action="store_true", help="Use log scale for x-axis (K) in recall and MAP curves.")
     parser.add_argument("--plots-by-split", action="store_true", help="Output one recall and one MAP plot per split (train/test); uses 'role' from metrics, or 'label' if role missing.")
     parser.add_argument("--force-from-runs", action="store_true", help="Recompute metrics from runs/*.tsv even when metrics.csv exists. Useful when --ks-recall differs from the K values in metrics.csv.")
@@ -395,15 +404,15 @@ def main() -> None:
     gold_map: Dict[str, List[str]] = {}
     ks_recall = _parse_ks_recall(args.ks_recall)
     if need_gold or args.plot in ("map", "both"):
-        if not args.train_json and not args.test_batch_jsons:
+        if not args.train_jsonl and not args.test_batch_jsonls:
             if need_gold:
-                raise ValueError("Some dirs have only runs/ (e.g. hybrid). Provide --train-json and/or --test-batch-jsons to compute metrics.")
-            raise ValueError("For MAP curve provide --train-json and/or --test-batch-jsons to build gold.")
-        if args.train_json and args.train_json.exists():
-            questions = load_questions(args.train_json)
+                raise ValueError("Some dirs have only runs/ (e.g. hybrid). Provide --train-jsonl and/or --test-batch-jsonls to compute metrics.")
+            raise ValueError("For MAP curve provide --train-jsonl and/or --test-batch-jsonls to build gold.")
+        if args.train_jsonl and args.train_jsonl.exists():
+            questions = load_questions(args.train_jsonl)
             _, g = build_topics_and_gold(questions, query_field=args.query_field)
             gold_map.update(g)
-        for p in args.test_batch_jsons or []:
+        for p in args.test_batch_jsonls or []:
             if Path(p).exists():
                 questions = load_questions(Path(p))
                 _, g = build_topics_and_gold(questions, query_field=args.query_field)
@@ -414,10 +423,10 @@ def main() -> None:
     # Batch stems from JSON paths: used to infer role (train/test) when building metrics from runs/
     train_batch_stems: Tuple[str, ...] = ()
     test_batch_stems: Tuple[str, ...] = ()
-    if args.train_json and args.train_json.exists():
-        train_batch_stems = (args.train_json.stem,)
-    if args.test_batch_jsons:
-        test_batch_stems = tuple(Path(p).stem for p in args.test_batch_jsons if Path(p).exists())
+    if args.train_jsonl and args.train_jsonl.exists():
+        train_batch_stems = (args.train_jsonl.stem,)
+    if args.test_batch_jsonls:
+        test_batch_stems = tuple(Path(p).stem for p in args.test_batch_jsonls if Path(p).exists())
 
     combined, dir_labels = load_metrics_from_dirs(
         dirs, args.labels,
@@ -482,7 +491,7 @@ def main() -> None:
         if not map_ks:
             map_ks = [10, 20, 50, 100, 200]
         if not gold_map:
-            raise ValueError("For MAP curve provide --train-json and/or --test-batch-jsons to build gold.")
+            raise ValueError("For MAP curve provide --train-jsonl and/or --test-batch-jsonls to build gold.")
 
         map_by_run: Dict[Tuple[str, str], Dict[int, float]] = {}
         for _, row in combined.iterrows():

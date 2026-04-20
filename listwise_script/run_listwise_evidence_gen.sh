@@ -12,7 +12,8 @@
 #   ./run_listwise_evidence_gen.sh --config <path/to/config.env>
 #
 # Required config variables: WORKFLOW_OUTPUT_DIR, DOCS_JSONL
-# Optional: TRAIN_JSON, TEST_BATCH_JSONS, EVIDENCE_TOP_K (post_rerank top-k; default 10), GENERATION_*
+# Optional: INPUT_JSONL / INPUT_BATCH_JSONLS (or legacy TRAIN_JSON / TEST_BATCH_JSONS; paths .jsonl only),
+# EVIDENCE_TOP_K (post_rerank top-k; default 10), GENERATION_*
 #
 set -e
 
@@ -78,6 +79,30 @@ if [ "$_DOCS_JSONL_OK" = "0" ]; then
   exit 1
 fi
 
+_legacy_train_var=TRAIN_JSON
+_legacy_batch_var=TEST_BATCH_JSONS
+[ -z "${INPUT_JSONL:-}" ] && [ -n "${!_legacy_train_var:-}" ] && INPUT_JSONL="${!_legacy_train_var}"
+[ -z "${INPUT_BATCH_JSONLS:-}" ] && [ -n "${!_legacy_batch_var:-}" ] && INPUT_BATCH_JSONLS="${!_legacy_batch_var}"
+_have_pq=0
+[ -n "${INPUT_JSONL:-}" ] && _have_pq=1
+[ -n "${INPUT_BATCH_JSONLS:-}" ] && _have_pq=1
+if [ "$_have_pq" != "1" ]; then
+  echo "Error: set INPUT_JSONL and/or INPUT_BATCH_JSONLS (non-empty), or legacy TRAIN_JSON / TEST_BATCH_JSONS." >&2
+  exit 1
+fi
+case "${INPUT_JSONL:-}" in
+  "") ;;
+  *.jsonl) ;;
+  *) echo "Error: INPUT_JSONL must end with .jsonl or be empty: ${INPUT_JSONL}" >&2; exit 1 ;;
+esac
+for _pq in ${INPUT_BATCH_JSONLS:-}; do
+  [ -z "$_pq" ] && continue
+  case "$_pq" in
+    *.jsonl) ;;
+    *) echo "Error: INPUT_BATCH_JSONLS entries must be .jsonl: $_pq" >&2; exit 1 ;;
+  esac
+done
+
 LISTWISE_OUTPUT_DIR="${LISTWISE_OUTPUT_DIR:-${WORKFLOW_OUTPUT_DIR}/listwise_rerank}"
 SNIPPET_WINDOWS="${WORKFLOW_OUTPUT_DIR}/snippet/snippet_rerank/windows"
 RUN_GENERATION_LISTWISE="${RUN_GENERATION_LISTWISE:-1}"
@@ -116,15 +141,15 @@ STEP_START=$(date +%s)
 # ---------------------------------------------------------------------------
 # Helper: resolve query JSON for a split
 # ---------------------------------------------------------------------------
-_resolve_query_json() {
+_resolve_query_jsonl() {
   local _split="$1"
-  if [ -f "${TRAIN_JSON:-}" ] && [ "$(basename "$TRAIN_JSON" .json)" = "$_split" ]; then
-    echo "$TRAIN_JSON"
+  if [ -f "${INPUT_JSONL:-}" ] && [ "$(basename "$INPUT_JSONL" .jsonl)" = "$_split" ]; then
+    echo "$INPUT_JSONL"
     return
   fi
-  for _p in ${TEST_BATCH_JSONS:-}; do
+  for _p in ${INPUT_BATCH_JSONLS:-}; do
     [ -f "$_p" ] || continue
-    [ "$(basename "$_p" .json)" = "$_split" ] || continue
+    [ "$(basename "$_p" .jsonl)" = "$_split" ] || continue
     echo "$_p"
     return
   done
@@ -161,32 +186,32 @@ _process_route() {
     _split=$(basename "$_tsv" .tsv)
     [ -n "$_split" ] || continue
 
-    _query_json=$(_resolve_query_json "$_split")
-    if [ -z "$_query_json" ]; then
-      echo "[listwise-evgen] Skip $_split: no matching query JSON"
+    _query_jsonl=$(_resolve_query_jsonl "$_split")
+    if [ -z "$_query_jsonl" ]; then
+      echo "[listwise-evgen] Skip $_split: no matching INPUT_JSONL or INPUT_BATCH_JSONLS (basename without .jsonl)"
       continue
     fi
 
-    # -- Post-rerank JSON --
-    _post_json="${_post_dir}/post_rerank_${_split}.json"
+    # -- Post-rerank JSONL --
+    _post_json="${_post_dir}/post_rerank_${_split}.jsonl"
     if [ ! -f "$_post_json" ]; then
-      echo "[listwise-evgen] Post-rerank JSON ($_split)..."
+      echo "[listwise-evgen] Post-rerank JSONL ($_split)..."
       python "$SCRIPT_DIR/evidence/post_rerank_json.py" \
         --run-path "$_tsv" \
-        --query-json "$_query_json" \
+        --query-jsonl "$_query_jsonl" \
         --output-path "$_post_json" \
         --top-k "${EVIDENCE_TOP_K:-10}"
     else
-      echo "[listwise-evgen] Post-rerank JSON ($_split)... (skip: exists)"
+      echo "[listwise-evgen] Post-rerank JSONL ($_split)... (skip: exists)"
     fi
 
     # -- Contexts from snippets --
-    _ctx_json="$WORKFLOW_OUTPUT_DIR/$_evidence_subdir/${_split}_contexts.json"
+    _ctx_json="$WORKFLOW_OUTPUT_DIR/$_evidence_subdir/${_split}_contexts.jsonl"
     if [ ! -f "$_ctx_json" ]; then
       if [ -d "$SNIPPET_WINDOWS" ]; then
         echo "[listwise-evgen] Contexts from snippets ($_split)..."
         python "$SCRIPT_DIR/evidence/build_contexts_from_snippets.py" \
-          --post-rerank-json "$_post_json" \
+          --post-rerank-jsonl "$_post_json" \
           --snippet-windows-dir "$SNIPPET_WINDOWS" \
           --split-name "$_split" \
           --corpus-path "$DOCS_JSONL" \
@@ -196,7 +221,7 @@ _process_route() {
       else
         echo "[listwise-evgen] Contexts from documents ($_split)..."
         python "$SCRIPT_DIR/evidence/build_contexts_from_documents.py" \
-          --post-rerank-json "$_post_json" \
+          --post-rerank-jsonl "$_post_json" \
           --corpus-path "$DOCS_JSONL" \
           --output-path "$_ctx_json"
       fi
@@ -217,8 +242,8 @@ _process_route() {
     _split=$(basename "$_tsv" .tsv)
     [ -n "$_split" ] || continue
 
-    _ctx_json="$WORKFLOW_OUTPUT_DIR/$_evidence_subdir/${_split}_contexts.json"
-    _gen_json="$WORKFLOW_OUTPUT_DIR/$_gen_subdir/${_split}_answers.json"
+    _ctx_json="$WORKFLOW_OUTPUT_DIR/$_evidence_subdir/${_split}_contexts.jsonl"
+    _gen_json="$WORKFLOW_OUTPUT_DIR/$_gen_subdir/${_split}_answers.jsonl"
 
     if [ -f "$_gen_json" ]; then
       echo "[listwise-evgen] Generation $_split... (skip: exists)"

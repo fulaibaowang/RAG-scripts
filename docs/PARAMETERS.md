@@ -2,6 +2,17 @@
 
 Pipeline config (env vars and script mapping): [scripts/public/README.md](../README.md).
 
+## Query inputs (JSONL)
+
+The shared pipeline reads **query streams only from `.jsonl`** (one JSON object per line, with optional `query_id` / `query_text` / `query_type` plus a lossless `bioasq` blob). Set **at least one** of:
+
+| Variable | Role |
+|----------|------|
+| `INPUT_JSONL` | Primary query file (optional if all splits are listed in batches) |
+| `INPUT_BATCH_JSONLS` | Space-separated list of additional query `.jsonl` files |
+
+Legacy names `TRAIN_JSON` / `TEST_BATCH_JSONS` are still accepted by the shell driver only if they point to `.jsonl` paths (they populate the variables above). Wrapped BioASQ `{"questions":[...]}` **`.json`** must be converted first, e.g. `python3 scripts/public/format/bioasq_json_to_queries_jsonl.py --input task.json --output queries.jsonl`.
+
 ## Recommended Operating Ranges
 
 | Parameter | Suggested Range | Default | Constraint |

@@ -9,8 +9,8 @@ every dir). For each filename, fuses ranked lists using:
 
 Weights default to 1/N when --weights is omitted. Tie-break: lexicographic docno.
 
-After fusion, optionally evaluates fused runs against gold (--train-json /
---test-batch-jsons) and produces metrics.csv + recall/MAP plots.
+After fusion, optionally evaluates fused runs against gold (--train-jsonl /
+--test-batch-jsonls) and produces metrics.csv + recall/MAP plots.
 """
 
 from __future__ import annotations
@@ -455,10 +455,25 @@ def main() -> None:
         default=None,
         help="Max documents per query in fused output (default: no limit).",
     )
-    # Eval arguments (all optional; when --train-json or --test-batch-jsons are
+    # Eval arguments (all optional; when --train-jsonl or --test-batch-jsonls are
     # given, evaluation is performed on fused runs)
-    ap.add_argument("--train-json", type=Path, default=None, help="Training questions JSON (for eval).")
-    ap.add_argument("--test-batch-jsons", type=Path, nargs="*", default=None, help="Test batch JSONs (for eval).")
+    ap.add_argument(
+        "--train-jsonl",
+        "--train-json",
+        type=Path,
+        default=None,
+        dest="train_jsonl",
+        help="Training queries .jsonl (for eval).",
+    )
+    ap.add_argument(
+        "--test-batch-jsonls",
+        "--test-batch-jsons",
+        type=Path,
+        nargs="*",
+        default=None,
+        dest="test_batch_jsonls",
+        help="Test batch .jsonl files (for eval).",
+    )
     ap.add_argument("--ks", type=str, default="", help="Comma-separated K for recall metrics (default: 50..5000).")
     ap.add_argument("--map-ks", type=str, default="10,20,50,100,200", help="Comma-separated K for MAP curves.")
     ap.add_argument("--no-eval", action="store_true", help="Skip evaluation even when gold JSONs are provided.")
@@ -532,9 +547,9 @@ def main() -> None:
         print(f"[multi_query_fuse] wrote {out_path} ({len(fused)} rows)")
 
     # Eval + plots when gold is available
-    has_gold = (args.train_json or args.test_batch_jsons) and not args.no_eval
+    has_gold = (args.train_jsonl or args.test_batch_jsonls) and not args.no_eval
     if has_gold:
-        gold_map, train_stems, test_stems = _load_gold(args.train_json, args.test_batch_jsons or [])
+        gold_map, train_stems, test_stems = _load_gold(args.train_jsonl, args.test_batch_jsonls or [])
         if gold_map:
             ks_raw = args.ks.strip()
             ks_recall = tuple(int(x) for x in ks_raw.split(",") if x.strip()) if ks_raw else RECALL_KS

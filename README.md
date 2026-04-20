@@ -23,7 +23,7 @@ Run the pipeline via the workflow script and a config env. It supports:
      bash -lc './scripts/public/shared_scripts/run_retrieval_rerank_pipeline.sh \
        --config scripts/public/shared_scripts/workflow_config_baseline.env'
    ```
-   Copy `workflow_config_baseline.env` to a private file, set `WORKFLOW_OUTPUT_DIR`, `TRAIN_JSON`, `BM25_INDEX_PATH`, `DENSE_INDEX_DIR`, and (for rerank+) `DOCS_JSONL`. Use `HAVE_GROUND_TRUTH=0` when you have no qrels.
+   Copy `workflow_config_baseline.env` to a private file, set `WORKFLOW_OUTPUT_DIR`, `INPUT_JSONL` and/or `INPUT_BATCH_JSONLS` (`.jsonl` query files; adapt-in from BioASQ JSON with `scripts/public/format/bioasq_json_to_queries_jsonl.py`), `BM25_INDEX_PATH`, `DENSE_INDEX_DIR`, and (for rerank+) `DOCS_JSONL`. Use `HAVE_GROUND_TRUTH=0` when you have no qrels.
 
 **Local venv (optional)** — Python deps for the main image live at repo root: [requirements-docker-pytorch.txt](../../../requirements-docker-pytorch.txt) (PyTorch only; CUDA wheel index) and [requirements-docker.txt](../../../requirements-docker.txt) (everything else). Install a **matching** `torch` for your OS/GPU from [pytorch.org](https://pytorch.org), activate your venv (e.g. `source /path/to/.venv/bin/activate`), then from repo root `pip install -r requirements-docker.txt`. You still need **Java** and OS libraries the Dockerfile installs.
 
@@ -38,8 +38,8 @@ Required and common env (set by sourcing a config):
 | Env var | Description | Example |
 |---------|-------------|---------|
 | `WORKFLOW_OUTPUT_DIR` | Base output path for all stages | `output/workflow_run` |
-| `TRAIN_JSON` | Path to dev question sets JSON | `example/training14b_10pct_sample.json` |
-| `TEST_BATCH_JSONS` | Space-separated paths to test batch JSONs | `bioasq/13B1_golden.json` |
+| `INPUT_JSONL` | Primary query stream (optional if batches cover all splits) | `example/training14b_10pct_sample.jsonl` |
+| `INPUT_BATCH_JSONLS` | Space-separated extra query `.jsonl` files | `bioasq/13B1_golden.jsonl` |
 | `TOP_K` | Retrieval depth for all stages (default 5000) | `1000` or `5000` |
 | `RECALL_KS` | Comma-separated K values for recall metrics | `50,100,200,300,400,500` |
 | `BM25_INDEX_PATH` | Terrier index directory | Path to index |

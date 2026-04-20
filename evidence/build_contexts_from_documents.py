@@ -5,7 +5,7 @@ Build contexts (title + abstract) from post-rerank JSON and literature corpus.
 Reads the JSON produced by post_rerank_json.py (questions with body, type, id,
 documents), looks up title and abstract for each document PMID from a PubMed
 JSONL corpus, appends a "contexts" field to each question, and writes a single
-JSON file {"questions": [...]} with the full question objects preserved.
+JSONL file (one question object per line) with the full question objects preserved.
 """
 
 import argparse
@@ -20,18 +20,25 @@ from typing import Dict, List, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
+_SHARED_SCRIPTS = Path(__file__).resolve().parents[1]
+if str(_SHARED_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(_SHARED_SCRIPTS))
+from retrieval_eval.common import iter_questions_jsonl, write_questions_jsonl
+
 PUBMED_URL_PATTERN = re.compile(r"pubmed/(\d+)/?$", re.I)
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Build contexts from post-rerank JSON and literature corpus."
+        description="Build contexts from post-rerank JSONL and literature corpus."
     )
     parser.add_argument(
+        "--post-rerank-jsonl",
         "--post-rerank-json",
         type=Path,
         required=True,
-        help="Path to post-rerank JSON (output of post_rerank_json.py).",
+        dest="post_rerank_jsonl",
+        help="Path to post-rerank .jsonl (output of post_rerank_json.py).",
     )
     parser.add_argument(
         "--corpus-path",
@@ -43,7 +50,7 @@ def parse_args() -> argparse.Namespace:
         "--output-path",
         type=Path,
         required=True,
-        help="Path to output JSON (e.g. output/<workflow>/evidence/..._contexts.json).",
+        help="Path to output .jsonl (e.g. output/<workflow>/evidence/..._contexts.jsonl).",
     )
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose logging.")
     return parser.parse_args()
@@ -58,12 +65,8 @@ def pmid_from_url(url: str):
 
 
 def load_post_rerank_questions(post_rerank_path: Path) -> Tuple[List[dict], Set[str]]:
-    """
-    Load post-rerank JSON and return (questions list, set of all PMIDs in documents).
-    """
-    with open(post_rerank_path, "r") as f:
-        data = json.load(f)
-    questions = data.get("questions", [])
+    """Load post-rerank JSONL and return (questions list, set of all PMIDs in documents)."""
+    questions = list(iter_questions_jsonl(post_rerank_path))
     needed_pmids: Set[str] = set()
     for q in questions:
         for url in q.get("documents") or []:
@@ -190,12 +193,16 @@ def main() -> int:
         format="%(levelname)s: %(message)s",
     )
 
-    if not args.post_rerank_json.exists():
-        logger.error("Post-rerank JSON not found: %s", args.post_rerank_json)
+    if args.output_path.suffix.lower() != ".jsonl":
+        logger.error("--output-path must end with .jsonl, got %s", args.output_path)
         return 1
 
-    logger.info("Loading post-rerank JSON: %s", args.post_rerank_json)
-    questions, needed_pmids = load_post_rerank_questions(args.post_rerank_json)
+    if not args.post_rerank_jsonl.exists():
+        logger.error("Post-rerank JSONL not found: %s", args.post_rerank_jsonl)
+        return 1
+
+    logger.info("Loading post-rerank JSONL: %s", args.post_rerank_jsonl)
+    questions, needed_pmids = load_post_rerank_questions(args.post_rerank_jsonl)
     logger.info("Questions: %d, unique PMIDs: %d", len(questions), len(needed_pmids))
 
     logger.info("Indexing corpus: %s", args.corpus_path)
@@ -233,8 +240,7 @@ def main() -> int:
         out_q["contexts"] = contexts
         out_questions.append(out_q)
 
-    with open(args.output_path, "w", encoding="utf-8") as f:
-        json.dump({"questions": out_questions}, f, ensure_ascii=False, indent=2)
+    write_questions_jsonl(args.output_path, out_questions)
 
     if missing_total:
         logger.warning("PMIDs missing from corpus: %d", missing_total)

@@ -5,7 +5,7 @@ import math
 import re
 from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -37,11 +37,90 @@ def normalize_pmid(x) -> str:
     return s  # fallback
 
 
+_JSONL_ADAPT_HINT = (
+    "BioASQ wrapped JSON is not accepted here. Convert with:\n"
+    "  python scripts/public/format/bioasq_json_to_queries_jsonl.py "
+    "--input <bioasq.json> --output <queries.jsonl>"
+)
+
+
+def _ensure_jsonl_query_path(path: Path, label: str = "path") -> Path:
+    p = path.expanduser().resolve()
+    if p.suffix.lower() != ".jsonl":
+        raise ValueError(f"{label} must be a .jsonl file, got: {p}\n{_JSONL_ADAPT_HINT}")
+    if not p.is_file():
+        raise FileNotFoundError(f"{label} not found: {p}")
+    return p
+
+
+def normalize_query_record(rec: dict) -> dict:
+    """Merge optional bioasq blob + query_* aliases into one BioASQ-shaped question dict."""
+    if not isinstance(rec, dict):
+        raise TypeError(f"Expected dict per JSONL line, got {type(rec)}")
+    out: Dict[str, Any] = {}
+    bioasq = rec.get("bioasq")
+    if isinstance(bioasq, dict):
+        out.update(bioasq)
+    aliases = (
+        ("query_id", "id"),
+        ("query_text", "body"),
+        ("query_type", "type"),
+    )
+    for src, dst in aliases:
+        if rec.get(src) is not None:
+            out[dst] = rec[src]
+    for k, v in rec.items():
+        if k in ("bioasq", "query_id", "query_text", "query_type"):
+            continue
+        if k not in out:
+            out[k] = v
+    qid = out.get("id")
+    if qid is None:
+        raise ValueError(
+            "JSONL record missing id (set id, query_id, or bioasq.id). "
+            f"Keys (sample): {list(rec.keys())[:12]}"
+        )
+    return out
+
+
+def iter_questions_jsonl(path: Path) -> Iterator[dict]:
+    p = _ensure_jsonl_query_path(path, "Query JSONL")
+    with open(p, encoding="utf-8") as f:
+        for lineno, line in enumerate(f, start=1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError as e:
+                raise ValueError(f"{p}:{lineno}: invalid JSON: {e}") from e
+            if isinstance(obj, dict) and "questions" in obj:
+                raise ValueError(
+                    f"{p}:{lineno}: line looks like wrapped BioASQ JSON (top-level 'questions').\n"
+                    f"{_JSONL_ADAPT_HINT}"
+                )
+            if not isinstance(obj, dict):
+                raise ValueError(f"{p}:{lineno}: each line must be a JSON object, got {type(obj)}")
+            yield normalize_query_record(obj)
+
+
+def load_questions_jsonl(path: Path) -> List[dict]:
+    return list(iter_questions_jsonl(path))
+
+
+def write_questions_jsonl(path: Path, records: Iterable[dict]) -> None:
+    path = path.expanduser().resolve()
+    if path.suffix.lower() != ".jsonl":
+        raise ValueError(f"write_questions_jsonl: output must be .jsonl, got {path}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        for rec in records:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+
+
 def load_questions(json_path: Path) -> List[dict]:
-    data = json.loads(json_path.read_text(encoding="utf-8"))
-    if "questions" not in data:
-        raise KeyError(f"{json_path} missing top-level 'questions'")
-    return data["questions"]
+    """Load questions from a .jsonl file (one record per line). Wrapped BioASQ JSON is rejected."""
+    return load_questions_jsonl(json_path)
 
 
 def build_topics_and_gold(

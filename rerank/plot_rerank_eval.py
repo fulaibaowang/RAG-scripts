@@ -195,8 +195,16 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Generate Hybrid vs Reranker eval plots from existing metrics and runs.")
     ap.add_argument("--output-dir", type=Path, required=True, help="Rerank output dir (contains metrics.csv).")
     ap.add_argument("--runs-dir", type=Path, required=True, help="Hybrid runs dir (TSV files).")
-    ap.add_argument("--train-json", type=Path, default=None)
-    ap.add_argument("--test-batch-jsons", "--test_batch_jsons", type=Path, nargs="*", default=None)
+    ap.add_argument("--train-jsonl", "--train-json", type=Path, default=None, dest="train_jsonl")
+    ap.add_argument(
+        "--test-batch-jsonls",
+        "--test-batch-jsons",
+        "--test_batch_jsons",
+        type=Path,
+        nargs="*",
+        default=None,
+        dest="test_batch_jsonls",
+    )
     args = ap.parse_args()
 
     metrics_path = args.output_dir / "metrics.csv"
@@ -227,13 +235,13 @@ def main() -> None:
         for qid, docs in gold_map.items():
             gold_map_all[qid] = docs
 
-    if args.train_json:
-        _add_questions(args.train_json)
-    for path in args.test_batch_jsons or []:
+    if args.train_jsonl:
+        _add_questions(args.train_jsonl)
+    for path in args.test_batch_jsonls or []:
         _add_questions(Path(path))
 
     if not gold_map_all:
-        raise ValueError("No gold loaded; provide --train-json and/or --test-batch-jsons")
+        raise ValueError("No gold loaded; provide --train-jsonl and/or --test-batch-jsonls")
 
     candidate_limit = None
     plot_config = None
@@ -244,15 +252,25 @@ def main() -> None:
             candidate_limit = config.get("candidate_limit")
             plot_config = dict(config)
             # Backward compat: build split_to_role / split_to_label from paths if missing
-            if "split_to_role" not in plot_config and ("train_json" in config or "train_subset_json" in config or "test_batch_jsons" in config):
+            if "split_to_role" not in plot_config and (
+                "train_jsonl" in config
+                or "train_json" in config
+                or "train_subset_json" in config
+                or "test_batch_jsonls" in config
+                or "test_batch_jsons" in config
+            ):
                 s2r: Dict[str, str] = {}
                 s2l: Dict[str, str] = {}
-                train_path = config.get("train_json") or config.get("train_subset_json")
+                train_path = (
+                    config.get("train_jsonl")
+                    or config.get("train_json")
+                    or config.get("train_subset_json")
+                )
                 if train_path:
                     train_stem = Path(train_path).stem
                     s2r[train_stem] = "train"
                     s2l[train_stem] = train_stem
-                for p in config.get("test_batch_jsons") or []:
+                for p in (config.get("test_batch_jsonls") or config.get("test_batch_jsons") or []):
                     stem = Path(p).stem
                     s2r[stem] = "test"
                     s2l[stem] = stem

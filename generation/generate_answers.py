@@ -5,7 +5,7 @@ Generate BioASQ answers from contexts JSON using an LLM.
 Reads the JSON produced by build_contexts_from_documents.py (id, body, type,
 documents, contexts), calls an LLM per question, parses ideal_answer and
 evidence_ids (and exact_answer for yesno/factoid/list), and writes a single
-JSON file to output_dir (e.g. output_dir/<stem>_answers.json).
+JSONL file to output_dir (e.g. output_dir/<stem>_answers.jsonl).
 
 Backend and model come **only** from the process environment and CLI (sourced run
 ``config.env``, ``export``, scheduler, etc.). Repo-root ``.env`` is read **only**
@@ -112,19 +112,19 @@ def _load_gen_api_key_from_dotenv() -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Generate BioASQ answers from contexts JSON using an LLM."
+        description="Generate BioASQ answers from contexts JSONL using an LLM."
     )
     parser.add_argument(
         "--input-path",
         type=Path,
         required=True,
-        help="Path to contexts JSON (output of build_contexts_from_documents.py).",
+        help="Path to contexts .jsonl (output of build_contexts_*.py).",
     )
     parser.add_argument(
         "--output-dir",
         type=Path,
         required=True,
-        help="Output directory; writes <stem>_answers.json here.",
+        help="Output directory; writes <stem>_answers.jsonl here.",
     )
     parser.add_argument(
         "--concurrency",
@@ -602,15 +602,16 @@ def parse_answer_json_for_type(raw: str, qtype: str, q_id: Optional[str] = None)
     return out
 
 
-def load_contexts_json(path: Path) -> List[Dict[str, Any]]:
-    """Load contexts from JSON: expects {"questions": [...]} or a top-level list."""
-    with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    if isinstance(data, list):
-        return data
-    if isinstance(data, dict) and "questions" in data:
-        return data["questions"]
-    raise ValueError("Input JSON must be a list or an object with 'questions' key")
+def load_contexts_jsonl(path: Path) -> List[Dict[str, Any]]:
+    """Load one question record per line from contexts .jsonl."""
+    _shared = Path(__file__).resolve().parents[1]
+    if str(_shared) not in sys.path:
+        sys.path.insert(0, str(_shared))
+    from retrieval_eval.common import iter_questions_jsonl
+
+    if path.suffix.lower() != ".jsonl":
+        raise ValueError(f"Contexts input must be .jsonl, got: {path}")
+    return list(iter_questions_jsonl(path))
 
 
 def main() -> int:
@@ -686,6 +687,9 @@ def main() -> int:
     if not args.input_path.exists():
         logger.error("Input file not found: %s", args.input_path)
         return 1
+    if args.input_path.suffix.lower() != ".jsonl":
+        logger.error("Input must be .jsonl, got %s", args.input_path)
+        return 1
 
     with open(system_path, "r", encoding="utf-8") as f:
         system_text = f.read().strip()
@@ -704,7 +708,9 @@ def main() -> int:
     for _q in ("", "summary", "yesno", "factoid", "list"):
         get_schema_block(_q)
 
-    all_objs = load_contexts_json(args.input_path)
+    from retrieval_eval.common import write_questions_jsonl
+
+    all_objs = load_contexts_jsonl(args.input_path)
     total = len(all_objs)
     if total == 0:
         logger.warning("No questions in input; nothing to write.")
@@ -715,7 +721,7 @@ def main() -> int:
         stem = stem[: -len("_contexts")]
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    json_path = args.output_dir / f"{stem}_answers.json"
+    json_path = args.output_dir / f"{stem}_answers.jsonl"
 
     def process_one(idx: int, obj: Dict[str, Any]) -> tuple[int, Dict[str, Any]]:
         q_id = obj.get("id")
@@ -859,8 +865,7 @@ def main() -> int:
             records_out.append(rec)
             logger.warning("No result for index %d (id=%s); added record with error", i, obj.get("id"))
 
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump({"questions": records_out}, f, ensure_ascii=False, indent=2)
+    write_questions_jsonl(json_path, records_out)
 
     logger.info("Wrote %d records to %s", len(records_out), json_path)
     return 0

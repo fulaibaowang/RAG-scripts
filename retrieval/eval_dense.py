@@ -58,6 +58,13 @@ from retrieval_eval.common import (  # noqa: E402
 )
 
 
+def _resolve_dense_query_paths(args: argparse.Namespace) -> tuple[Path | None, list[Path]]:
+    tj = (getattr(args, "train_jsonl", "") or "").strip()
+    train_path = Path(tj).expanduser().resolve() if tj else None
+    tests = [Path(p).expanduser().resolve() for p in (getattr(args, "test_batch_jsonls", None) or [])]
+    return train_path, tests
+
+
 def _load_rowid_to_pmid_tsv(path: Path) -> list[str]:
     rowid_to_pmid: list[str] = []
     with open(path, "r", encoding="utf-8") as f:
@@ -483,7 +490,13 @@ def evaluate_and_save_dense_on_questions_sharded(
     return {"method": "Dense", "batch": split, "n_queries": int(topics_df.shape[0]), **summary}
 
 
-def _run_sharded(args: argparse.Namespace, out_dir: Path, ks_recall: tuple[int, ...]) -> None:
+def _run_sharded(
+    args: argparse.Namespace,
+    out_dir: Path,
+    ks_recall: tuple[int, ...],
+    train_path: Path | None,
+    test_paths: list[Path],
+) -> None:
     """Run dense eval in sharded mode: resolve --index_glob, load all shards, then no_eval or eval path."""
     index_glob = (args.index_glob or "").strip()
     paths = sorted(Path(p) for p in glob.glob(index_glob) if Path(p).is_dir())
@@ -548,30 +561,29 @@ def _run_sharded(args: argparse.Namespace, out_dir: Path, ks_recall: tuple[int, 
         },
     }
 
-    train_stem = Path(args.train_json).stem
-
     if args.no_eval:
-        train_data = json.loads(Path(args.train_json).read_text(encoding="utf-8"))
-        topics_df, _ = build_topics_and_gold(
-            train_data["questions"], query_field=args.query_field, skip_empty=args.skip_empty_query_field,
-        )
-        res_df = dense_retrieve_topics_sharded(
-            model=model,
-            indices=indices,
-            rowid_maps=rowid_maps,
-            topics_df=topics_df,
-            topk=args.topk,
-            topk_per_shard=args.topk_per_shard,
-            batch_size=args.batch_size,
-            normalize_embeddings=normalize_embeddings,
-            space=space,
-        )
-        save_dense_run_tsv(out_dir, train_stem, res_df)
-        for fp in args.test_batch_jsons:
-            p = Path(fp)
-            data = json.loads(p.read_text(encoding="utf-8"))
+        if train_path is not None:
+            train_questions = load_questions(train_path)
+            train_stem = train_path.stem
             topics_df, _ = build_topics_and_gold(
-                data["questions"], query_field=args.query_field, skip_empty=args.skip_empty_query_field,
+                train_questions, query_field=args.query_field, skip_empty=args.skip_empty_query_field,
+            )
+            res_df = dense_retrieve_topics_sharded(
+                model=model,
+                indices=indices,
+                rowid_maps=rowid_maps,
+                topics_df=topics_df,
+                topk=args.topk,
+                topk_per_shard=args.topk_per_shard,
+                batch_size=args.batch_size,
+                normalize_embeddings=normalize_embeddings,
+                space=space,
+            )
+            save_dense_run_tsv(out_dir, train_stem, res_df)
+        for p in test_paths:
+            qs = load_questions(p)
+            topics_df, _ = build_topics_and_gold(
+                qs, query_field=args.query_field, skip_empty=args.skip_empty_query_field,
             )
             res_df = dense_retrieve_topics_sharded(
                 model=model,
@@ -593,35 +605,36 @@ def _run_sharded(args: argparse.Namespace, out_dir: Path, ks_recall: tuple[int, 
         return
 
     all_rows: list[dict[str, Any]] = []
-    train_data = json.loads(Path(args.train_json).read_text(encoding="utf-8"))
-    all_rows.append(
-        evaluate_and_save_dense_on_questions_sharded(
-            train_data["questions"],
-            split=train_stem,
-            out_dir=out_dir,
-            model=model,
-            indices=indices,
-            rowid_maps=rowid_maps,
-            normalize_embeddings=normalize_embeddings,
-            space=space,
-            topk=args.topk,
-            topk_per_shard=args.topk_per_shard,
-            ks_recall=ks_recall,
-            ef_search=ef_effective,
-            batch_size=args.batch_size,
-            meta_base=meta_base,
-            save=True,
-            save_per_query=bool(args.save_per_query),
-            query_field=args.query_field,
-            skip_empty=args.skip_empty_query_field,
-        )
-    )
-    for fp in args.test_batch_jsons:
-        p = Path(fp)
-        data = json.loads(p.read_text(encoding="utf-8"))
+    if train_path is not None:
+        train_questions = load_questions(train_path)
+        train_stem = train_path.stem
         all_rows.append(
             evaluate_and_save_dense_on_questions_sharded(
-                data["questions"],
+                train_questions,
+                split=train_stem,
+                out_dir=out_dir,
+                model=model,
+                indices=indices,
+                rowid_maps=rowid_maps,
+                normalize_embeddings=normalize_embeddings,
+                space=space,
+                topk=args.topk,
+                topk_per_shard=args.topk_per_shard,
+                ks_recall=ks_recall,
+                ef_search=ef_effective,
+                batch_size=args.batch_size,
+                meta_base=meta_base,
+                save=True,
+                save_per_query=bool(args.save_per_query),
+                query_field=args.query_field,
+                skip_empty=args.skip_empty_query_field,
+            )
+        )
+    for p in test_paths:
+        qs = load_questions(p)
+        all_rows.append(
+            evaluate_and_save_dense_on_questions_sharded(
+                qs,
                 split=p.stem,
                 out_dir=out_dir,
                 model=model,
@@ -670,8 +683,22 @@ def main():
         required=True,
         help="Output directory (dense_*.parquet, *_meta.json, *_run_map.json)",
     )
-    ap.add_argument("--train-json", dest="train_json", required=True, help="Path to training questions JSON")
-    ap.add_argument("--test_batch_jsons", nargs="*", default=[], help="List of 13B*_golden.json files")
+    ap.add_argument(
+        "--train-jsonl",
+        "--train-json",
+        dest="train_jsonl",
+        default="",
+        help="Path to training queries .jsonl (--train-json is deprecated).",
+    )
+    ap.add_argument(
+        "--test-batch-jsonls",
+        "--test-batch-jsons",
+        "--test_batch_jsons",
+        dest="test_batch_jsonls",
+        nargs="*",
+        default=[],
+        help="Test batch .jsonl files.",
+    )
 
     ap.add_argument("--topk", type=int, default=5000)
     ap.add_argument(
@@ -717,6 +744,15 @@ def main():
     args = ap.parse_args()
     args.device = _resolve_device(args.device)
 
+    train_path, test_paths = _resolve_dense_query_paths(args)
+    if train_path is None and not test_paths:
+        raise SystemExit("Provide --train-jsonl and/or --test-batch-jsonls (at least one non-empty).")
+    if train_path is not None and not train_path.is_file():
+        raise SystemExit(f"--train-jsonl not found: {train_path}")
+    for p in test_paths:
+        if not p.is_file():
+            raise SystemExit(f"Test batch file not found: {p}")
+
     has_dir = bool((args.index_dir or "").strip())
     has_glob = bool((args.index_glob or "").strip())
     if has_dir and has_glob:
@@ -729,7 +765,7 @@ def main():
     ks_recall = tuple(int(x) for x in args.ks.split(",") if x.strip())
 
     if has_glob:
-        _run_sharded(args, out_dir, ks_recall)
+        _run_sharded(args, out_dir, ks_recall, train_path, test_paths)
         return
 
     # ----- Single-index mode -----
@@ -786,30 +822,29 @@ def main():
         "effective": int(ef_effective),
     }
 
-    train_stem = Path(args.train_json).stem
-
     if args.no_eval:
-        train_data = json.loads(Path(args.train_json).read_text(encoding="utf-8"))
-        topics_df, _ = build_topics_and_gold(
-            train_data["questions"], query_field=args.query_field, skip_empty=args.skip_empty_query_field,
-        )
-        res_df = dense_retrieve_topics(
-            model=model,
-            index=index,
-            rowid_to_pmid=rowid_to_pmid,
-            topics_df=topics_df,
-            topk=args.topk,
-            batch_size=args.batch_size,
-            normalize_embeddings=normalize_embeddings,
-            space=space,
-            ef=ef_effective,
-        )
-        save_dense_run_tsv(out_dir, train_stem, res_df)
-        for fp in args.test_batch_jsons:
-            p = Path(fp)
-            data = json.loads(p.read_text(encoding="utf-8"))
+        if train_path is not None:
+            train_questions = load_questions(train_path)
+            train_stem = train_path.stem
             topics_df, _ = build_topics_and_gold(
-                data["questions"], query_field=args.query_field, skip_empty=args.skip_empty_query_field,
+                train_questions, query_field=args.query_field, skip_empty=args.skip_empty_query_field,
+            )
+            res_df = dense_retrieve_topics(
+                model=model,
+                index=index,
+                rowid_to_pmid=rowid_to_pmid,
+                topics_df=topics_df,
+                topk=args.topk,
+                batch_size=args.batch_size,
+                normalize_embeddings=normalize_embeddings,
+                space=space,
+                ef=ef_effective,
+            )
+            save_dense_run_tsv(out_dir, train_stem, res_df)
+        for p in test_paths:
+            qs = load_questions(p)
+            topics_df, _ = build_topics_and_gold(
+                qs, query_field=args.query_field, skip_empty=args.skip_empty_query_field,
             )
             res_df = dense_retrieve_topics(
                 model=model,
@@ -831,37 +866,36 @@ def main():
 
     all_rows = []
 
-    # train subset
-    train_data = json.loads(Path(args.train_json).read_text(encoding="utf-8"))
-    all_rows.append(
-        evaluate_and_save_dense_on_questions(
-            train_data["questions"],
-            split=train_stem,
-            out_dir=out_dir,
-            model=model,
-            index=index,
-            rowid_to_pmid=rowid_to_pmid,
-            normalize_embeddings=normalize_embeddings,
-            space=space,
-            topk=args.topk,
-            ks_recall=ks_recall,
-            ef_search=ef_effective,
-            batch_size=args.batch_size,
-            meta_base=meta_base,
-            save=True,
-            save_per_query=bool(args.save_per_query),
-            query_field=args.query_field,
-            skip_empty=args.skip_empty_query_field,
-        )
-    )
-
-    # tests
-    for fp in args.test_batch_jsons:
-        p = Path(fp)
-        data = json.loads(p.read_text(encoding="utf-8"))
+    if train_path is not None:
+        train_questions = load_questions(train_path)
+        train_stem = train_path.stem
         all_rows.append(
             evaluate_and_save_dense_on_questions(
-                data["questions"],
+                train_questions,
+                split=train_stem,
+                out_dir=out_dir,
+                model=model,
+                index=index,
+                rowid_to_pmid=rowid_to_pmid,
+                normalize_embeddings=normalize_embeddings,
+                space=space,
+                topk=args.topk,
+                ks_recall=ks_recall,
+                ef_search=ef_effective,
+                batch_size=args.batch_size,
+                meta_base=meta_base,
+                save=True,
+                save_per_query=bool(args.save_per_query),
+                query_field=args.query_field,
+                skip_empty=args.skip_empty_query_field,
+            )
+        )
+
+    for p in test_paths:
+        qs = load_questions(p)
+        all_rows.append(
+            evaluate_and_save_dense_on_questions(
+                qs,
                 split=p.stem,
                 out_dir=out_dir,
                 model=model,

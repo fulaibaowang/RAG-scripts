@@ -481,8 +481,16 @@ def parse_args() -> argparse.Namespace:
     inp.add_argument("--run-files", type=Path, nargs="*", default=None, help="Explicit run TSV files.")
     inp.add_argument("--run-glob", type=str, default="*.tsv", help="Glob under --runs-dir.")
     inp.add_argument("--docs-jsonl", type=str, required=True, help="JSONL corpus path or glob.")
-    inp.add_argument("--train-json", type=Path, default=None)
-    inp.add_argument("--test-batch-jsons", "--test_batch_jsons", type=Path, nargs="*", default=None)
+    inp.add_argument("--train-jsonl", "--train-json", type=Path, default=None, dest="train_jsonl")
+    inp.add_argument(
+        "--test-batch-jsonls",
+        "--test-batch-jsons",
+        "--test_batch_jsons",
+        type=Path,
+        nargs="*",
+        default=None,
+        dest="test_batch_jsonls",
+    )
     inp.add_argument("--query-field", type=str, default="body")
     inp.add_argument(
         "--skip-empty-query-field",
@@ -574,8 +582,8 @@ def main() -> None:
         for qid, docs in gm.items():
             gold_all[qid] = docs
 
-    _add_questions(args.train_json)
-    for p in args.test_batch_jsons or []:
+    _add_questions(args.train_jsonl)
+    for p in args.test_batch_jsonls or []:
         _add_questions(Path(p))
     print(f"[init] {len(topics)} queries loaded")
 
@@ -641,7 +649,7 @@ def main() -> None:
 
     summary_rows: List[dict] = []
     split_to_role, split_to_label = _build_split_to_role_and_label(
-        args.train_json, [Path(p) for p in (args.test_batch_jsons or [])],
+        args.train_jsonl, [Path(p) for p in (args.test_batch_jsonls or [])],
     )
 
     # --- process each run split ---

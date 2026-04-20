@@ -514,12 +514,21 @@ def main() -> None:
     ap.add_argument("--bm25_topk", type=int, default=5000)
     ap.add_argument("--dense_root", required=True, help="Path to dense output folder (dense_*.parquet)")
 
-    ap.add_argument("--train-json", dest="train_json", required=True)
     ap.add_argument(
+        "--train-jsonl",
+        "--train-json",
+        dest="train_jsonl",
+        default="",
+        help="Training queries .jsonl (--train-json is deprecated).",
+    )
+    ap.add_argument(
+        "--test-batch-jsonls",
+        "--test-batch-jsons",
         "--test_batch_jsons",
+        dest="test_batch_jsonls",
         nargs="*",
         default=[],
-        help="List of 13B*_golden.json files. Required when running with evaluation; optional in no-eval mode.",
+        help="Test batch .jsonl files.",
     )
 
     ap.add_argument("--out_dir", required=True)
@@ -553,19 +562,22 @@ def main() -> None:
     runs_dir.mkdir(exist_ok=True)
     figs_dir.mkdir(exist_ok=True)
 
-    test_files: List[Path]
-    test_files = [Path(p).resolve() for p in args.test_batch_jsons]
+    train_path = Path(args.train_jsonl).resolve() if (args.train_jsonl or "").strip() else None
+    test_files = [Path(p).resolve() for p in (args.test_batch_jsonls or [])]
+
+    if train_path is None and not test_files:
+        raise SystemExit("Provide --train-jsonl and/or --test-batch-jsonls (at least one).")
 
     for fp in test_files:
         if not fp.exists():
             raise FileNotFoundError(f"Missing test batch: {fp}")
 
-    train_questions_all = load_questions(Path(args.train_json).resolve())
+    train_questions_all = load_questions(train_path) if train_path is not None else []
     test_qids = set()
     for fp in test_files:
         test_qids |= collect_qids_from_questions(load_questions(fp))
 
-    if args.no_exclude_test_qids:
+    if args.no_exclude_test_qids or not train_questions_all:
         train_questions = train_questions_all
     else:
         train_questions = [
@@ -574,17 +586,21 @@ def main() -> None:
             if str(q.get("id") or q.get("qid") or i) not in test_qids
         ]
 
-    train_stem = Path(args.train_json).stem
+    train_stem = train_path.stem if train_path is not None else ""
 
     gold_maps: Dict[str, Dict[str, List[str]]] = {}
-    _, gold_maps[train_stem] = build_topics_and_gold(train_questions)
+    if train_stem:
+        _, gold_maps[train_stem] = build_topics_and_gold(train_questions)
 
     for fp in test_files:
         questions = load_questions(fp)
         _, gold_map = build_topics_and_gold(questions)
         gold_maps[fp.stem] = gold_map
 
-    splits = [train_stem] + [fp.stem for fp in test_files]
+    splits: List[str] = []
+    if train_stem:
+        splits.append(train_stem)
+    splits.extend(fp.stem for fp in test_files)
 
     bm25_runs: Dict[str, pd.DataFrame] = {}
     dense_runs: Dict[str, pd.DataFrame] = {}

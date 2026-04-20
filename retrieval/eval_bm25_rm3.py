@@ -164,17 +164,25 @@ def ensure_pt(java_mem: str | None = None):
 def main():
     ap = argparse.ArgumentParser(description="Evaluate BM25+RM3 on BioASQ train subset + test batches.")
     ap.add_argument("--index_path", required=True, help="Path to Terrier index directory")
-    ap.add_argument("--train_json", required=True, help="Path to training subset json (e.g. training14b_10pct_sample.json)")
     ap.add_argument(
+        "--train_jsonl",
+        "--train_json",
+        dest="train_jsonl",
+        default=None,
+        help="Path to training subset .jsonl (--train_json is deprecated).",
+    )
+    ap.add_argument(
+        "--test_batch_jsonls",
         "--test_batch_jsons",
+        dest="test_batch_jsonls",
         nargs="*",
         default=[],
-        help="List of test batch JSON files (e.g. bioasq_data/Task13BGoldenEnriched/13B1_golden.json ...).",
+        help="List of test batch .jsonl files.",
     )
     ap.add_argument(
         "--test_dir",
         default=None,
-        help="Backward-compatible: directory containing 13B1_golden.json .. 13B4_golden.json (used only if --test_batch_jsons not provided)",
+        help="Directory containing 13B1_golden.jsonl .. 13B4_golden.jsonl (used only if --test_batch_jsonls not provided)",
     )
     ap.add_argument("--out_dir", required=True, help="Output directory")
     ap.add_argument("--threads", type=int, default=4, help="Terrier retrieval threads")
@@ -264,22 +272,26 @@ def main():
 
     # Load datasets
     test_files: List[Path] = []
-    if args.test_batch_jsons:
-        test_files = [Path(fp).resolve() for fp in args.test_batch_jsons]
+    if args.test_batch_jsonls:
+        test_files = [Path(fp).resolve() for fp in args.test_batch_jsonls]
     elif args.test_dir:
         test_dir = Path(args.test_dir).resolve()
         test_files = [
-            test_dir / "13B1_golden.json",
-            test_dir / "13B2_golden.json",
-            test_dir / "13B3_golden.json",
-            test_dir / "13B4_golden.json",
+            test_dir / "13B1_golden.jsonl",
+            test_dir / "13B2_golden.jsonl",
+            test_dir / "13B3_golden.jsonl",
+            test_dir / "13B4_golden.jsonl",
         ]
+
+    train_path = Path(args.train_jsonl).resolve() if args.train_jsonl else None
+    if train_path is None and not test_files:
+        raise SystemExit("Provide --train-jsonl and/or --test-batch-jsonls (or --test_dir).")
 
     for fp in test_files:
         if not fp.exists():
             raise FileNotFoundError(f"Missing test batch: {fp}")
 
-    train_questions = load_questions(Path(args.train_json).resolve())
+    train_questions = load_questions(train_path) if train_path is not None else []
 
     # Collect test qids for exclusion
     test_qids = set()
@@ -293,14 +305,14 @@ def main():
     train_topics, train_gold = build_topics_and_gold(
         train_questions, query_field=args.query_field, skip_empty=args.skip_empty_query_field,
     )
-    if not args.no_exclude_test_qids:
+    if train_questions and not args.no_exclude_test_qids and test_qids:
         mask = ~train_topics["qid"].astype(str).isin(test_qids)
         train_topics = train_topics.loc[mask].reset_index(drop=True)
         # filter gold accordingly
         keep = set(train_topics["qid"].astype(str).tolist())
         train_gold = {qid: pmids for qid, pmids in train_gold.items() if qid in keep}
 
-    train_batch = Path(args.train_json).stem
+    train_batch = train_path.stem if train_path is not None else ""
 
     # Evaluate
     all_rows = []
@@ -343,9 +355,10 @@ def main():
             methods_to_run = [("BM25", pipe_bm25)] + methods_to_run
 
     if args.no_eval:
-        for method, pipe in methods_to_run:
-            run_map, res_df = run_retrieval_only(train_topics, pipe, args.k_eval)
-            save_run_tsv(method, train_batch, res_df)
+        if train_questions:
+            for method, pipe in methods_to_run:
+                run_map, res_df = run_retrieval_only(train_topics, pipe, args.k_eval)
+                save_run_tsv(method, train_batch, res_df)
         for batch_name, questions in test_batches:
             topics, _ = build_topics_and_gold(
                 questions, query_field=args.query_field, skip_empty=args.skip_empty_query_field,
@@ -357,10 +370,11 @@ def main():
         return
 
     # Train subset
-    for method, pipe in methods_to_run:
-        br, perq, run_map, res_df = eval_one(method, train_batch, train_topics, train_gold, pipe, args.k_eval, ks_recall=ks_recall)
-        all_rows.append(br.to_row())
-        maybe_save(method, train_batch, run_map, res_df, perq, train_gold)
+    if train_questions:
+        for method, pipe in methods_to_run:
+            br, perq, run_map, res_df = eval_one(method, train_batch, train_topics, train_gold, pipe, args.k_eval, ks_recall=ks_recall)
+            all_rows.append(br.to_row())
+            maybe_save(method, train_batch, run_map, res_df, perq, train_gold)
 
     # Test batches
     for batch_name, questions in test_batches:

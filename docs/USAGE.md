@@ -115,12 +115,12 @@ Evaluate dense retrieval using pre-built HNSW index:
 ```bash
 python scripts/public/shared_scripts/retrieval/eval_dense.py \
   --index_dir "/path/to/indexes/pubmed_medembed_2026" \
-  --train-json "example/training14b_10pct_sample.json" \
-  --test_batch_jsons \
-    bioasq_data/Task13BGoldenEnriched/13B1_golden.json \
-    bioasq_data/Task13BGoldenEnriched/13B2_golden.json \
-    bioasq_data/Task13BGoldenEnriched/13B3_golden.json \
-    bioasq_data/Task13BGoldenEnriched/13B4_golden.json \
+  --train-jsonl "example/training14b_10pct_sample.jsonl" \
+  --test-batch-jsonls \
+    bioasq_data/Task13BGoldenEnriched/13B1_golden.jsonl \
+    bioasq_data/Task13BGoldenEnriched/13B2_golden.jsonl \
+    bioasq_data/Task13BGoldenEnriched/13B3_golden.jsonl \
+    bioasq_data/Task13BGoldenEnriched/13B4_golden.jsonl \
   --out_dir "output/eval_dense" \
   --topk 5000 \
   --ks "50,100,200,500,2000,5000" \
@@ -144,12 +144,12 @@ Fuse BM25 and dense runs with reciprocal rank fusion (RRF):
 python scripts/public/shared_scripts/retrieval/eval_hybrid.py \
   --bm25_runs_dir "output/eval_bm25_rm3/runs" \
   --dense_root "output/eval_dense" \
-  --train-json "example/training14b_10pct_sample.json" \
-  --test_batch_jsons \
-    bioasq_data/Task13BGoldenEnriched/13B1_golden.json \
-    bioasq_data/Task13BGoldenEnriched/13B2_golden.json \
-    bioasq_data/Task13BGoldenEnriched/13B3_golden.json \
-    bioasq_data/Task13BGoldenEnriched/13B4_golden.json \
+  --train-jsonl "example/training14b_10pct_sample.jsonl" \
+  --test-batch-jsonls \
+    bioasq_data/Task13BGoldenEnriched/13B1_golden.jsonl \
+    bioasq_data/Task13BGoldenEnriched/13B2_golden.jsonl \
+    bioasq_data/Task13BGoldenEnriched/13B3_golden.jsonl \
+    bioasq_data/Task13BGoldenEnriched/13B4_golden.jsonl \
   --out_dir "output/eval_hybrid" \
   --mode "default" \
   --k_rrf 150 \
@@ -171,12 +171,12 @@ Re-rank stage-1 runs with a cross-encoder using query + doc text pairs:
 python scripts/public/shared_scripts/rerank/rerank_stage2.py \
   --runs-dir "output/eval_hybrid/runs" \
   --docs-jsonl "output/subset_pubmed.jsonl" \
-  --train-json "example/training14b_10pct_sample.json" \
-  --test_batch_jsons \
-    bioasq_data/Task13BGoldenEnriched/13B1_golden.json \
-    bioasq_data/Task13BGoldenEnriched/13B2_golden.json \
-    bioasq_data/Task13BGoldenEnriched/13B3_golden.json \
-    bioasq_data/Task13BGoldenEnriched/13B4_golden.json \
+  --train-jsonl "example/training14b_10pct_sample.jsonl" \
+  --test-batch-jsonls \
+    bioasq_data/Task13BGoldenEnriched/13B1_golden.jsonl \
+    bioasq_data/Task13BGoldenEnriched/13B2_golden.jsonl \
+    bioasq_data/Task13BGoldenEnriched/13B3_golden.jsonl \
+    bioasq_data/Task13BGoldenEnriched/13B4_golden.jsonl \
   --output-dir "output/eval_stage2_rerank" \
   --candidate-limit 2000 \
   --model "cross-encoder/ms-marco-MiniLM-L-12-v2" \
@@ -231,7 +231,7 @@ RUN_SNIPPET_RRF=1
 - **Baseline only**: `RUN_BASELINE=1`, `RUN_SNIPPET_RRF=0`
 - **Snippet only**: `RUN_BASELINE=0`, `RUN_SNIPPET_RRF=1`
 
-Generation is handled inside the same pipeline script: once evidence JSONL files exist under `evidence/evidence_baseline/` or `evidence/evidence_snippet/`, the script runs the LLM answer generation step and writes `*_answers.json` under the corresponding `generation/generation_*` directory.
+Generation is handled inside the same pipeline script: once evidence `*_contexts.jsonl` files exist under `evidence/evidence_baseline/` or `evidence/evidence_snippet/`, the script runs the LLM answer generation step and writes `*_answers.jsonl` under the corresponding `generation/generation_*` directory.
 
 ## Output
 
