@@ -68,4 +68,8 @@ Other stage scripts are invoked by the orchestrator; see [docs/USAGE.md](docs/US
 
 - Python environment with pipeline dependencies (PyTerrier, hnswlib, sentence-transformers, pandas, …).
 - Terrier BM25 index and dense HNSW index (see [docs/USAGE.md](docs/USAGE.md)).
-- Query streams as `.jsonl` (see [docs/PARAMETERS.md](docs/PARAMETERS.md)). BioASQ JSON conversion and public script layout: [BioASQ scripts/public/README.md](https://github.com/fulaibaowang/BioASQ/blob/main/scripts/public/README.md).
+- Query streams as `.jsonl` (see [docs/PARAMETERS.md](docs/PARAMETERS.md)). 
+
+## related repo
+
+- [BioASQ](https://github.com/fulaibaowang/BioASQ/blob/main/README.md).
