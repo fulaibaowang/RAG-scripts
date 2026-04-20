@@ -1,6 +1,6 @@
 # Usage Guide (shared pipeline)
 
-**This file** documents **generic** indexing, per-stage CLIs, and placeholder paths. For **BioASQ**, Docker-first setup, official-style dataset paths, and training-subset notes, see the repo runbook [docs/USAGE.md](../../../../docs/USAGE.md).
+**This file** documents **generic** indexing, per-stage CLIs, and placeholder paths. For 
 
 ## Data Preparation
 
@@ -20,8 +20,6 @@ python scripts/public/data/parse_pubmed_local.py \
 - `--input_dir`: Directory containing PubMed XML baseline files
 - `--output_dir`: Output directory for JSONL shards
 - `--skip_existing`: Skip files that already exist in output
-
-For a concrete BioASQ-oriented example (baseline year paths), see [docs/USAGE.md](../../../../docs/USAGE.md).
 
 ## Indexing & Retrieval
 
