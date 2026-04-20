@@ -1,3 +1,8 @@
+# RAG-scripts container image. Build from this directory (repository root of RAG-scripts):
+#   docker build -t rag-scripts .
+#
+# Same layout as used when this tree is vendored under BioASQ at scripts/public/shared_scripts/.
+
 FROM nvidia/cuda:12.8.0-cudnn-runtime-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive \

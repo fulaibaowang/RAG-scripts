@@ -1,6 +1,6 @@
-# Python dependencies for the main BioASQ Dockerfile (after PyTorch from
-# requirements-docker-pytorch.txt). Docker remains the gold path; for a local
-# venv, install a matching torch stack from https://pytorch.org then:
+# Python dependencies for the RAG-scripts Dockerfile (after PyTorch from
+# requirements-docker-pytorch.txt). For a local venv, install a matching torch
+# stack from https://pytorch.org then:
 #   pip install -r requirements-docker.txt
 
 nltk

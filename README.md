@@ -1,6 +1,6 @@
 # Public scripts (retrieval pipeline)
 
-This directory is the **shared** hybrid retrieval and reranking stack: BM25 + RM3, dense HNSW retrieval, retrieval fusion (RRF), cross-encoder reranking, optional post-rerank fusion, optional snippet-RRF, evidence construction, and LLM generation. 
+This directory is the **[RAG-scripts](https://github.com/fulaibaowang/RAG-scripts)** hybrid retrieval and reranking stack: BM25 + RM3, dense HNSW retrieval, retrieval fusion (RRF), cross-encoder reranking, optional post-rerank fusion, optional snippet-RRF, evidence construction, and LLM generation. When embedded in the [BioASQ](https://github.com/fulaibaowang/BioASQ) repository, it appears as `scripts/public/shared_scripts/`.
 
 ## What the pipeline does
 
@@ -27,23 +27,31 @@ Output layout (directories, fusion names, run format, logs): [docs/output.md](do
 
 ## Quickstart
 
-**Docker (recommended)** reproduces Java 21, CUDA 12.8 / PyTorch cu128, Terrier, and Python dependencies. Build and run from the repo root are documented step-by-step in [docs/USAGE.md](../../../docs/USAGE.md).
+**Docker (recommended)** — from the **root of this tree** (the directory that contains this `README.md` and `Dockerfile`):
 
-**Local venv (optional):** install a matching `torch` for your OS/GPU from [pytorch.org](https://pytorch.org), then from the repo root `pip install -r requirements-docker.txt` and [requirements-docker-pytorch.txt](../../../requirements-docker-pytorch.txt) as needed. You still need Java and the system libraries the [Dockerfile](../../../Dockerfile) installs.
+```bash
+docker build -t rag-scripts .
+```
+
+Python dependencies are pinned in [requirements-docker-pytorch.txt](requirements-docker-pytorch.txt) and [requirements-docker.txt](requirements-docker.txt).
+
+**Local venv (optional):** install a matching `torch` for your OS/GPU from [pytorch.org](https://pytorch.org), then `pip install -r requirements-docker-pytorch.txt` and `pip install -r requirements-docker.txt`. You still need Java and the system packages installed in the [Dockerfile](Dockerfile).
+
+**BioASQ** (Docker on host data, task JSON, adapt-in/out): [BioASQ docs/USAGE.md](https://github.com/fulaibaowang/BioASQ/blob/main/docs/USAGE.md).
 
 ## Running the pipeline (high level)
 
-1. Copy an example env ([workflow_config_baseline.env](workflow_config_baseline.env), [workflow_config_full.env](workflow_config_full.env)) or create your own env.
+1. Copy an example env ([workflow_config_baseline.env](workflow_config_baseline.env), [workflow_config_full.env](workflow_config_full.env)) or create your own.
 2. Set `WORKFLOW_OUTPUT_DIR`, query `.jsonl` paths (`INPUT_JSONL` / `INPUT_BATCH_JSONLS`), index paths, and `DOCS_JSONL` for reranking or building evidence.
-3. From the repo root:
+3. From **this directory**:
 
    ```bash
-   ./scripts/public/shared_scripts/run_retrieval_rerank_pipeline.sh --config /path/to/your.env
+   ./run_retrieval_rerank_pipeline.sh --config /path/to/your.env
    ```
 
    Use `--no-rerank` for retrieval only; `--no-generation` to skip LLM calls; `RUN_SNIPPET_RRF=1` for the snippet route.
 
-Stages whose key outputs already exist are skipped. Per-stage **standalone** commands and argument lists: [docs/USAGE.md](docs/USAGE.md).
+Stages whose key outputs already exist are skipped. Per-stage **standalone** commands: [docs/USAGE.md](docs/USAGE.md).
 
 ## Entrypoint scripts
 
@@ -60,6 +68,6 @@ Other stage scripts are invoked by the orchestrator; see [docs/USAGE.md](docs/US
 
 - Python environment with pipeline dependencies (PyTerrier, hnswlib, sentence-transformers, pandas, …).
 - Terrier BM25 index and dense HNSW index (see [docs/USAGE.md](docs/USAGE.md)).
-- Query streams as `.jsonl` (see [docs/PARAMETERS.md](docs/PARAMETERS.md) and [scripts/public/README.md](../README.md) for format conversion).
+- Query streams as `.jsonl` (see [docs/PARAMETERS.md](docs/PARAMETERS.md)). BioASQ JSON conversion and public script layout: [BioASQ scripts/public/README.md](https://github.com/fulaibaowang/BioASQ/blob/main/scripts/public/README.md).
 
 Run artifacts use **TSV runs** (`qid`, `docno`, `rank`, `score`) under each stage’s `runs/` directory; see [docs/output.md](docs/output.md). Pipeline and Python **logging**, snippet **window** sidecars, and HF verbosity defaults are also described there.

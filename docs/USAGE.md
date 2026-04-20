@@ -1,34 +1,23 @@
 # Usage Guide (shared pipeline)
 
-**This file** documents **generic** indexing, per-stage CLIs, and placeholder paths. For BioASQ-oriented Docker, indexes, and task workflows, see [docs/USAGE.md](../../../docs/USAGE.md) at the repository root.
+**This file** documents **generic** indexing, per-stage CLIs, and placeholder paths. Commands assume your current working directory is the **RAG-scripts repository root** (the folder that contains `run_retrieval_rerank_pipeline.sh`, `index/`, `retrieval/`, etc.).
 
-## Data Preparation
+For **BioASQ** (Docker on host data, task paths, adapt-in/out), see [BioASQ docs/USAGE.md](https://github.com/fulaibaowang/BioASQ/blob/main/docs/USAGE.md).
+
+## Data preparation
 
 ### Parse PubMed XML to JSONL
 
-Convert PubMed baseline XML files to JSONL format with title, abstract, and MeSH metadata:
-
-```bash
-python scripts/public/data/parse_pubmed_local.py \
-  --input_dir /path/to/pubmed/baseline \
-  --output_dir /path/to/pubmed/jsonl_shards \
-  --skip_existing
-```
-
-**Arguments:**
-
-- `--input_dir`: Directory containing PubMed XML baseline files
-- `--output_dir`: Output directory for JSONL shards
-- `--skip_existing`: Skip files that already exist in output
+PubMed baseline XML → JSONL is **not** part of this repository. An example parser used in the BioASQ project is [`parse_pubmed_local.py`](https://github.com/fulaibaowang/BioASQ/blob/main/scripts/public/data/parse_pubmed_local.py).
 
 ## Indexing & Retrieval
 
-### BM25 Index
+### BM25 index
 
 Build a Terrier-based BM25 index from JSONL shards:
 
 ```bash
-python scripts/public/shared_scripts/index/build_bm25_index_from_jsonl_shards.py \
+python index/build_bm25_index_from_jsonl_shards.py \
   --jsonl_glob "/path/to/shards/*.jsonl" \
   --index_path "/path/to/indexes/my_bm25_index" \
   --threads 4 \
@@ -42,12 +31,12 @@ python scripts/public/shared_scripts/index/build_bm25_index_from_jsonl_shards.py
 - `--threads`: Number of indexing threads
 - `--overwrite`: Recreate index if it exists
 
-### Dense (HNSW) Index
+### Dense (HNSW) index
 
 Build an HNSW dense vector index using SentenceTransformer embeddings:
 
 ```bash
-python scripts/public/shared_scripts/index/build_dense_hnsw_index_from_jsonl_shards.py \
+python index/build_dense_hnsw_index_from_jsonl_shards.py \
   --jsonl_glob "/path/to/shards/*.jsonl" \
   --out_dir /path/to/indexes/my_dense_index \
   --model_name "abhinand/MedEmbed-small-v0.1" \
@@ -76,7 +65,7 @@ Replace paths below with your index, corpus JSONL, and train/test query `.jsonl`
 ### BM25 + RM3
 
 ```bash
-python scripts/public/shared_scripts/retrieval/eval_bm25_rm3.py \
+python retrieval/eval_bm25_rm3.py \
   --index_path "/path/to/indexes/my_bm25_index/data.properties" \
   --train_json "/path/to/train_queries.json" \
   --test_batch_jsons \
@@ -103,7 +92,7 @@ python scripts/public/shared_scripts/retrieval/eval_bm25_rm3.py \
 ### Dense retrieval
 
 ```bash
-python scripts/public/shared_scripts/retrieval/eval_dense.py \
+python retrieval/eval_dense.py \
   --index_dir "/path/to/indexes/my_dense_index" \
   --train-jsonl "/path/to/train_queries.jsonl" \
   --test-batch-jsonls \
@@ -119,7 +108,7 @@ python scripts/public/shared_scripts/retrieval/eval_dense.py \
 ### Retrieval fusion (BM25 + dense)
 
 ```bash
-python scripts/public/shared_scripts/retrieval/eval_hybrid.py \
+python retrieval/eval_hybrid.py \
   --bm25_runs_dir "output/eval_bm25_rm3/runs" \
   --dense_root "output/eval_dense" \
   --train-jsonl "/path/to/train_queries.jsonl" \
@@ -136,7 +125,7 @@ python scripts/public/shared_scripts/retrieval/eval_hybrid.py \
 ### Stage 2 rerank (cross-encoder)
 
 ```bash
-python scripts/public/shared_scripts/rerank/rerank_stage2.py \
+python rerank/rerank_stage2.py \
   --runs-dir "output/eval_hybrid/runs" \
   --docs-jsonl "/path/to/corpus.jsonl" \
   --train-jsonl "/path/to/train_queries.jsonl" \
@@ -156,16 +145,16 @@ python scripts/public/shared_scripts/rerank/rerank_stage2.py \
 Run all stages with one script and a config file. The script skips stages whose outputs already exist. Use `--no-rerank` for retrieval only; use `--no-generation` to skip LLM generation while still building evidence.
 
 ```bash
-./scripts/public/shared_scripts/run_retrieval_rerank_pipeline.sh --config /path/to/your.env
+./run_retrieval_rerank_pipeline.sh --config /path/to/your.env
 ```
 
-Example templates in this directory: [workflow_config_baseline.env](../workflow_config_baseline.env), [workflow_config_snippet.env](../workflow_config_snippet.env), [workflow_config_full.env](../workflow_config_full.env). Every variable is commented in [workflow_config_full.env](../workflow_config_full.env); tuning notes: [PARAMETERS.md](PARAMETERS.md). BioASQ + Docker walkthrough: [docs/USAGE.md](../../../../docs/USAGE.md). Public script index (format, adapt-out): [scripts/public/README.md](../../README.md).
+Example templates in the repository root: [workflow_config_baseline.env](../workflow_config_baseline.env), [workflow_config_snippet.env](../workflow_config_snippet.env), [workflow_config_full.env](../workflow_config_full.env). Every variable is commented in [workflow_config_full.env](../workflow_config_full.env); tuning notes: [PARAMETERS.md](PARAMETERS.md). BioASQ + Docker walkthrough: [BioASQ docs/USAGE.md](https://github.com/fulaibaowang/BioASQ/blob/main/docs/USAGE.md). Public script index (format, adapt-out): [BioASQ scripts/public/README.md](https://github.com/fulaibaowang/BioASQ/blob/main/scripts/public/README.md).
 
 ### Snippet-RRF route (optional)
 
 ```bash
-./scripts/public/shared_scripts/run_retrieval_rerank_pipeline.sh \
-  --config scripts/public/shared_scripts/workflow_config_baseline.env \
+./run_retrieval_rerank_pipeline.sh \
+  --config workflow_config_baseline.env \
   --snippet-rrf
 ```
 

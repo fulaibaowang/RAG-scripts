@@ -1,6 +1,6 @@
 # Tunable parameters
 
-Authoritative commented list of **every** workflow variable: [workflow_config_full.env](../workflow_config_full.env) (section banners `# ---------- ... ----------` match the headings below). This document adds **tuning ranges**, **constraints**, **how caps chain across stages**, and links to notebooks. For BioASQ-oriented paths and Docker, see [docs/USAGE.md](../../../../docs/USAGE.md) and the script index [scripts/public/README.md](../../README.md).
+Authoritative commented list of **every** workflow variable: [workflow_config_full.env](../workflow_config_full.env) (section banners `# ---------- ... ----------` match the headings below). This document adds **tuning ranges**, **constraints**, **how caps chain across stages**, and links to notebooks. For BioASQ-oriented paths and Docker, see [BioASQ docs/USAGE.md](https://github.com/fulaibaowang/BioASQ/blob/main/docs/USAGE.md) and the script index [BioASQ scripts/public/README.md](https://github.com/fulaibaowang/BioASQ/blob/main/scripts/public/README.md).
 
 ## Quick index
 
@@ -40,7 +40,7 @@ The pipeline reads **query streams only from `.jsonl`** (one JSON object per lin
 | `INPUT_JSONL` | Primary query file (optional if all splits are listed in batches) |
 | `INPUT_BATCH_JSONLS` | Space-separated list of additional query `.jsonl` files |
 
-Legacy names `TRAIN_JSON` / `TEST_BATCH_JSONS` are accepted by the shell driver only when they point to `.jsonl` paths. Wrapped task JSON (`{"questions":[...]}`) must be converted to `.jsonl` first; for BioASQ use [scripts/public/format/bioasq_json_to_queries_jsonl.py](../../format/bioasq_json_to_queries_jsonl.py) (see [scripts/public/README.md](../../README.md)).
+Legacy names `TRAIN_JSON` / `TEST_BATCH_JSONS` are accepted by the shell driver only when they point to `.jsonl` paths. Wrapped task JSON (`{"questions":[...]}`) must be converted to `.jsonl` first; for BioASQ use [`bioasq_json_to_queries_jsonl.py`](https://github.com/fulaibaowang/BioASQ/blob/main/scripts/public/format/bioasq_json_to_queries_jsonl.py) (see [BioASQ scripts/public/README.md](https://github.com/fulaibaowang/BioASQ/blob/main/scripts/public/README.md)).
 
 ### Unified retrieval depth (`TOP_K`)
 
@@ -161,7 +161,7 @@ Corresponds to `# ---------- BM25 + RM3 ----------` in [workflow_config_full.env
 
 **Decision:** Aggressive config (`fb_docs=20, fb_terms=30, fb_lambda=0.6`) achieved the highest recall while balanced configs had marginally higher MAP@10 but lower recall.
 
-See [notebooks/bm25_test.ipynb](../../../notebooks/bm25_test.ipynb) for the RM3 parameter sweep.
+See [notebooks/bm25_test.ipynb](https://github.com/fulaibaowang/BioASQ/blob/main/notebooks/bm25_test.ipynb) for the RM3 parameter sweep.
 
 ---
 
@@ -180,7 +180,7 @@ Corresponds to `# ---------- Dense ----------` in [workflow_config_full.env](../
 
 **Decision:** Only `ef_search` was swept (5000/10000/20000); differences in MeanR@5000 were marginal (0.845 → 0.850). The retrieval script auto-promotes `ef_search` to `max(meta_value, topk)` so a small meta default does not limit deep recall.
 
-See [notebooks/dense_test.ipynb](../../../notebooks/dense_test.ipynb) for details.
+See [notebooks/dense_test.ipynb](https://github.com/fulaibaowang/BioASQ/blob/main/notebooks/dense_test.ipynb) for details.
 
 ### Dense models tested
 
@@ -189,7 +189,7 @@ See [notebooks/dense_test.ipynb](../../../notebooks/dense_test.ipynb) for detail
 | [abhinand/MedEmbed-small-v0.1](https://huggingface.co/abhinand/MedEmbed-small-v0.1) | **Default** — used in production pipeline |
 | [NeuML/pubmedbert-base-embeddings](https://huggingface.co/NeuML/pubmedbert-base-embeddings) | Worse hybrid recall than MedEmbed |
 
-See [notebooks/hybrid_pubmedbert.ipynb](../../../notebooks/hybrid_pubmedbert.ipynb) for the model comparison.
+See [notebooks/hybrid_pubmedbert.ipynb](https://github.com/fulaibaowang/BioASQ/blob/main/notebooks/hybrid_pubmedbert.ipynb) for the model comparison.
 
 ---
 
@@ -205,7 +205,7 @@ Corresponds to `# ---------- Hybrid ----------` in [workflow_config_full.env](..
 
 **Decision:** Equal weights (`1.0 / 1.0`) with `K_RRF=150` selected via grid search (25 configs). Best MeanR@2000 = 0.9012.
 
-See [notebooks/hybrid.ipynb](../../../notebooks/hybrid.ipynb) for the RRF grid search.
+See [notebooks/hybrid.ipynb](https://github.com/fulaibaowang/BioASQ/blob/main/notebooks/hybrid.ipynb) for the RRF grid search.
 
 ---
 
@@ -232,7 +232,7 @@ Corresponds to `# ---------- Reranker + Evidence (global: PubMed/literature corp
 
 **Decision:** `candidate-limit=2000` from recall curves (95% of max hybrid recall). BGE v2 at `max_length=512` is the default reranker.
 
-See [notebooks/analyze_results.ipynb](../../../notebooks/analyze_results.ipynb) for recall curves and comparisons.
+See [notebooks/analyze_results.ipynb](https://github.com/fulaibaowang/BioASQ/blob/main/notebooks/analyze_results.ipynb) for recall curves and comparisons.
 
 ### Post-rerank fusion
 
@@ -246,7 +246,7 @@ See [notebooks/analyze_results.ipynb](../../../notebooks/analyze_results.ipynb) 
 
 **Decision:** Reranker-dominant fusion (`w_bge=0.8, w_hybrid=0.2`) outperforms pure reranker output. Optimal for MAP@10: `k_rrf=30, pool_rerank=50, pool_hybrid=50`. Optimal for Recall@50: `k_rrf=60, pool_rerank=100, pool_hybrid=200`.
 
-See [notebooks/analyze_workflow_results.ipynb](../../../notebooks/analyze_workflow_results.ipynb) for the fusion sweep.
+See [notebooks/analyze_workflow_results.ipynb](https://github.com/fulaibaowang/BioASQ/blob/main/notebooks/analyze_workflow_results.ipynb) for the fusion sweep.
 
 ---
 
@@ -291,7 +291,7 @@ The snippet-RRF route adds snippet window reranking and final doc/snippet fusion
 | `SNIPPET_RRF_W_DOCS` | 0.5 – 0.9 | **0.8** | Weight on doc-side post-rerank fusion |
 | `SNIPPET_RRF_W_SNIPPET` | 0.1 – 0.5 | **0.2** | Weight on `snippet/snippet_rerank` |
 
-See [notebooks/snippet_extraction.ipynb](../../../notebooks/snippet_extraction.ipynb) and [notebooks/snippet_extraction_MedCPT.ipynb](../../../notebooks/snippet_extraction_MedCPT.ipynb).
+See [notebooks/snippet_extraction.ipynb](https://github.com/fulaibaowang/BioASQ/blob/main/notebooks/snippet_extraction.ipynb) and [notebooks/snippet_extraction_MedCPT.ipynb](https://github.com/fulaibaowang/BioASQ/blob/main/notebooks/snippet_extraction_MedCPT.ipynb).
 
 ---
 
@@ -329,7 +329,7 @@ Corresponds to `# ---------- Generation (LLM answers from contexts JSONL) ------
 
 **Decision:** Temperature differences were marginal; default `temperature=0.0` for deterministic output.
 
-See [notebooks/generation_test.ipynb](../../../notebooks/generation_test.ipynb) for temperature and prompt tests.
+See [notebooks/generation_test.ipynb](https://github.com/fulaibaowang/BioASQ/blob/main/notebooks/generation_test.ipynb) for temperature and prompt tests.
 
 ---
 
@@ -345,4 +345,4 @@ See [notebooks/generation_test.ipynb](../../../notebooks/generation_test.ipynb) 
 | 2.5 (optional) | Snippet rerank + fusion | `SNIPPET_N_DOCS=100, window=3/1, top_w=8, final_pool=SNIPPET_N_DOCS, weights=0.8/0.2` |
 | 3 | Generation | `temperature=0.0, max_contexts=10` |
 
-For multi-query fusion, HyDE, and deduplication, see [../query_parsing/MULTI_QUERY_HYDE.md](../query_parsing/MULTI_QUERY_HYDE.md).
+For multi-query fusion, HyDE, and deduplication, see [MULTI_QUERY_HYDE.md](https://github.com/fulaibaowang/BioASQ/blob/main/scripts/public/query_parsing/MULTI_QUERY_HYDE.md) in the BioASQ repository.
