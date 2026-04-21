@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+from retrieval_eval.common import question_qid
+
 # Post-rerank JSONL field: doc_id -> list of {window_idx, ce_score, optional query_field}
 DOC_SNIPPET_WINDOWS_KEY = "doc_snippet_windows"
 
@@ -80,7 +82,7 @@ def load_by_pair_from_windows_jsonl(
 
 def by_pair_from_question_embedded(q: dict) -> Dict[Tuple[str, str], List[Tuple[float, int, Optional[str]]]]:
     """Build the same by_pair slice as load_by_pair_from_windows_jsonl, from one question's embedded windows."""
-    qid = q.get("id")
+    qid = question_qid(q)
     if qid is None:
         return {}
     qid_s = str(qid)

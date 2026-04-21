@@ -63,9 +63,12 @@ if str(_SHARED_DIR) not in sys.path:
     sys.path.insert(0, str(_SHARED_DIR))
 
 from retrieval_eval.common import (  # noqa: E402
-    load_questions,
     build_topics_and_gold,
+    load_questions,
     normalize_pmid,
+    question_body,
+    question_qid_str,
+    question_type,
     recall_at_k,
 )
 
@@ -476,15 +479,19 @@ def fetch_titles_ncbi(pmids: Set[str], *, quiet: bool = False) -> Dict[str, str]
 # ---------------------------------------------------------------------------
 
 def _build_question_meta(questions: List[dict]) -> Dict[str, dict]:
-    """Map qid -> {body, type, documents (raw URLs)}."""
+    """Map qid -> {body, type, documents (raw URLs)} (``body``/``type`` are report column labels)."""
     meta: Dict[str, dict] = {}
-    for q in questions:
-        qid = str(q.get("id") or q.get("qid") or "")
+    for i, q in enumerate(questions):
+        try:
+            qid = question_qid_str(q, fallback_index=i)
+        except ValueError:
+            continue
         if not qid:
             continue
+        qt = question_type(q).lower() or "unknown"
         meta[qid] = {
-            "body": (q.get("body") or q.get("query") or q.get("question") or "").strip(),
-            "type": (q.get("type") or "unknown").lower(),
+            "body": question_body(q),
+            "type": qt,
             "documents": q.get("documents") or [],
         }
     return meta

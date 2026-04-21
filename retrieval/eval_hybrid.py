@@ -28,6 +28,7 @@ from retrieval_eval.common import (  # noqa: E402
     evaluate_run,
     load_questions,
     normalize_pmid,
+    question_qid_str,
     RECALL_KS,
 )
 
@@ -583,7 +584,7 @@ def main() -> None:
         train_questions = [
             q
             for i, q in enumerate(train_questions_all)
-            if str(q.get("id") or q.get("qid") or i) not in test_qids
+            if question_qid_str(q, fallback_index=i) not in test_qids
         ]
 
     train_stem = train_path.stem if train_path is not None else ""

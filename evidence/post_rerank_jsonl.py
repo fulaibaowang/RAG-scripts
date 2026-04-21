@@ -131,7 +131,7 @@ def main() -> int:
         configure_logging_from_env()
     except ImportError:
         pass
-    from retrieval_eval.common import iter_questions_jsonl, write_questions_jsonl
+    from retrieval_eval.common import iter_questions_jsonl, question_qid, write_questions_jsonl
 
     from snippet_window_ce import embed_doc_snippet_windows_for_question, load_by_pair_from_windows_jsonl
 
@@ -167,7 +167,7 @@ def main() -> int:
     out_questions = []
     n_with_windows = 0
     for q in iter_questions_jsonl(args.query_jsonl):
-        qid = q.get("id")
+        qid = question_qid(q)
         if qid is None:
             continue
         new_q = {k: v for k, v in q.items() if k not in ORACLE_KEYS}

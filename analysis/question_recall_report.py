@@ -52,8 +52,9 @@ from low_recall_report import (  # noqa: E402
     fetch_titles_ncbi,
 )
 from retrieval_eval.common import (  # noqa: E402
-    load_questions,
     build_topics_and_gold,
+    load_questions,
+    question_qid_str,
     recall_at_k,
 )
 
@@ -242,7 +243,7 @@ def main(argv: Optional[List[str]] = None) -> None:
     questions = load_questions(gt_path)
     _, gold_map = build_topics_and_gold(questions)
     question_meta = _build_question_meta(questions)
-    all_qids = [str(q.get("id") or q.get("qid") or i) for i, q in enumerate(questions)]
+    all_qids = [question_qid_str(q, fallback_index=i) for i, q in enumerate(questions)]
     print(f"  {len(questions)} questions loaded")
     print()
 

@@ -53,34 +53,74 @@ def _ensure_jsonl_query_path(path: Path, label: str = "path") -> Path:
     return p
 
 
-def normalize_query_record(rec: dict) -> dict:
-    """Merge optional bioasq blob + query_* aliases into one BioASQ-shaped question dict."""
+def question_qid(rec: dict) -> Any:
+    """Resolve question id for joins; prefer pipeline ``query_id``, then legacy ``id`` / ``qid``."""
+    for k in ("query_id", "id", "qid"):
+        v = rec.get(k)
+        if v is not None and v != "":
+            return v
+    bio = rec.get("bioasq")
+    if isinstance(bio, dict):
+        v = bio.get("id")
+        if v is not None and v != "":
+            return v
+    return None
+
+
+def question_qid_str(rec: dict, *, fallback_index: Optional[int] = None) -> str:
+    v = question_qid(rec)
+    if v is not None:
+        return str(v)
+    if fallback_index is not None:
+        return str(fallback_index)
+    raise ValueError(
+        "JSONL record missing query_id (or legacy id/qid / bioasq.id). "
+        f"Keys (sample): {list(rec.keys())[:12]}"
+    )
+
+
+def question_body(rec: dict) -> str:
+    """Primary question text: ``query_text``, then legacy ``body`` / ``query`` / ``question`` / ``bioasq.body``."""
+    bio = rec.get("bioasq") if isinstance(rec.get("bioasq"), dict) else {}
+    v = rec.get("query_text", rec.get("body", rec.get("query", rec.get("question", bio.get("body")))))
+    return str(v or "").strip()
+
+
+def question_type(rec: dict) -> str:
+    """Task label: ``query_type``, then legacy ``type`` / ``bioasq.type``."""
+    bio = rec.get("bioasq") if isinstance(rec.get("bioasq"), dict) else {}
+    v = rec.get("query_type", rec.get("type", bio.get("type")))
+    return str(v or "").strip()
+
+
+def canonical_pipeline_query_jsonl_record(rec: dict) -> dict:
+    """Normalize to the shared_scripts JSONL wire format: ``query_id``, ``query_text``, ``query_type`` only.
+
+    Strips BioASQ-shaped duplicates (``id``, ``body``, ``type``, ``qid``, nested ``bioasq``) so pipeline
+    artifacts stay consistent; use ``scripts/public/format/queries_jsonl_to_bioasq_json.py`` for
+    BioASQ ``id`` / ``body`` / ``type`` export.
+    """
     if not isinstance(rec, dict):
         raise TypeError(f"Expected dict per JSONL line, got {type(rec)}")
-    out: Dict[str, Any] = {}
-    bioasq = rec.get("bioasq")
-    if isinstance(bioasq, dict):
-        out.update(bioasq)
-    aliases = (
-        ("query_id", "id"),
-        ("query_text", "body"),
-        ("query_type", "type"),
-    )
-    for src, dst in aliases:
-        if rec.get(src) is not None:
-            out[dst] = rec[src]
-    for k, v in rec.items():
-        if k in ("bioasq", "query_id", "query_text", "query_type"):
-            continue
-        if k not in out:
-            out[k] = v
-    qid = out.get("id")
+    qid = question_qid(rec)
     if qid is None:
         raise ValueError(
-            "JSONL record missing id (set id, query_id, or bioasq.id). "
+            "JSONL record missing query_id (set query_id, or legacy id / qid / bioasq.id). "
             f"Keys (sample): {list(rec.keys())[:12]}"
         )
+    text = question_body(rec)
+    qtype = question_type(rec)
+    drop = frozenset({"bioasq", "query_id", "query_text", "query_type", "id", "body", "type", "qid"})
+    out = {k: v for k, v in rec.items() if k not in drop}
+    out["query_id"] = qid
+    out["query_text"] = text
+    out["query_type"] = qtype
     return out
+
+
+def normalize_query_record(rec: dict) -> dict:
+    """Deprecated name for :func:`canonical_pipeline_query_jsonl_record`."""
+    return canonical_pipeline_query_jsonl_record(rec)
 
 
 def iter_questions_jsonl(path: Path) -> Iterator[dict]:
@@ -101,7 +141,7 @@ def iter_questions_jsonl(path: Path) -> Iterator[dict]:
                 )
             if not isinstance(obj, dict):
                 raise ValueError(f"{p}:{lineno}: each line must be a JSON object, got {type(obj)}")
-            yield normalize_query_record(obj)
+            yield canonical_pipeline_query_jsonl_record(obj)
 
 
 def load_questions_jsonl(path: Path) -> List[dict]:
@@ -115,7 +155,9 @@ def write_questions_jsonl(path: Path, records: Iterable[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         for rec in records:
-            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            if not isinstance(rec, dict):
+                raise TypeError(f"write_questions_jsonl: expected dict records, got {type(rec)}")
+            f.write(json.dumps(canonical_pipeline_query_jsonl_record(rec), ensure_ascii=False) + "\n")
 
 
 def load_questions(json_path: Path) -> List[dict]:
@@ -140,13 +182,13 @@ def build_topics_and_gold(
     verify the numbers.  Use this for multi-query sub-runs where some questions
     legitimately have no alternative query text.
 
-    If *query_field* is ``None``, query text is taken from body / query / question.
+    If *query_field* is ``None``, query text is taken from :func:`question_body` (``query_text`` / legacy keys).
     """
     rows = []
     gold: Dict[str, List[str]] = {}
     n_skipped = 0
     for i, q in enumerate(questions):
-        qid = str(q.get("id") or q.get("qid") or i)
+        qid = question_qid_str(q, fallback_index=i)
 
         docs = q.get("documents") or []
         pmids = [normalize_pmid(d) for d in docs]
@@ -167,7 +209,7 @@ def build_topics_and_gold(
                 )
             query = str(val).strip()
         else:
-            query = str(q.get("body") or q.get("query") or q.get("question") or "").strip()
+            query = question_body(q)
 
         rows.append({"qid": qid, "query": query})
 
@@ -185,7 +227,7 @@ def build_topics_and_gold(
 def collect_qids_from_questions(questions: List[dict]) -> set[str]:
     out = set()
     for i, q in enumerate(questions):
-        out.add(str(q.get("id") or q.get("qid") or i))
+        out.add(question_qid_str(q, fallback_index=i))
     return out
 
 

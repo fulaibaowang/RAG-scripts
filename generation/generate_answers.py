@@ -3,7 +3,7 @@
 Generate BioASQ answers from contexts JSON using an LLM.
 
 Reads contexts JSONL from build_contexts_from_documents.py / build_contexts_from_snippets.py
-(id, body, type, contexts with ``doc_id`` per row; optional ``doc_ids`` on the question),
+(``query_id``, ``query_text``, ``query_type``, contexts with ``doc_id`` per row; optional ``doc_ids`` on the question),
 calls an LLM per question, parses ideal_answer and
 evidence_ids (and exact_answer for yesno/factoid/list), and writes a single
 JSONL file to output_dir (e.g. output_dir/<stem>_answers.jsonl).
@@ -492,8 +492,13 @@ def build_full_prompt_for_record(
     Schema snippets: explicit ``schemas_dir`` if passed; else ``GENERATION_SCHEMAS_DIR``;
     else ``prompts_dir / "schemas"`` (same order as ``main()`` without ``--schemas-dir``).
     """
-    qtype = (record.get("type") or "").strip().lower()
-    question = (record.get("body") or "").strip()
+    _shared = Path(__file__).resolve().parents[1]
+    if str(_shared) not in sys.path:
+        sys.path.insert(0, str(_shared))
+    from retrieval_eval.common import question_body, question_type
+
+    qtype = question_type(record).lower()
+    question = question_body(record)
     contexts = record.get("contexts") or []
     if not question or not contexts:
         return ""
@@ -511,7 +516,7 @@ def build_full_prompt_for_record(
         return ""
     system_text = system_path.read_text(encoding="utf-8").strip()
     user_base_text = user_path.read_text(encoding="utf-8").strip()
-    schema_block = resolve_schema_block(_schemas, record.get("type") or "")
+    schema_block = resolve_schema_block(_schemas, question_type(record) or "")
     evidence_block = format_evidence_block(contexts, max_contexts, max_chars_per_context)
     user_prompt = format_user_prompt(
         user_base_text,
@@ -720,7 +725,7 @@ def main() -> int:
     for _q in ("", "summary", "yesno", "factoid", "list"):
         get_schema_block(_q)
 
-    from retrieval_eval.common import write_questions_jsonl
+    from retrieval_eval.common import question_body, question_qid, question_type, write_questions_jsonl
 
     all_objs = load_contexts_jsonl(args.input_path)
     total = len(all_objs)
@@ -736,9 +741,9 @@ def main() -> int:
     json_path = args.output_dir / f"{stem}_answers.jsonl"
 
     def process_one(idx: int, obj: Dict[str, Any]) -> tuple[int, Dict[str, Any]]:
-        q_id = obj.get("id")
-        qtype = (obj.get("type") or "").strip().lower()
-        question = obj.get("body", "") or ""
+        q_id = question_qid(obj)
+        qtype = question_type(obj).lower()
+        question = question_body(obj) or ""
         if args.evidence_source == "contexts":
             contexts = obj.get("contexts") or []
         else:
@@ -847,7 +852,7 @@ def main() -> int:
                 _, rec = fut.result()
                 results_by_idx[idx] = rec
             except Exception as e:
-                logger.warning("Task failed for id=%s: %s; recording as error", obj.get("id"), e)
+                logger.warning("Task failed for id=%s: %s; recording as error", question_qid(obj), e)
                 rec = dict(obj)
                 _ids = obj.get("doc_ids") or obj.get("docnos")
                 if isinstance(_ids, list) and _ids:
@@ -859,7 +864,7 @@ def main() -> int:
                 rec["ideal_answer"] = None
                 rec["evidence_ids"] = []
                 rec["error"] = str(e)
-                qtype = (obj.get("type") or "").strip().lower()
+                qtype = question_type(obj).lower()
                 if qtype in ("yesno", "factoid", "list"):
                     rec["exact_answer"] = None
                 results_by_idx[idx] = rec
@@ -885,10 +890,10 @@ def main() -> int:
             rec["ideal_answer"] = None
             rec["evidence_ids"] = []
             rec["error"] = "missing_from_results"
-            if (obj.get("type") or "").strip().lower() in ("yesno", "factoid", "list"):
+            if question_type(obj).lower() in ("yesno", "factoid", "list"):
                 rec["exact_answer"] = None
             records_out.append(rec)
-            logger.warning("No result for index %d (id=%s); added record with error", i, obj.get("id"))
+            logger.warning("No result for index %d (id=%s); added record with error", i, question_qid(obj))
 
     write_questions_jsonl(json_path, records_out)
 

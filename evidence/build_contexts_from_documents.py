@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 _SHARED_SCRIPTS = Path(__file__).resolve().parents[1]
 if str(_SHARED_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SHARED_SCRIPTS))
-from retrieval_eval.common import iter_questions_jsonl, write_questions_jsonl
+from retrieval_eval.common import iter_questions_jsonl, question_qid, write_questions_jsonl
 from retrieval_eval.doc_id_util import ranked_doc_ids_for_evidence
 
 
@@ -214,7 +214,7 @@ def main() -> int:
     missing_total = 0
     out_questions: List[dict] = []
     for q in questions:
-        qid = q.get("id")
+        qid = question_qid(q)
         if qid is None:
             continue
         contexts = []

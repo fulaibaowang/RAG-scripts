@@ -32,6 +32,7 @@ from retrieval_eval.common import (  # type: ignore
     build_topics_and_gold,
     evaluate_run,
     load_questions,
+    question_qid_str,
     run_df_to_run_map,
 )
 
@@ -205,7 +206,7 @@ def _evaluate_run_lightweight(
 def _build_gold_map(questions: List[dict]) -> Dict[str, List[str]]:
     gold: Dict[str, List[str]] = {}
     for q in questions:
-        qid = str(q.get("id") or q.get("qid"))
+        qid = question_qid_str(q)
         docs = q.get("documents", [])
         pmids = [_normalize_pmid(d) for d in docs]
         pmids = [p for p in pmids if p]

@@ -34,7 +34,7 @@ os.environ.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
 _SHARED_SCRIPTS = Path(__file__).resolve().parents[1]
 if str(_SHARED_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SHARED_SCRIPTS))
-from retrieval_eval.common import load_questions
+from retrieval_eval.common import load_questions, question_body, question_qid_str
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -72,9 +72,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--query-field",
         type=str,
-        default="body",
-        help="Question JSON key for listwise query text (e.g. body, body_hyde). "
-        "Falls back to body, query, question if the key is missing.",
+        default="query_text",
+        help="Question JSON key for listwise query text (e.g. query_text, body_hyde). "
+        "Falls back to question_body() (query_text / legacy body / query / question) if the key is missing.",
     )
 
     # Single-window config
@@ -231,7 +231,7 @@ def evaluate_run(
 def build_gold_map(questions: List[dict]) -> Dict[str, List[str]]:
     gold: Dict[str, List[str]] = {}
     for q in questions:
-        qid = str(q.get("id") or q.get("qid"))
+        qid = question_qid_str(q)
         docs = q.get("documents", [])
         pmids = [normalize_pmid(d) for d in docs]
         pmids = [p for p in pmids if p]
@@ -449,13 +449,13 @@ def main():
         all_questions.extend(qs)
         logger.info("Loaded %d questions from %s", len(qs), p)
 
-    qf = (args.query_field or "body").strip() or "body"
+    qf = (args.query_field or "query_text").strip() or "query_text"
     for q in all_questions:
-        qid = str(q.get("id") or q.get("qid"))
+        qid = question_qid_str(q)
         raw = q.get(qf)
         body = str(raw).strip() if raw is not None else ""
         if not body:
-            body = str(q.get("body") or q.get("query") or q.get("question") or "")
+            body = question_body(q)
         qid_to_query[qid] = body
     logger.info("Total: %d queries loaded", len(qid_to_query))
 

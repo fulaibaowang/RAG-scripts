@@ -60,27 +60,29 @@ Other stage scripts are invoked by the orchestrator; see [docs/USAGE.md](docs/US
 
 ## Input and output schema (JSONL examples)
 
-The pipeline uses **one JSON object per line** (JSONL). 
+The pipeline uses **one JSON object per line** (JSONL). **Wire format** for question identity is always **`query_id`**, **`query_text`**, **`query_type`** on read and write (nested **`bioasq`** and duplicate **`id` / `body` / `type`** fields are dropped when loading). Legacy lines that only have `id` / `body` / `type` are still accepted on read and normalized to `query_*`. For BioASQ submission JSON with `id` / `body` / `type`, run [`scripts/public/format/queries_jsonl_to_bioasq_json.py`](../format/queries_jsonl_to_bioasq_json.py).
 
 ### Input query JSONL
 
-Each line is a single question. You must be able to resolve an **`id`** (`id`, `qid`, or `query_id`). The retrieval topic text is read from **`body`**, or **`query_text`**. Optional **`query_type`** or **`type`**. 
+Each line is a single question. **`query_id`** is required (after normalization from legacy `id` / `qid` / `bioasq.id` if needed). **`query_text`** is the retrieval topic; **`query_type`** is the BioASQ task label (`summary`, `yesno`, `factoid`, `list`).
 
 ```json
 {
   "query_id": "67d723d918b1e36f2e000039",
-  "query_text": "Are there biomarkers of depression?"
+  "query_text": "Are there biomarkers of depression?",
+  "query_type": "summary"
 }
 ```
 
 ### Post-rerank JSONL output
 
-Carries the question fields with retrieved **`doc_ids`** in rank order.
+Carries **`query_*`** plus retrieved **`doc_ids`** in rank order (no PubMed URLs here).
 
 ```json
 {
-  "id": "680fe1e3353a4a2e6b00000f",
-  "body": "Is a single-nucleotide polymorphism (SNP) the same as a mutation?",
+  "query_id": "680fe1e3353a4a2e6b00000f",
+  "query_text": "Is a single-nucleotide polymorphism (SNP) the same as a mutation?",
+  "query_type": "yesno",
   "doc_ids": ["26173390", "28431642", "21453671", "30498395", "12741168"]
 }
 ```
@@ -89,8 +91,9 @@ Carries the question fields with retrieved **`doc_ids`** in rank order.
 
 ```json
 {
-  "id": "680fe1e3353a4a2e6b00000f",
-  "body": "Is a single-nucleotide polymorphism (SNP) the same as a mutation?",
+  "query_id": "680fe1e3353a4a2e6b00000f",
+  "query_text": "Is a single-nucleotide polymorphism (SNP) the same as a mutation?",
+  "query_type": "yesno",
   "doc_ids": ["26173390", "28431642"],
   "doc_snippet_windows": {
     "26173390": [
@@ -110,8 +113,9 @@ Written by `generation/generate_answers.py` from a **contexts** JSONL (e.g. outp
 
 ```json
 {
-  "id": "680fe1e3353a4a2e6b00000f",
-  "body": "Is a single-nucleotide polymorphism (SNP) the same as a mutation?",
+  "query_id": "680fe1e3353a4a2e6b00000f",
+  "query_text": "Is a single-nucleotide polymorphism (SNP) the same as a mutation?",
+  "query_type": "yesno",
   "doc_ids": ["26173390", "28431642"],
   "contexts": [
     {
