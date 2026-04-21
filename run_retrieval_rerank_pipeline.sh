@@ -1228,7 +1228,9 @@ _DOCS_JSONL_OK=0
             --query-jsonl "$_query_jsonl" \
             --output-path "$_post_json" \
             --top-k "$_POST_RERANK_POOL" \
-            --windows-jsonl "$SNIPPET_RERANK_OUT/windows/${_split}.jsonl"
+            --windows-jsonl "$SNIPPET_RERANK_OUT/windows/${_split}.jsonl" \
+            --window-size "${SNIPPET_WINDOW_SIZE:-3}" \
+            --top-windows "${SNIPPET_CONTEXT_TOP_WINDOWS:-2}"
         else
           if [ "$_USE_SNIPPET_CTX" = "1" ]; then
             echo "[Evidence] Warning: no windows file $SNIPPET_RERANK_OUT/windows/${_split}.jsonl; post_rerank without CE merge" >&2

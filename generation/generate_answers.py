@@ -70,6 +70,20 @@ MAX_LLM_RETRIES = 3
 logger = logging.getLogger(__name__)
 
 
+def sanitize_generation_record(rec: Dict[str, Any]) -> None:
+    """Slim answer JSONL: drop question-level window blob; strip rejected_windows; trim window rows."""
+    rec.pop("doc_snippet_windows", None)
+    for ctx in rec.get("contexts") or []:
+        if not isinstance(ctx, dict):
+            continue
+        ctx.pop("rejected_windows", None)
+        sw = ctx.get("selected_windows")
+        if isinstance(sw, list):
+            for w in sw:
+                if isinstance(w, dict):
+                    w.pop("window_idx", None)
+
+
 def _is_retryable_request_error(exc: BaseException) -> bool:
     """True if the exception is a transient error worth retrying (timeout, 5xx, connection)."""
     if isinstance(exc, (requests.exceptions.Timeout, requests.exceptions.ConnectionError)):
@@ -764,6 +778,7 @@ def main() -> int:
             out["error"] = "missing_question_or_contexts"
             if qtype in ("yesno", "factoid", "list"):
                 out["exact_answer"] = None
+            sanitize_generation_record(out)
             return idx, out
 
         schema_block = get_schema_block(qtype)
@@ -831,6 +846,7 @@ def main() -> int:
             out["error"] = str(last_error)
             if qtype in ("yesno", "factoid", "list"):
                 out["exact_answer"] = None
+        sanitize_generation_record(out)
         return idx, out
 
     results_by_idx: Dict[int, Dict[str, Any]] = {}
@@ -867,6 +883,7 @@ def main() -> int:
                 qtype = question_type(obj).lower()
                 if qtype in ("yesno", "factoid", "list"):
                     rec["exact_answer"] = None
+                sanitize_generation_record(rec)
                 results_by_idx[idx] = rec
             completed_count += 1
             if progress_every and (completed_count == 1 or completed_count % progress_every == 0 or completed_count == total):
@@ -892,6 +909,7 @@ def main() -> int:
             rec["error"] = "missing_from_results"
             if question_type(obj).lower() in ("yesno", "factoid", "list"):
                 rec["exact_answer"] = None
+            sanitize_generation_record(rec)
             records_out.append(rec)
             logger.warning("No result for index %d (id=%s); added record with error", i, question_qid(obj))
 

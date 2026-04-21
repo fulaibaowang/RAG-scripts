@@ -7,7 +7,7 @@ title and abstract for each doc id in a PubMed JSONL corpus (``pmid`` field must
 for PubMed), appends a ``contexts`` list with ``doc_id`` per row (no PubMed URLs). Only the
 first ``--evidence-top-k`` ranked ``doc_ids`` are used (post-rerank may list a larger pool).
 Legacy post-rerank
-with URL ``documents`` or ``docnos`` is still accepted.
+with URL ``documents`` or ``docnos`` is still accepted. Each output question includes ``context_mode``: ``document``.
 """
 
 import argparse
@@ -23,9 +23,12 @@ from typing import Dict, List, Optional, Set, Tuple
 logger = logging.getLogger(__name__)
 
 _SHARED_SCRIPTS = Path(__file__).resolve().parents[1]
-if str(_SHARED_SCRIPTS) not in sys.path:
-    sys.path.insert(0, str(_SHARED_SCRIPTS))
+_EVIDENCE_DIR = Path(__file__).resolve().parent
+for _p in (_SHARED_SCRIPTS, _EVIDENCE_DIR):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
 from retrieval_eval.common import iter_questions_jsonl, question_qid, write_questions_jsonl
+from snippet_window_ce import CONTEXT_MODE_DOCUMENT
 from retrieval_eval.doc_id_util import ranked_doc_ids_for_evidence
 
 
@@ -234,6 +237,7 @@ def main() -> int:
             )
         # Full question object (body, type, id, documents, etc.) with contexts appended
         out_q = dict(q)
+        out_q["context_mode"] = CONTEXT_MODE_DOCUMENT
         out_q["contexts"] = contexts
         out_questions.append(out_q)
 

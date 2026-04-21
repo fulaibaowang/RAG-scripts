@@ -157,9 +157,9 @@ python rerank/rerank_stage2.py \
 
 `run_retrieval_rerank_pipeline.sh` does **not** stop at the cross-encoder. It continues with:
 
-1. **Post-rerank JSONL** — merge each query split with the ranked doc list from the chosen run TSV (`post_rerank_<split>.jsonl` under `rerank/post_rerank_fusion/` or the snippet fusion tree; see [output.md](output.md)).
-2. **Contexts JSONL** — attach evidence text from the corpus (`evidence/evidence_*/*_contexts.jsonl`), either full title+abstract per doc (`build_contexts_from_documents.py`) or snippet windows (`build_contexts_from_snippets.py` on the snippet route).
-3. **LLM generation** — `generate_answers.py` then optional `rescue_failed_generation.py` under `generation/generation_*`.
+1. **Post-rerank JSONL** — merge each query split with the ranked doc list from the chosen run TSV (`post_rerank_<split>.jsonl` under `rerank/post_rerank_fusion/` or the snippet fusion tree; see [output.md](output.md)). On the snippet route, optional `--windows-jsonl` also merges **pre-selected** CE windows into compact `doc_snippet_windows` (`--window-size`, `--top-windows`, same env names as `build_contexts_from_snippets.py`).
+2. **Contexts JSONL** — attach evidence text from the corpus (`evidence/evidence_*/*_contexts.jsonl`), either full title+abstract per doc (`build_contexts_from_documents.py`) or snippet windows (`build_contexts_from_snippets.py` on the snippet route). Each question row carries `context_mode`: `document` or `snippet`.
+3. **LLM generation** — `generate_answers.py` then optional `rescue_failed_generation.py` under `generation/generation_*`. Answer JSONL drops `doc_snippet_windows` and per-context `rejected_windows` (and `window_idx` inside `selected_windows`); `context_mode` is kept.
 
 Use `--no-generation` (or `RUN_GENERATION_*=0`) to build evidence only. Env knobs (`POST_RERANK_DOC_POOL`, `EVIDENCE_TOP_K*`, `GENERATION_*`, backends): [PARAMETERS.md](PARAMETERS.md).
 
@@ -180,6 +180,14 @@ python evidence/build_contexts_from_documents.py \
   --output-path "output/.../evidence/my_split_contexts.jsonl" \
   --evidence-top-k 10
 ```
+
+### Snippet route: JSONL shapes
+
+**Post-rerank** (`post_rerank_jsonl.py` with `--windows-jsonl`): `doc_snippet_windows` is only the compact map `pmid → {"selected_windows": [{"window_idx", "ce_score", "sent_ids", "query_field"?}, ...]}` (no full max-pooled lattice). **Older** `post_rerank_*.jsonl` that stored `pmid → [ flat list of all pooled windows ]` are no longer supported for embedded snippet evidence; regenerate post-rerank with the current script, or point `build_contexts_from_snippets.py` at `--snippet-windows-dir` until you do.
+
+**Contexts** (`*_contexts.jsonl`): full provenance remains on disk (`selected_windows`, `rejected_windows` on each context where applicable) plus top-level `doc_snippet_windows` when present, and `context_mode: "snippet"` or `"document"`.
+
+**Answers** (`*_answers.jsonl`): after `generate_answers.py`, records omit `doc_snippet_windows` and context `rejected_windows`; `context_mode` is preserved.
 
 Set **`GENERATION_BACKEND=openai_compat`**, **`GEN_API_BASE`** (OpenAI-compatible `.../v1` base URL for chat completions), and **`GEN_API_KEY`**, then:
 

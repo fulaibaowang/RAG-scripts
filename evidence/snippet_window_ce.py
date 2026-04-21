@@ -8,8 +8,12 @@ from typing import Dict, List, Optional, Tuple
 
 from retrieval_eval.common import question_qid
 
-# Post-rerank JSONL field: doc_id -> list of {window_idx, ce_score, optional query_field}
+# Post-rerank JSONL field: compact shape doc_id -> {"selected_windows": [...]}
 DOC_SNIPPET_WINDOWS_KEY = "doc_snippet_windows"
+
+# Provenance on contexts / answers JSONL (question-level)
+CONTEXT_MODE_DOCUMENT = "document"
+CONTEXT_MODE_SNIPPET = "snippet"
 
 # When ce_score ties, prefer lexicographically smaller query_field; missing sorts last.
 _QF_TIE_SENTINEL = "\uffff"
@@ -114,24 +118,98 @@ def by_pair_from_question_embedded(q: dict) -> Dict[Tuple[str, str], List[Tuple[
     return by_pair
 
 
-def embed_doc_snippet_windows_for_question(
+def is_compact_doc_snippet_windows(raw: object) -> bool:
+    """True if doc_snippet_windows uses post-merge compact shape: pmid -> {selected_windows: [...]}."""
+    if not isinstance(raw, dict) or not raw:
+        return False
+    for v in raw.values():
+        if not isinstance(v, dict):
+            return False
+        sw = v.get("selected_windows")
+        if not isinstance(sw, list):
+            return False
+    return True
+
+
+def embed_compact_doc_snippet_windows_for_question(
     qid: str,
     doc_ids: List[str],
     by_pair_global: Dict[Tuple[str, str], List[Tuple[float, int, Optional[str]]]],
-) -> Optional[Dict[str, List[dict]]]:
-    """Pick max-pooled window rows for this question's doc_ids; return JSON-serializable dict or None if empty."""
+    window_size: int,
+    top_windows: int,
+) -> Optional[Dict[str, dict]]:
+    """Run top-window overlap selection per doc; persist {pmid: {selected_windows: [...]}} only."""
     qid_s = str(qid)
-    out: Dict[str, List[dict]] = {}
+    filtered: Dict[Tuple[str, str], List[Tuple[float, int, Optional[str]]]] = {}
     for doc in doc_ids:
         k = (qid_s, str(doc))
-        rows = by_pair_global.get(k)
-        if not rows:
+        if k in by_pair_global:
+            filtered[k] = by_pair_global[k]
+    if not filtered:
+        return None
+    _, selected_by_pair, _, _ = select_windows_from_by_pair(filtered, window_size, top_windows)
+    out: Dict[str, dict] = {}
+    for doc in doc_ids:
+        k = (qid_s, str(doc))
+        sel = selected_by_pair.get(k, [])
+        if not sel:
             continue
-        out[str(doc)] = [
-            {"window_idx": wi, "ce_score": sc, **({"query_field": qf} if qf is not None else {})}
-            for sc, wi, qf in rows
-        ]
+        clean: List[dict] = []
+        for w in sel:
+            if not isinstance(w, dict):
+                continue
+            wc = {kk: vv for kk, vv in w.items() if kk != "reason"}
+            clean.append(wc)
+        out[str(doc)] = {"selected_windows": clean}
     return out if out else None
+
+
+def merge_selection_from_single_question_compact(
+    q: dict,
+    window_size: int,
+) -> Tuple[
+    Dict[Tuple[str, str], List[int]],
+    Dict[Tuple[str, str], List[dict]],
+    Dict[Tuple[str, str], List[dict]],
+    Dict[Tuple[str, str], dict],
+]:
+    """Build merged/selected dicts from compact doc_snippet_windows (no second CE selection pass)."""
+    qid = question_qid(q)
+    if qid is None:
+        return {}, {}, {}, {}
+    qid_s = str(qid)
+    raw = q.get(DOC_SNIPPET_WINDOWS_KEY)
+    if not is_compact_doc_snippet_windows(raw):
+        return {}, {}, {}, {}
+    merged_by_pair: Dict[Tuple[str, str], List[int]] = {}
+    selected_by_pair: Dict[Tuple[str, str], List[dict]] = {}
+    rejected_by_pair: Dict[Tuple[str, str], List[dict]] = {}
+    pair_aux: Dict[Tuple[str, str], dict] = {}
+    for doc_id, wrap in raw.items():
+        if not isinstance(wrap, dict):
+            continue
+        sw = wrap.get("selected_windows")
+        if not isinstance(sw, list) or not sw:
+            continue
+        key = (qid_s, str(doc_id))
+        selected_by_pair[key] = [dict(w) for w in sw if isinstance(w, dict)]
+        indices: set[int] = set()
+        for w in sw:
+            if not isinstance(w, dict):
+                continue
+            for sid in w.get("sent_ids") or []:
+                try:
+                    indices.add(int(sid))
+                except (TypeError, ValueError):
+                    pass
+        merged_by_pair[key] = sorted(indices)
+        rejected_by_pair[key] = []
+        pair_aux[key] = {
+            "had_two_ranked": len(sw) >= 2,
+            "dropped_second_overlap": False,
+            "candidate_overlap_sent_count": 0,
+        }
+    return merged_by_pair, selected_by_pair, rejected_by_pair, pair_aux
 
 
 def questions_use_embedded_windows(questions: List[dict]) -> bool:
@@ -241,16 +319,22 @@ def merge_window_selection_from_embedded_questions(
     Dict[Tuple[str, str], List[dict]],
     Dict[Tuple[str, str], dict],
 ]:
-    """For each question, run selection on its embedded by_pair; merge all pair dicts."""
+    """Merge per-question embedded windows: compact doc_snippet_windows or legacy flat lists + selection."""
     merged_all: Dict[Tuple[str, str], List[int]] = {}
     selected_all: Dict[Tuple[str, str], List[dict]] = {}
     rejected_all: Dict[Tuple[str, str], List[dict]] = {}
     pair_aux_all: Dict[Tuple[str, str], dict] = {}
     for q in questions:
-        bp = by_pair_from_question_embedded(q)
-        if not bp:
+        raw = q.get(DOC_SNIPPET_WINDOWS_KEY)
+        if not isinstance(raw, dict) or not raw:
             continue
-        m, s, r, p = select_windows_from_by_pair(bp, window_size, top_windows)
+        if is_compact_doc_snippet_windows(raw):
+            m, s, r, p = merge_selection_from_single_question_compact(q, window_size)
+        else:
+            bp = by_pair_from_question_embedded(q)
+            if not bp:
+                continue
+            m, s, r, p = select_windows_from_by_pair(bp, window_size, top_windows)
         merged_all.update(m)
         selected_all.update(s)
         rejected_all.update(r)

@@ -2,9 +2,11 @@
 """
 Build contexts from post-rerank JSONL using top CE windows from snippet reranking.
 
-Reads post-rerank JSONL (from ``post_rerank_jsonl.py``). Window CE
-scores may be embedded per question as ``doc_snippet_windows`` (from post_rerank merge),
-or supplied via ``--snippet-windows-dir`` / ``{split}.jsonl`` (legacy).
+Reads post-rerank JSONL (from ``post_rerank_jsonl.py``). Window CE may be embedded as
+compact ``doc_snippet_windows`` (``pmid`` → ``{"selected_windows": [...]}`` from post_rerank),
+or as the legacy flat list per PMID (unsupported for new post-rerank outputs; regenerate),
+or supplied via ``--snippet-windows-dir`` / ``{split}.jsonl`` when post-rerank has no windows.
+Each output question includes ``context_mode``: ``snippet``.
 
 For each (qid, doc_id) in the first ``--evidence-top-k`` post-rerank ``doc_ids``, ranks
 distinct windows, then:
@@ -43,11 +45,34 @@ from retrieval_eval.common import iter_questions_jsonl, question_qid, write_ques
 from retrieval_eval.doc_id_util import ranked_doc_ids_for_evidence
 
 from snippet_window_ce import (
+    CONTEXT_MODE_SNIPPET,
     DOC_SNIPPET_WINDOWS_KEY,
+    is_compact_doc_snippet_windows,
     merge_window_selection_from_embedded_questions,
     questions_use_embedded_windows,
     select_windows_max_pool_from_path,
 )
+
+
+def _embedded_window_source_label(questions: List[dict]) -> str:
+    """How doc_snippet_windows is represented when embedded (stats only)."""
+    seen_compact = False
+    seen_legacy = False
+    for q in questions:
+        raw = q.get(DOC_SNIPPET_WINDOWS_KEY)
+        if not isinstance(raw, dict) or not raw:
+            continue
+        if is_compact_doc_snippet_windows(raw):
+            seen_compact = True
+        else:
+            seen_legacy = True
+    if seen_compact and seen_legacy:
+        return "embedded_mixed"
+    if seen_compact:
+        return "embedded_compact"
+    if seen_legacy:
+        return "embedded_legacy"
+    return "embedded"
 
 
 def _top_windows_int(value: str) -> int:
@@ -453,7 +478,9 @@ def main() -> int:
         pmid_to_title_sents=pmid_to_title_sents if not args.stats_only else None,
         evidence_top_k=etk,
     )
-    stats_payload["window_source"] = "embedded" if use_embedded else "file"
+    stats_payload["window_source"] = (
+        _embedded_window_source_label(questions) if use_embedded else "file"
+    )
     if stats_path is not None:
         write_stats_json(stats_path, stats_payload)
         logger.info("Wrote stats: %s", stats_path)
@@ -519,6 +546,7 @@ def main() -> int:
                 }
             contexts.append(ctx)
         out_q = dict(q)
+        out_q["context_mode"] = CONTEXT_MODE_SNIPPET
         out_q["contexts"] = contexts
         out_questions.append(out_q)
 

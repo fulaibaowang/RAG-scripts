@@ -5,8 +5,8 @@ Post-hybrid-reranking: attach top-k document ids from rerank run to query JSONL.
 Reads a hybrid rerank TSV (qid, docno, rank), picks at most top-k docno strings per query,
 and writes JSONL (one question object per line) with ``doc_ids`` (ordered list, same
 values as TSV docno — for PubMed today, numeric PMIDs). Optional ``--windows-jsonl``
-merges max-pooled CE snippet windows into ``doc_snippet_windows`` per question (snippet
-route standalone artifact).
+merges max-pooled CE snippet windows into ``doc_snippet_windows`` per question in compact form (``pmid`` → ``{"selected_windows": [...]}``;
+snippet route standalone artifact). Use ``--window-size`` / ``--top-windows`` with ``--windows-jsonl``.
 
 Oracle fields (snippets, documents, ideal_answer, exact_answer) are removed from each
 source question so the output is suitable for post-reranking use without gold labels.
@@ -41,7 +41,7 @@ ORACLE_KEYS = frozenset(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Build post-rerank JSONL: top-k documents from rerank TSV attached to query JSONL; "
-        "optional merge of snippet CE windows into doc_snippet_windows.",
+        "optional merge of snippet CE windows into compact doc_snippet_windows.",
     )
     parser.add_argument(
         "--run-path",
@@ -74,8 +74,21 @@ def parse_args() -> argparse.Namespace:
         "--windows-jsonl",
         type=Path,
         default=None,
-        help="Optional snippet_rerank windows JSONL for this split; merges max-pooled CE rows into "
-        "doc_snippet_windows per question (only for doc_ids in the run).",
+        help="Optional snippet_rerank windows JSONL for this split; merges pre-selected windows into "
+        "doc_snippet_windows (compact shape; only for doc_ids in the run).",
+    )
+    parser.add_argument(
+        "--window-size",
+        type=int,
+        default=3,
+        help="Sentence span length per CE window when merging --windows-jsonl (default: 3).",
+    )
+    parser.add_argument(
+        "--top-windows",
+        type=int,
+        choices=(1, 2),
+        default=2,
+        help="Max disjoint windows per doc after merge (default: 2).",
     )
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose logging.")
     return parser.parse_args()
@@ -133,7 +146,10 @@ def main() -> int:
         pass
     from retrieval_eval.common import iter_questions_jsonl, question_qid, write_questions_jsonl
 
-    from snippet_window_ce import embed_doc_snippet_windows_for_question, load_by_pair_from_windows_jsonl
+    from snippet_window_ce import (
+        embed_compact_doc_snippet_windows_for_question,
+        load_by_pair_from_windows_jsonl,
+    )
 
     args = parse_args()
     logging.basicConfig(
@@ -174,7 +190,13 @@ def main() -> int:
         doc_ids = qid_to_doc_ids.get(str(qid), [])
         new_q["doc_ids"] = doc_ids
         if by_pair_global is not None and doc_ids:
-            emb = embed_doc_snippet_windows_for_question(str(qid), doc_ids, by_pair_global)
+            emb = embed_compact_doc_snippet_windows_for_question(
+                str(qid),
+                doc_ids,
+                by_pair_global,
+                args.window_size,
+                args.top_windows,
+            )
             if emb:
                 new_q["doc_snippet_windows"] = emb
                 n_with_windows += 1
