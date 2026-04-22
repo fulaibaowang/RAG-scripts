@@ -43,10 +43,9 @@ _JSONL_ADAPT_HINT = (
     "--input <bioasq.json> --output <queries.jsonl>"
 )
 
-# Pipeline query corpora (.jsonl): required keys + optional BioASQ task label + optional gold PMIDs/URLs.
+# Pipeline query corpora (.jsonl): required keys are query_id + query_text; query_type and documents
+# are normalized when present. Any other top-level keys (e.g. query_text_expansion_long, docs) pass through.
 PIPELINE_QUERY_JSONL_REQUIRED_KEYS = frozenset({"query_id", "query_text"})
-PIPELINE_QUERY_JSONL_OPTIONAL_KEYS = frozenset({"query_type", "documents"})
-PIPELINE_QUERY_JSONL_ALLOWED_KEYS = PIPELINE_QUERY_JSONL_REQUIRED_KEYS | PIPELINE_QUERY_JSONL_OPTIONAL_KEYS
 
 
 def _ensure_jsonl_query_path(path: Path, label: str = "path") -> Path:
@@ -89,16 +88,14 @@ def question_type(rec: dict) -> str:
 
 
 def canonical_pipeline_query_jsonl_record(rec: dict) -> dict:
-    """Validate and normalize one strict pipeline query object.
+    """Validate and normalize one pipeline query object (one JSONL line).
 
-    Required top-level keys: ``query_id``, ``query_text``.
-    Optional: ``query_type`` (BioASQ task label: summary / yesno / factoid / list; may be omitted or empty),
-    and ``documents`` (list of PubMed IDs or URLs for eval gold).
+    Required: ``query_id``, ``query_text`` (non-empty after strip); ``query_type`` and ``documents`` are
+    normalized when present. All other top-level keys are left in place (e.g. ``query_text_expansion_long``,
+    ``docs``) so :func:`build_topics_and_gold` can use ``--query-field`` for alternate strings.
 
-    Legacy top-level ``id`` / ``body`` / ``bioasq`` / etc. are not accepted; convert wrapped BioASQ JSON with
-    ``scripts/public/format/bioasq_json_to_queries_jsonl.py`` (preserves ``documents`` / ``type`` when present).
-    For JSONL lines with other extra keys (evidence, generation), use :func:`iter_jsonl_dicts` instead of
-    :func:`iter_questions_jsonl`.
+    Wrapped BioASQ JSON (top-level ``questions``) is not accepted; use
+    ``scripts/public/format/bioasq_json_to_queries_jsonl.py`` to convert.
     """
     if not isinstance(rec, dict):
         raise TypeError(f"Expected dict per JSONL line, got {type(rec)}")
@@ -109,12 +106,6 @@ def canonical_pipeline_query_jsonl_record(rec: dict) -> dict:
             "Pipeline query JSONL must include keys "
             f"{sorted(PIPELINE_QUERY_JSONL_REQUIRED_KEYS)}. missing={missing!r}. {_JSONL_ADAPT_HINT}"
         )
-    if not keys <= PIPELINE_QUERY_JSONL_ALLOWED_KEYS:
-        extra = sorted(keys - PIPELINE_QUERY_JSONL_ALLOWED_KEYS)
-        raise ValueError(
-            "Pipeline query JSONL allows only "
-            f"{sorted(PIPELINE_QUERY_JSONL_ALLOWED_KEYS)} at top level. extra={extra!r}. {_JSONL_ADAPT_HINT}"
-        )
     qid = str(rec["query_id"]).strip()
     text = str(rec["query_text"]).strip()
     if not qid or not text:
@@ -122,15 +113,18 @@ def canonical_pipeline_query_jsonl_record(rec: dict) -> dict:
             "query_id and query_text must be non-empty strings after stripping "
             f"(got query_id={qid!r} query_text_len={len(text)})."
         )
-    qtype = ""
-    if "query_type" in rec:
-        v = rec["query_type"]
+    out: Dict[str, Any] = dict(rec)
+    out["query_id"] = qid
+    out["query_text"] = text
+    if "query_type" in out:
+        v = out.get("query_type")
         qtype = "" if v is None else str(v).strip()
-    out: Dict[str, Any] = {"query_id": qid, "query_text": text}
-    if qtype:
-        out["query_type"] = qtype
-    if "documents" in rec:
-        raw_docs = rec["documents"]
+        if qtype:
+            out["query_type"] = qtype
+        else:
+            out.pop("query_type", None)
+    if "documents" in out:
+        raw_docs = out["documents"]
         if raw_docs is None:
             raise ValueError("documents must be a list of PubMed URLs or PMIDs, not null")
         if not isinstance(raw_docs, list):
@@ -139,6 +133,8 @@ def canonical_pipeline_query_jsonl_record(rec: dict) -> dict:
         pmids = [p for p in pmids if p]
         if pmids:
             out["documents"] = pmids
+        else:
+            out.pop("documents", None)
     return out
 
 
@@ -148,7 +144,7 @@ def normalize_query_record(rec: dict) -> dict:
 
 
 def iter_questions_jsonl(path: Path) -> Iterator[dict]:
-    """Strict pipeline **query** JSONL: ``query_id``, ``query_text``; optional ``query_type``, ``documents``."""
+    """Pipeline **query** JSONL: required ``query_id`` and ``query_text``; other keys pass through."""
     p = _ensure_jsonl_query_path(path, "Query JSONL")
     with open(p, encoding="utf-8") as f:
         for lineno, line in enumerate(f, start=1):
