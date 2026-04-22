@@ -159,7 +159,7 @@ def load_dense_index_only(
     dim: int,
     ef_search: int,
 ) -> tuple[hnswlib.Index, list[str], dict[str, Any]]:
-    """Load HNSW index + rowid->PMID mapping only (no model). For additional shards when using --index_glob."""
+    """Load HNSW index + rowid->PMID mapping only (no model). For additional shards when using --index-glob."""
     meta_path = index_dir / "meta.json"
     idx_path = index_dir / "hnsw_index.bin"
     map_path = index_dir / "rowid_to_pmid.tsv"
@@ -497,7 +497,7 @@ def _run_sharded(
     train_path: Path | None,
     test_paths: list[Path],
 ) -> None:
-    """Run dense eval in sharded mode: resolve --index_glob, load all shards, then no_eval or eval path."""
+    """Run dense eval in sharded mode: resolve --index-glob, load all shards, then no_eval or eval path."""
     index_glob = (args.index_glob or "").strip()
     paths = sorted(Path(p) for p in glob.glob(index_glob) if Path(p).is_dir())
     if not paths:
@@ -667,33 +667,33 @@ def _run_sharded(
 # Main
 # =========================
 def main():
-    ap = argparse.ArgumentParser("Eval dense retrieval (no build). Produces eval_dense-style outputs.")
+    ap = argparse.ArgumentParser("Dense retrieval runner. Produces run TSVs and optionally evaluates.")
     ap.add_argument(
-        "--index_dir",
+        "--index-dir",
         default="",
-        help="Dense index dir (single index). Exactly one of --index_dir or --index_glob required.",
+        dest="index_dir",
+        help="Dense index dir (single index). Exactly one of --index-dir or --index-glob required.",
     )
     ap.add_argument(
-        "--index_glob",
+        "--index-glob",
         default="",
-        help="Glob for shard dirs (e.g. /path/to/pubmed_medembed_shard*). Exactly one of --index_dir or --index_glob required.",
+        dest="index_glob",
+        help="Glob for shard dirs (e.g. /path/to/pubmed_medembed_shard*). Exactly one of --index-dir or --index-glob required.",
     )
     ap.add_argument(
-        "--out_dir",
+        "--out-dir",
         required=True,
+        dest="out_dir",
         help="Output directory (dense_*.parquet, *_meta.json, *_run_map.json)",
     )
     ap.add_argument(
         "--train-jsonl",
-        "--train-json",
         dest="train_jsonl",
         default="",
-        help="Path to training queries .jsonl (--train-json is deprecated).",
+        help="Path to training queries .jsonl.",
     )
     ap.add_argument(
         "--test-batch-jsonls",
-        "--test-batch-jsons",
-        "--test_batch_jsons",
         dest="test_batch_jsonls",
         nargs="*",
         default=[],
@@ -702,32 +702,35 @@ def main():
 
     ap.add_argument("--topk", type=int, default=5000)
     ap.add_argument(
-        "--topk_per_shard",
+        "--topk-per-shard",
         type=int,
         default=500,
-        help="Top-k per shard when using --index_glob; final merged top-k is --topk.",
+        dest="topk_per_shard",
+        help="Top-k per shard when using --index-glob; final merged top-k is --topk.",
     )
     ap.add_argument("--ks", type=str, default=",".join(map(str, RECALL_KS)), help="Comma-separated K values for recall (default: RECALL_KS)")
     ap.add_argument(
-        "--ef_search",
+        "--ef-search",
         type=int,
         default=None,
-        help="Override HNSW efSearch (if omitted, use meta.json/default); effective efSearch defaults to >= topk unless limited by --ef_cap",
+        dest="ef_search",
+        help="Override HNSW efSearch (if omitted, use meta.json/default); effective efSearch defaults to >= topk unless limited by --ef-cap",
     )
     ap.add_argument(
-        "--ef_cap",
+        "--ef-cap",
         type=int,
         default=None,
-        help="Optional cap on effective efSearch to bound runtime. If ef_cap < topk, deep recall@topk may degrade.",
+        dest="ef_cap",
+        help="Optional cap on effective efSearch to bound runtime. If ef-cap < topk, deep recall@topk may degrade.",
     )
-    ap.add_argument("--batch_size", type=int, default=256)
+    ap.add_argument("--batch-size", type=int, default=256, dest="batch_size")
 
     ap.add_argument("--device", type=str, default="auto", help='"auto" (cuda/mps/cpu when available), "cpu", "cuda", or "mps"')
-    ap.add_argument("--model_name", type=str, default="", help="Override SentenceTransformer model name")
+    ap.add_argument("--model-name", type=str, default="", dest="model_name", help="Override SentenceTransformer model name")
 
     ap.add_argument("--notes", type=str, default="")
-    ap.add_argument("--save_per_query", action="store_true", help="Save per-query metrics CSVs")
-    ap.add_argument("--no_eval", action="store_true", help="Skip evaluation; only run retrieval and write run TSV")
+    ap.add_argument("--save-per-query", action="store_true", dest="save_per_query", help="Save per-query metrics CSVs")
+    ap.add_argument("--no-eval", action="store_true", dest="no_eval", help="Skip evaluation; only run retrieval and write run TSV")
     ap.add_argument(
         "--query-field",
         type=str,
@@ -756,9 +759,9 @@ def main():
     has_dir = bool((args.index_dir or "").strip())
     has_glob = bool((args.index_glob or "").strip())
     if has_dir and has_glob:
-        raise SystemExit("Provide exactly one of --index_dir or --index_glob, not both.")
+        raise SystemExit("Provide exactly one of --index-dir or --index-glob, not both.")
     if not has_dir and not has_glob:
-        raise SystemExit("Provide exactly one of --index_dir or --index_glob.")
+        raise SystemExit("Provide exactly one of --index-dir or --index-glob.")
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -784,7 +787,7 @@ def main():
     }
 
     # Choose efSearch for this run.
-    # Strategy: aim for efSearch >= topk for strong deep recall, but allow --ef_cap to bound runtime.
+    # Strategy: aim for efSearch >= topk for strong deep recall, but allow --ef-cap to bound runtime.
     ef_requested = int(args.ef_search) if args.ef_search is not None else None
     ef_base = ef_requested
     if ef_base is None:

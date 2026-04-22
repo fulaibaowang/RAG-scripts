@@ -12,7 +12,7 @@ import pandas as pd
 
 
 # ---------------------------
-# BioASQ parsing
+# Query record parsing
 # ---------------------------
 _PUBMED_URL_RE = re.compile(r"/pubmed/(\d+)", re.IGNORECASE)
 _PUBMED_NCBI_URL_RE = re.compile(r"pubmed\.ncbi\.nlm\.nih\.gov/(\d+)", re.IGNORECASE)
@@ -38,9 +38,8 @@ def normalize_pmid(x) -> str:
 
 
 _JSONL_ADAPT_HINT = (
-    "BioASQ wrapped JSON is not accepted here. Convert with:\n"
-    "  python scripts/public/format/bioasq_json_to_queries_jsonl.py "
-    "--input <bioasq.json> --output <queries.jsonl>"
+    "Wrapped JSON (top-level 'questions' array) is not accepted here. "
+    "Convert to one JSON object per line with query_id and query_text fields."
 )
 
 # Pipeline query corpora (.jsonl): required keys are query_id + query_text; query_type and documents
@@ -137,10 +136,6 @@ def canonical_pipeline_query_jsonl_record(rec: dict) -> dict:
             out.pop("documents", None)
     return out
 
-
-def normalize_query_record(rec: dict) -> dict:
-    """Deprecated name for :func:`canonical_pipeline_query_jsonl_record`."""
-    return canonical_pipeline_query_jsonl_record(rec)
 
 
 def iter_questions_jsonl(path: Path) -> Iterator[dict]:

@@ -510,49 +510,47 @@ def plot_param_sensitivity(
 
 def main() -> None:
     ap = argparse.ArgumentParser("Evaluate hybrid (BM25+Dense) RRF fusion for BioASQ.")
-    ap.add_argument("--bm25_runs_dir", required=True, help="Path to BM25 run TSV folder")
-    ap.add_argument("--bm25_method", default="BM25_RM3")
-    ap.add_argument("--bm25_topk", type=int, default=5000)
-    ap.add_argument("--dense_root", required=True, help="Path to dense output folder (dense_*.parquet)")
+    ap.add_argument("--bm25-runs-dir", required=True, dest="bm25_runs_dir", help="Path to BM25 run TSV folder")
+    ap.add_argument("--bm25-method", default="BM25_RM3", dest="bm25_method")
+    ap.add_argument("--bm25-topk", type=int, default=5000, dest="bm25_topk")
+    ap.add_argument("--dense-root", required=True, dest="dense_root", help="Path to dense output folder (dense_*.parquet)")
 
     ap.add_argument(
         "--train-jsonl",
-        "--train-json",
         dest="train_jsonl",
         default="",
-        help="Training queries .jsonl (--train-json is deprecated).",
+        help="Training queries .jsonl.",
     )
     ap.add_argument(
         "--test-batch-jsonls",
-        "--test-batch-jsons",
-        "--test_batch_jsons",
         dest="test_batch_jsonls",
         nargs="*",
         default=[],
         help="Test batch .jsonl files.",
     )
 
-    ap.add_argument("--out_dir", required=True)
+    ap.add_argument("--out-dir", required=True, dest="out_dir")
 
     ap.add_argument("--mode", choices=["sweep", "default"], default="sweep")
-    ap.add_argument("--k_rrf_list", default="60,100")
+    ap.add_argument("--k-rrf-list", default="60,100", dest="k_rrf_list")
     ap.add_argument("--weights", default="1.0,1.0;2.0,1.0;1.0,2.0")
 
-    ap.add_argument("--k_rrf", type=int, default=150)
-    ap.add_argument("--w_bm25", type=float, default=1.0)
-    ap.add_argument("--w_dense", type=float, default=1.0)
+    ap.add_argument("--k-rrf", type=int, default=150, dest="k_rrf")
+    ap.add_argument("--w-bm25", type=float, default=1.0, dest="w_bm25")
+    ap.add_argument("--w-dense", type=float, default=1.0, dest="w_dense")
 
     ap.add_argument("--cap", type=int, default=2000)
-    ap.add_argument("--k_max_eval", type=int, default=5000)
+    ap.add_argument("--k-max-eval", type=int, default=5000, dest="k_max_eval")
     ap.add_argument("--ks", type=str, default=",".join(map(str, RECALL_KS)), help="Comma-separated K values for recall (default: RECALL_KS)")
     ap.add_argument("--p", type=float, default=0.95)
     ap.add_argument("--kb", type=int, default=None)
     ap.add_argument("--kd", type=int, default=None)
 
-    ap.add_argument("--no_exclude_test_qids", action="store_true")
-    ap.add_argument("--no_eval", action="store_true", help="Skip evaluation; use fixed config and write run TSVs only")
-    ap.add_argument("--save_plots", action="store_true", help="Force plot generation")
-    ap.add_argument("--no_plots", action="store_true", help="Disable plot generation")
+    ap.add_argument("--no-exclude-test-qids", action="store_true", dest="no_exclude_test_qids")
+    ap.add_argument("--no-eval", action="store_true", dest="no_eval",
+                    help="Skip evaluation; use fixed config and write run TSVs only")
+    ap.add_argument("--save-plots", action="store_true", dest="save_plots", help="Force plot generation")
+    ap.add_argument("--no-plots", action="store_true", dest="no_plots", help="Disable plot generation")
     ap.add_argument("--jobs", type=int, default=None, help="Number of parallel processes (default: CPU count)")
     args = ap.parse_args()
 
@@ -637,7 +635,7 @@ def main() -> None:
     ks_eval = fixed_ks
 
     if not ks_eval:
-        raise ValueError("No evaluation K values. Check --cap and --k_max_eval.")
+        raise ValueError("No evaluation K values. Check --cap and --k-max-eval.")
 
     print(
         f"KB={kb} KD={kd} CAP={args.cap} K_MAX_EVAL={k_max_eval} => cap_eff={cap_eff} k_max_eval_eff={k_max_eval_eff}"

@@ -78,7 +78,7 @@ def _ensure_nltk_punkt() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Document I/O  (mirrors rerank_stage2 helpers, supports glob)
+# Document I/O  (mirrors rerank_crossencoder helpers, supports glob)
 # ---------------------------------------------------------------------------
 def _resolve_jsonl_paths(path_or_glob: Path) -> List[Path]:
     s = str(path_or_glob)
@@ -141,7 +141,7 @@ def load_doc_title_sentences(
 
 
 # ---------------------------------------------------------------------------
-# Run TSV loading  (mirrors rerank_stage2.load_run_tsv)
+# Run TSV loading  (mirrors rerank_crossencoder.load_run_tsv)
 # ---------------------------------------------------------------------------
 def load_run_tsv(path: Path) -> pd.DataFrame:
     df = pd.read_csv(path, sep="\t")
@@ -442,7 +442,7 @@ def _build_output_config(base_dir: Path) -> OutputConfig:
 
 
 def _parse_split_from_run_stem(run_stem: str) -> Optional[str]:
-    """Extract split from run stem; supports legacy _rrf_pool50_k60 and _rrf_poolR*_poolH*_k* (align with rerank_rrf_hybrid)."""
+    """Extract split from run stem; supports legacy _rrf_pool50_k60 and _rrf_poolR*_poolH*_k* (align with fuse_rerank)."""
     m = re.fullmatch(
         r"best_rrf_(.+)_top\d+(?:_rrf_pool(?:\d+_k\d+|R\d+_poolH\d+_k\d+))?",
         run_stem,
@@ -481,11 +481,9 @@ def parse_args() -> argparse.Namespace:
     inp.add_argument("--run-files", type=Path, nargs="*", default=None, help="Explicit run TSV files.")
     inp.add_argument("--run-glob", type=str, default="*.tsv", help="Glob under --runs-dir.")
     inp.add_argument("--docs-jsonl", type=str, required=True, help="JSONL corpus path or glob.")
-    inp.add_argument("--train-jsonl", "--train-json", type=Path, default=None, dest="train_jsonl")
+    inp.add_argument("--train-jsonl", type=Path, default=None, dest="train_jsonl")
     inp.add_argument(
         "--test-batch-jsonls",
-        "--test-batch-jsons",
-        "--test_batch_jsons",
         type=Path,
         nargs="*",
         default=None,

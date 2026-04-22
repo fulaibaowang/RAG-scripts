@@ -114,7 +114,6 @@ def parse_args() -> argparse.Namespace:
     )
     inputs.add_argument(
         "--train-jsonl",
-        "--train-json",
         type=Path,
         default=None,
         dest="train_jsonl",
@@ -122,9 +121,6 @@ def parse_args() -> argparse.Namespace:
     )
     inputs.add_argument(
         "--test-batch-jsonls",
-        "--test-batch-jsons",
-        "--test_batch_jsonls",
-        "--test_batch_jsons",
         type=Path,
         nargs="*",
         default=None,
@@ -258,7 +254,7 @@ def load_run_tsv(path: Path) -> pd.DataFrame:
 
 
 def extract_docno(rec: dict) -> str:
-    for key in ("docno", "pmid", "id"):
+    for key in ("docno", "pmid"):
         if key in rec:
             return normalize_pmid(rec[key])
     return ""
@@ -636,8 +632,8 @@ def _llm_rerank_worker(
     if not run_maps:
         return
     topics_map: Dict[str, str] = {}
-    _tj = worker_args.get("train_jsonl") or worker_args.get("train_json")
-    _tb = worker_args.get("test_batch_jsonls") or worker_args.get("test_batch_jsons") or []
+    _tj = worker_args.get("train_jsonl")
+    _tb = worker_args.get("test_batch_jsonls") or []
     for json_path in [_tj] + list(_tb):
         if not json_path or not Path(json_path).exists():
             continue

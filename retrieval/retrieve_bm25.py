@@ -162,56 +162,34 @@ def ensure_pt(java_mem: str | None = None):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Evaluate BM25+RM3 on BioASQ train subset + test batches.")
-    ap.add_argument("--index_path", required=True, help="Path to Terrier index directory")
-    ap.add_argument(
-        "--train_jsonl",
-        "--train_json",
-        dest="train_jsonl",
-        default=None,
-        help="Path to training subset .jsonl (--train_json is deprecated).",
-    )
-    ap.add_argument(
-        "--test_batch_jsonls",
-        "--test_batch_jsons",
-        dest="test_batch_jsonls",
-        nargs="*",
-        default=[],
-        help="List of test batch .jsonl files.",
-    )
-    ap.add_argument(
-        "--test_dir",
-        default=None,
-        help="Directory containing 13B1_golden.jsonl .. 13B4_golden.jsonl (used only if --test_batch_jsonls not provided)",
-    )
-    ap.add_argument("--out_dir", required=True, help="Output directory")
+    ap = argparse.ArgumentParser(description="Evaluate BM25+RM3 on query JSONL batches.")
+    ap.add_argument("--index-path", required=True, dest="index_path", help="Path to Terrier index directory")
+    ap.add_argument("--train-jsonl", default=None, dest="train_jsonl", help="Path to training subset .jsonl.")
+    ap.add_argument("--test-batch-jsonls", nargs="*", default=[], dest="test_batch_jsonls", help="Test batch .jsonl files.")
+    ap.add_argument("--out-dir", required=True, dest="out_dir", help="Output directory")
     ap.add_argument("--threads", type=int, default=4, help="Terrier retrieval threads")
-    ap.add_argument("--java_mem", default=None, help='Optional JVM heap, e.g. "8g"')
+    ap.add_argument("--java-mem", default=None, dest="java_mem", help='Optional JVM heap, e.g. "8g"')
 
-    ap.add_argument("--k_eval", type=int, default=5000, help="Retrieve/evaluate top K")
+    ap.add_argument("--k-eval", type=int, default=5000, dest="k_eval", help="Retrieve/evaluate top K")
     ap.add_argument("--ks", type=str, default=",".join(map(str, RECALL_KS)), help="Comma-separated K values for recall (default: RECALL_KS)")
-    ap.add_argument("--k_feedback", type=int, default=50, help="BM25 feedback pool for RM3")
-    ap.add_argument("--rm3_fb_docs", type=int, default=20)
-    ap.add_argument("--rm3_fb_terms", type=int, default=30)
-    ap.add_argument("--rm3_lambda", type=float, default=0.6)
+    ap.add_argument("--k-feedback", type=int, default=50, dest="k_feedback", help="BM25 feedback pool for RM3")
+    ap.add_argument("--rm3-fb-docs", type=int, default=20, dest="rm3_fb_docs")
+    ap.add_argument("--rm3-fb-terms", type=int, default=30, dest="rm3_fb_terms")
+    ap.add_argument("--rm3-lambda", type=float, default=0.6, dest="rm3_lambda")
 
-    ap.add_argument(
-        "--disable_rm3",
-        action="store_true",
-        help="Disable RM3 and run plain BM25 only (default: RM3 enabled).",
-    )
+    ap.add_argument("--disable-rm3", action="store_true", dest="disable_rm3",
+                    help="Disable RM3 and run plain BM25 only (default: RM3 enabled).")
+    ap.add_argument("--include-bm25", action="store_true", dest="include_bm25",
+                    help="Also evaluate BM25 baseline. Ignored when --disable-rm3 is set.")
 
-    ap.add_argument(
-        "--include_bm25",
-        action="store_true",
-        help="Also evaluate BM25 baseline. Ignored when --disable_rm3 is set (then only BM25 runs).",
-    )
-
-    ap.add_argument("--no_exclude_test_qids", action="store_true", help="Do not remove test qids from train set")
-    ap.add_argument("--no_eval", action="store_true", help="Skip evaluation; only run retrieval and write run TSVs")
-    ap.add_argument("--save_runs", action="store_true", help="Save run TSVs (qid docno rank score)")
-    ap.add_argument("--save_per_query", action="store_true", help="Save per-query metrics CSV")
-    ap.add_argument("--save_zero_recall", action="store_true", help="Save zero-recall reports (default off)")
+    ap.add_argument("--no-exclude-test-qids", action="store_true", dest="no_exclude_test_qids",
+                    help="Do not remove test qids from train set")
+    ap.add_argument("--no-eval", action="store_true", dest="no_eval",
+                    help="Skip evaluation; only run retrieval and write run TSVs")
+    ap.add_argument("--save-runs", action="store_true", dest="save_runs", help="Save run TSVs (qid docno rank score)")
+    ap.add_argument("--save-per-query", action="store_true", dest="save_per_query", help="Save per-query metrics CSV")
+    ap.add_argument("--save-zero-recall", action="store_true", dest="save_zero_recall",
+                    help="Save zero-recall reports (default off)")
     ap.add_argument(
         "--query-field",
         type=str,
@@ -274,18 +252,10 @@ def main():
     test_files: List[Path] = []
     if args.test_batch_jsonls:
         test_files = [Path(fp).resolve() for fp in args.test_batch_jsonls]
-    elif args.test_dir:
-        test_dir = Path(args.test_dir).resolve()
-        test_files = [
-            test_dir / "13B1_golden.jsonl",
-            test_dir / "13B2_golden.jsonl",
-            test_dir / "13B3_golden.jsonl",
-            test_dir / "13B4_golden.jsonl",
-        ]
 
     train_path = Path(args.train_jsonl).resolve() if args.train_jsonl else None
     if train_path is None and not test_files:
-        raise SystemExit("Provide --train-jsonl and/or --test-batch-jsonls (or --test_dir).")
+        raise SystemExit("Provide --train-jsonl and/or --test-batch-jsonls.")
 
     for fp in test_files:
         if not fp.exists():

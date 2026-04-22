@@ -151,9 +151,9 @@ def parse_args() -> argparse.Namespace:
                     help="Weight for snippet_rrf side in RRF.")
     p.add_argument("--w-listwise", type=float, default=0.6,
                     help="Weight for listwise side in RRF.")
-    p.add_argument("--train-jsonl", "--train-json", type=Path, default=None, dest="train_jsonl",
+    p.add_argument("--train-jsonl", type=Path, default=None, dest="train_jsonl",
                     help="Training queries .jsonl for metrics (optional).")
-    p.add_argument("--test-batch-jsonls", "--test-batch-jsons", type=Path, nargs="*", default=None,
+    p.add_argument("--test-batch-jsonls", type=Path, nargs="*", default=None,
                     dest="test_batch_jsonls",
                     help="Test-batch .jsonl for metrics (optional).")
     p.add_argument("--disable-metrics", action="store_true",

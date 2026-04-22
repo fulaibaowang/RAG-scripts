@@ -51,11 +51,10 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--query-jsonl",
-        "--query-json",
         type=Path,
         required=True,
         dest="query_jsonl",
-        help="Path to query .jsonl (one question record per line). --query-json is deprecated.",
+        help="Path to query .jsonl (one question record per line).",
     )
     parser.add_argument(
         "--output-path",
@@ -146,7 +145,7 @@ def main() -> int:
         pass
     from retrieval_eval.common import iter_questions_jsonl, question_qid, write_questions_jsonl
 
-    from snippet_window_ce import (
+    from score_snippet_windows import (
         embed_compact_doc_snippet_windows_for_question,
         load_by_pair_from_windows_jsonl,
     )

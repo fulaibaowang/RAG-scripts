@@ -81,7 +81,7 @@ Run files stay **TSV** under each stage’s `runs/` as in the introduction above
 
 ### Snippet windows
 
-Snippet evidence uses per-split window files written under `snippet/snippet_rerank/windows/` as `{split}.jsonl` (logical split id, for example a golden batch name). The orchestrator and `build_contexts_from_snippets.py` use this layout; there is no separate “windows stem” setting.
+Snippet evidence uses per-split window files written under `snippet/snippet_rerank/windows/` as `{split}.jsonl` (logical split id, for example a golden batch name). The orchestrator and `build_snippet_contexts.py` use this layout; there is no separate “windows stem” setting.
 
 ### Pipeline run log
 
@@ -89,7 +89,7 @@ The shell orchestrator appends a line-oriented run log to `$WORKFLOW_OUTPUT_DIR/
 
 ### Python logging
 
-Pipeline Python steps (`snippet_rerank`, `build_contexts_from_snippets`, `post_rerank_jsonl`, generation helpers, …) read `LOG_LEVEL` (default `INFO`) and `LOG_FILE`. When `LOG_FILE` is set (default: `$WORKFLOW_OUTPUT_DIR/pipeline.log`), they attach a file handler so script logs go there. Use `LOG_LEVEL=DEBUG` or unset `LOG_FILE` to change behaviour.
+Pipeline Python steps (`rerank_snippets`, `build_snippet_contexts`, `build_retrieval_jsonl`, generation helpers, …) read `LOG_LEVEL` (default `INFO`) and `LOG_FILE`. When `LOG_FILE` is set (default: `$WORKFLOW_OUTPUT_DIR/pipeline.log`), they attach a file handler so script logs go there. Use `LOG_LEVEL=DEBUG` or unset `LOG_FILE` to change behaviour.
 
 ### Hugging Face / Transformers verbosity
 

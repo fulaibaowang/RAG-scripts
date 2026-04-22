@@ -479,7 +479,6 @@ def fetch_titles_ncbi(pmids: Set[str], *, quiet: bool = False) -> Dict[str, str]
 # ---------------------------------------------------------------------------
 
 def _build_question_meta(questions: List[dict]) -> Dict[str, dict]:
-    """Map qid -> {body, type, documents (raw URLs)} (``body``/``type`` are report column labels)."""
     meta: Dict[str, dict] = {}
     for i, q in enumerate(questions):
         try:
@@ -490,7 +489,7 @@ def _build_question_meta(questions: List[dict]) -> Dict[str, dict]:
             continue
         qt = question_type(q).lower() or "unknown"
         meta[qid] = {
-            "body": question_body(q),
+            "query_text": question_body(q),
             "type": qt,
             "documents": q.get("documents") or [],
         }
@@ -514,7 +513,7 @@ def build_report(
 
         rows.append({
             "qid": qid,
-            "question": meta.get("body", ""),
+            "question": meta.get("query_text", ""),
             "type": meta.get("type", "unknown"),
             "n_rel": len(gold_pmids),
             f"R@{k}": round(recall_map.get(qid, 0.0), 6),

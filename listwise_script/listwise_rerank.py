@@ -63,12 +63,12 @@ def parse_args() -> argparse.Namespace:
                    help="Root output directory (e.g. <workflow>/listwise_rerank).")
 
     # Query JSONs (for evaluation)
-    p.add_argument("--train-jsonl", "--train-json", type=Path, default=None,
+    p.add_argument("--train-jsonl", type=Path, default=None,
                    dest="train_jsonl",
-                   help="Training queries .jsonl (--train-json is deprecated).")
-    p.add_argument("--test-batch-jsonls", "--test-batch-jsons", type=Path, nargs="*", default=[],
+                   help="Training queries .jsonl.")
+    p.add_argument("--test-batch-jsonls", type=Path, nargs="*", default=[],
                    dest="test_batch_jsonls",
-                   help="Test-batch .jsonl files (--test-batch-jsons is deprecated).")
+                   help="Test-batch .jsonl files.")
     p.add_argument(
         "--query-field",
         type=str,

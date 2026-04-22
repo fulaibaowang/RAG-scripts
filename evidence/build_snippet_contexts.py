@@ -2,7 +2,7 @@
 """
 Build contexts from post-rerank JSONL using top CE windows from snippet reranking.
 
-Reads post-rerank JSONL (from ``post_rerank_jsonl.py``). Window CE may be embedded as
+Reads post-rerank JSONL (from ``build_retrieval_jsonl.py``). Window CE may be embedded as
 compact ``doc_snippet_windows`` (``pmid`` → ``{"selected_windows": [...]}`` from post_rerank),
 or as the legacy flat list per PMID (unsupported for new post-rerank outputs; regenerate),
 or supplied via ``--snippet-windows-dir`` / ``{split}.jsonl`` when post-rerank has no windows.
@@ -44,7 +44,7 @@ for _p in (_SHARED_SCRIPTS, _EVIDENCE_DIR):
 from retrieval_eval.common import iter_jsonl_dicts, question_qid, write_questions_jsonl
 from retrieval_eval.doc_id_util import ranked_doc_ids_for_evidence
 
-from snippet_window_ce import (
+from score_snippet_windows import (
     CONTEXT_MODE_SNIPPET,
     DOC_SNIPPET_WINDOWS_KEY,
     is_compact_doc_snippet_windows,
@@ -93,7 +93,7 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         required=True,
         dest="post_rerank_jsonl",
-        help="Path to post-rerank .jsonl (output of post_rerank_jsonl.py). --post-rerank-json is deprecated.",
+        help="Path to post-rerank .jsonl (output of build_retrieval_jsonl.py). --post-rerank-json is deprecated.",
     )
     parser.add_argument(
         "--snippet-windows-dir",
@@ -269,7 +269,7 @@ def build_context_from_sentences(
 
 
 def build_context_title_abstract(title: str, abstract: str) -> str:
-    """Fallback: full title + abstract, same as build_contexts_from_documents."""
+    """Fallback: full title + abstract, same as build_doc_contexts."""
     parts = [s.strip() for s in (title, abstract) if s and s.strip()]
     text = ". ".join(parts) if parts else ""
     return _normalize_unicode_whitespace(text)

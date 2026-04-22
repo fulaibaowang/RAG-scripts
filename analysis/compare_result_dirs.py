@@ -353,7 +353,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ks-recall", type=str, default="", help="Comma-separated K for MeanR@k when building metrics from runs (e.g. hybrid). Default: 50,100,200,...,5000.")
     parser.add_argument(
         "--train-jsonl",
-        "--train-json",
         type=Path,
         default=None,
         dest="train_jsonl",
@@ -361,8 +360,6 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--test-batch-jsonls",
-        "--test-batch-jsons",
-        "--test_batch_jsons",
         type=Path,
         nargs="*",
         default=None,

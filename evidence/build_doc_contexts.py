@@ -2,7 +2,7 @@
 """
 Build contexts (title + abstract) from post-rerank JSONL and literature corpus.
 
-Reads post-rerank JSONL (``post_rerank_jsonl.py`` output: ``doc_ids`` per question), looks up
+Reads post-rerank JSONL (``build_retrieval_jsonl.py`` output: ``doc_ids`` per question), looks up
 title and abstract for each doc id in a PubMed JSONL corpus (``pmid`` field must match doc_id
 for PubMed), appends a ``contexts`` list with ``doc_id`` per row (no PubMed URLs). Only the
 first ``--evidence-top-k`` ranked ``doc_ids`` are used (post-rerank may list a larger pool).
@@ -28,7 +28,7 @@ for _p in (_SHARED_SCRIPTS, _EVIDENCE_DIR):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 from retrieval_eval.common import iter_jsonl_dicts, question_qid, write_questions_jsonl
-from snippet_window_ce import CONTEXT_MODE_DOCUMENT
+from score_snippet_windows import CONTEXT_MODE_DOCUMENT
 from retrieval_eval.doc_id_util import ranked_doc_ids_for_evidence
 
 
@@ -42,7 +42,7 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         required=True,
         dest="post_rerank_jsonl",
-        help="Path to post-rerank .jsonl (output of post_rerank_jsonl.py).",
+        help="Path to post-rerank .jsonl (output of build_retrieval_jsonl.py).",
     )
     parser.add_argument(
         "--evidence-top-k",

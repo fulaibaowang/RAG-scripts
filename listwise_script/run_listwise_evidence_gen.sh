@@ -196,7 +196,7 @@ _process_route() {
     _post_json="${_post_dir}/post_rerank_${_split}.jsonl"
     if [ ! -f "$_post_json" ]; then
       echo "[listwise-evgen] Post-rerank JSONL ($_split)..."
-      python "$SCRIPT_DIR/evidence/post_rerank_jsonl.py" \
+      python "$SCRIPT_DIR/evidence/build_retrieval_jsonl.py" \
         --run-path "$_tsv" \
         --query-jsonl "$_query_jsonl" \
         --output-path "$_post_json" \
@@ -210,7 +210,7 @@ _process_route() {
     if [ ! -f "$_ctx_json" ]; then
       if [ -d "$SNIPPET_WINDOWS" ]; then
         echo "[listwise-evgen] Contexts from snippets ($_split)..."
-        python "$SCRIPT_DIR/evidence/build_contexts_from_snippets.py" \
+        python "$SCRIPT_DIR/evidence/build_snippet_contexts.py" \
           --post-rerank-jsonl "$_post_json" \
           --snippet-windows-dir "$SNIPPET_WINDOWS" \
           --split-name "$_split" \
@@ -221,7 +221,7 @@ _process_route() {
           --evidence-top-k "${EVIDENCE_TOP_K:-10}"
       else
         echo "[listwise-evgen] Contexts from documents ($_split)..."
-        python "$SCRIPT_DIR/evidence/build_contexts_from_documents.py" \
+        python "$SCRIPT_DIR/evidence/build_doc_contexts.py" \
           --post-rerank-jsonl "$_post_json" \
           --corpus-path "$DOCS_JSONL" \
           --output-path "$_ctx_json" \

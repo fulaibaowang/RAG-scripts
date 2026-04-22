@@ -30,7 +30,7 @@ Build an HNSW dense vector index using SentenceTransformer embeddings:
 ```bash
 python index/build_dense_hnsw_index_from_jsonl_shards.py \
   --jsonl_glob "/path/to/shards/*.jsonl" \
-  --out_dir /path/to/indexes/my_dense_index \
+  --out-dir /path/to/indexes/my_dense_index \
   --model_name "abhinand/MedEmbed-small-v0.1" \
   --device "cuda" \
   --batch_size 128 \
@@ -78,13 +78,13 @@ Replace paths below with your index, corpus JSONL, and train/test query `.jsonl`
 ### BM25 + RM3
 
 ```bash
-python retrieval/eval_bm25_rm3.py \
+python retrieval/retrieve_bm25.py \
   --index_path "/path/to/indexes/my_bm25_index/data.properties" \
   --train_json "/path/to/train_queries.json" \
   --test_batch_jsons \
     /path/to/test_batch_a.json \
     /path/to/test_batch_b.json \
-  --out_dir "output/eval_bm25_rm3" \
+  --out-dir "output/retrieve_bm25" \
   --threads 4 \
   --k_eval 5000 \
   --k_feedback 50 \
@@ -105,13 +105,13 @@ python retrieval/eval_bm25_rm3.py \
 ### Dense retrieval
 
 ```bash
-python retrieval/eval_dense.py \
+python retrieval/retrieve_dense.py \
   --index_dir "/path/to/indexes/my_dense_index" \
   --train-jsonl "/path/to/train_queries.jsonl" \
   --test-batch-jsonls \
     /path/to/test_batch_a.jsonl \
     /path/to/test_batch_b.jsonl \
-  --out_dir "output/eval_dense" \
+  --out-dir "output/retrieve_dense" \
   --topk 5000 \
   --ks "50,100,200,500,2000,5000" \
   --ef_search 100 \
@@ -121,14 +121,14 @@ python retrieval/eval_dense.py \
 ### Retrieval fusion (BM25 + dense)
 
 ```bash
-python retrieval/eval_hybrid.py \
-  --bm25_runs_dir "output/eval_bm25_rm3/runs" \
-  --dense_root "output/eval_dense" \
+python retrieval/fuse_retrieval.py \
+  --bm25-runs-dir "output/retrieve_bm25/runs" \
+  --dense-root "output/retrieve_dense" \
   --train-jsonl "/path/to/train_queries.jsonl" \
   --test-batch-jsonls \
     /path/to/test_batch_a.jsonl \
     /path/to/test_batch_b.jsonl \
-  --out_dir "output/eval_hybrid" \
+  --out-dir "output/fuse_retrieval" \
   --mode "default" \
   --k_rrf 150 \
   --w_bm25 1.0 \
@@ -138,8 +138,8 @@ python retrieval/eval_hybrid.py \
 ### Stage 2 rerank (cross-encoder)
 
 ```bash
-python rerank/rerank_stage2.py \
-  --runs-dir "output/eval_hybrid/runs" \
+python rerank/rerank_crossencoder.py \
+  --runs-dir "output/fuse_retrieval/runs" \
   --docs-jsonl "/path/to/corpus.jsonl" \
   --train-jsonl "/path/to/train_queries.jsonl" \
   --test-batch-jsonls \
@@ -157,8 +157,8 @@ python rerank/rerank_stage2.py \
 
 `run_retrieval_rerank_pipeline.sh` does **not** stop at the cross-encoder. It continues with:
 
-1. **Post-rerank JSONL** — merge each query split with the ranked doc list from the chosen run TSV (`post_rerank_<split>.jsonl` under `rerank/post_rerank_fusion/` or the snippet fusion tree; see [output.md](output.md)). On the snippet route, optional `--windows-jsonl` also merges **pre-selected** CE windows into compact `doc_snippet_windows` (`--window-size`, `--top-windows`, same env names as `build_contexts_from_snippets.py`).
-2. **Contexts JSONL** — attach evidence text from the corpus (`evidence/evidence_*/*_contexts.jsonl`), either full title+abstract per doc (`build_contexts_from_documents.py`) or snippet windows (`build_contexts_from_snippets.py` on the snippet route). Each question row carries `context_mode`: `document` or `snippet`.
+1. **Post-rerank JSONL** — merge each query split with the ranked doc list from the chosen run TSV (`post_rerank_<split>.jsonl` under `rerank/post_rerank_fusion/` or the snippet fusion tree; see [output.md](output.md)). On the snippet route, optional `--windows-jsonl` also merges **pre-selected** CE windows into compact `doc_snippet_windows` (`--window-size`, `--top-windows`, same env names as `build_snippet_contexts.py`).
+2. **Contexts JSONL** — attach evidence text from the corpus (`evidence/evidence_*/*_contexts.jsonl`), either full title+abstract per doc (`build_doc_contexts.py`) or snippet windows (`build_snippet_contexts.py` on the snippet route). Each question row carries `context_mode`: `document` or `snippet`.
 3. **LLM generation** — `generate_answers.py` then optional `rescue_failed_generation.py` under `generation/generation_*`. Answer JSONL drops `doc_snippet_windows` and per-context `rejected_windows` (and `window_idx` inside `selected_windows`); `context_mode` is kept.
 
 Use `--no-generation` (or `RUN_GENERATION_*=0`) to build evidence only. Env knobs (`POST_RERANK_DOC_POOL`, `EVIDENCE_TOP_K*`, `GENERATION_*`, backends): [PARAMETERS.md](PARAMETERS.md).
@@ -168,13 +168,13 @@ Use `--no-generation` (or `RUN_GENERATION_*=0`) to build evidence only. Env knob
 Assume a rerank run TSV (e.g. `output/.../rerank/post_rerank_fusion/runs/best_rrf_<split>_top....tsv`) and the same query `.jsonl` you used for retrieval:
 
 ```bash
-python evidence/post_rerank_jsonl.py \
+python evidence/build_retrieval_jsonl.py \
   --run-path "output/.../rerank/post_rerank_fusion/runs/best_rrf_my_split_top50.tsv" \
   --query-jsonl "/path/to/my_split.jsonl" \
   --output-path "output/.../rerank/post_rerank_fusion/post_rerank_my_split.jsonl" \
   --top-k 30
 
-python evidence/build_contexts_from_documents.py \
+python evidence/build_doc_contexts.py \
   --post-rerank-jsonl "output/.../rerank/post_rerank_fusion/post_rerank_my_split.jsonl" \
   --corpus-path "/path/to/corpus.jsonl" \
   --output-path "output/.../evidence/my_split_contexts.jsonl" \
@@ -183,7 +183,7 @@ python evidence/build_contexts_from_documents.py \
 
 ### Snippet route: JSONL shapes
 
-**Post-rerank** (`post_rerank_jsonl.py` with `--windows-jsonl`): `doc_snippet_windows` is only the compact map `pmid → {"selected_windows": [{"window_idx", "ce_score", "sent_ids", "query_field"?}, ...]}` (no full max-pooled lattice). **Older** `post_rerank_*.jsonl` that stored `pmid → [ flat list of all pooled windows ]` are no longer supported for embedded snippet evidence; regenerate post-rerank with the current script, or point `build_contexts_from_snippets.py` at `--snippet-windows-dir` until you do.
+**Post-rerank** (`build_retrieval_jsonl.py` with `--windows-jsonl`): `doc_snippet_windows` is only the compact map `pmid → {"selected_windows": [{"window_idx", "ce_score", "sent_ids", "query_field"?}, ...]}` (no full max-pooled lattice). **Older** `post_rerank_*.jsonl` that stored `pmid → [ flat list of all pooled windows ]` are no longer supported for embedded snippet evidence; regenerate post-rerank with the current script, or point `build_snippet_contexts.py` at `--snippet-windows-dir` until you do.
 
 **Contexts** (`*_contexts.jsonl`): full provenance remains on disk (`selected_windows`, `rejected_windows` on each context where applicable) plus top-level `doc_snippet_windows` when present, and `context_mode: "snippet"` or `"document"`.
 

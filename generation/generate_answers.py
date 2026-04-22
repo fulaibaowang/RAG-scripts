@@ -2,7 +2,7 @@
 """
 Generate BioASQ answers from contexts JSON using an LLM.
 
-Reads contexts JSONL from build_contexts_from_documents.py / build_contexts_from_snippets.py
+Reads contexts JSONL from build_doc_contexts.py / build_snippet_contexts.py
 (``query_id``, ``query_text``, ``query_type``, contexts with ``doc_id`` per row; optional ``doc_ids`` on the question),
 calls an LLM per question, parses ideal_answer and
 evidence_ids (and exact_answer for yesno/factoid/list), and writes a single

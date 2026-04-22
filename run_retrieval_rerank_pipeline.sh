@@ -381,26 +381,26 @@ _run_multi_query_fuse() {
 
 # ----- BM25 -----
 BM25_ARGS=(
-  --index_path "$BM25_INDEX_PATH"
-  --out_dir "$BM25_OUT"
-  --k_eval "$BM25_TOP_K"
+  --index-path "$BM25_INDEX_PATH"
+  --out-dir "$BM25_OUT"
+  --k-eval "$BM25_TOP_K"
   --ks "$RECALL_KS"
 )
-[ -n "${INPUT_JSONL:-}" ] && BM25_ARGS+=(--train_jsonl "$INPUT_JSONL")
-[ -n "${INPUT_BATCH_JSONLS:-}" ] && BM25_ARGS+=(--test_batch_jsonls $INPUT_BATCH_JSONLS)
-[ -n "${BM25_JAVA_MEM:-}" ] && BM25_ARGS+=(--java_mem "$BM25_JAVA_MEM")
+[ -n "${INPUT_JSONL:-}" ] && BM25_ARGS+=(--train-jsonl "$INPUT_JSONL")
+[ -n "${INPUT_BATCH_JSONLS:-}" ] && BM25_ARGS+=(--test-batch-jsonls $INPUT_BATCH_JSONLS)
+[ -n "${BM25_JAVA_MEM:-}" ] && BM25_ARGS+=(--java-mem "$BM25_JAVA_MEM")
 [ -n "${BM25_THREADS:-}" ] && BM25_ARGS+=(--threads "$BM25_THREADS")
-[ -n "${BM25_RM3_FEEDBACK_POOL:-}" ] && BM25_ARGS+=(--k_feedback "$BM25_RM3_FEEDBACK_POOL")
-[ -n "${BM25_RM3_FB_DOCS:-}" ] && BM25_ARGS+=(--rm3_fb_docs "$BM25_RM3_FB_DOCS")
-[ -n "${BM25_RM3_FB_TERMS:-}" ] && BM25_ARGS+=(--rm3_fb_terms "$BM25_RM3_FB_TERMS")
-[ -n "${BM25_RM3_LAMBDA:-}" ] && BM25_ARGS+=(--rm3_lambda "$BM25_RM3_LAMBDA")
-[ "${BM25_INCLUDE_BASELINE:-0}" = "1" ] && BM25_ARGS+=(--include_bm25)
-[ "${BM25_DISABLE_RM3:-0}" = "1" ] && BM25_ARGS+=(--disable_rm3)
-[ "${BM25_NO_EVAL:-0}" = "1" ] && BM25_ARGS+=(--no_eval)
-[ "${BM25_SAVE_RUNS:-1}" = "1" ] && BM25_ARGS+=(--save_runs)
-[ "${BM25_SAVE_PER_QUERY:-0}" = "1" ] && BM25_ARGS+=(--save_per_query)
-[ "${BM25_SAVE_ZERO_RECALL:-0}" = "1" ] && BM25_ARGS+=(--save_zero_recall)
-[ "${BM25_NO_EXCLUDE_TEST_QIDS:-0}" = "1" ] && BM25_ARGS+=(--no_exclude_test_qids)
+[ -n "${BM25_RM3_FEEDBACK_POOL:-}" ] && BM25_ARGS+=(--k-feedback "$BM25_RM3_FEEDBACK_POOL")
+[ -n "${BM25_RM3_FB_DOCS:-}" ] && BM25_ARGS+=(--rm3-fb-docs "$BM25_RM3_FB_DOCS")
+[ -n "${BM25_RM3_FB_TERMS:-}" ] && BM25_ARGS+=(--rm3-fb-terms "$BM25_RM3_FB_TERMS")
+[ -n "${BM25_RM3_LAMBDA:-}" ] && BM25_ARGS+=(--rm3-lambda "$BM25_RM3_LAMBDA")
+[ "${BM25_INCLUDE_BASELINE:-0}" = "1" ] && BM25_ARGS+=(--include-bm25)
+[ "${BM25_DISABLE_RM3:-0}" = "1" ] && BM25_ARGS+=(--disable-rm3)
+[ "${BM25_NO_EVAL:-0}" = "1" ] && BM25_ARGS+=(--no-eval)
+[ "${BM25_SAVE_RUNS:-1}" = "1" ] && BM25_ARGS+=(--save-runs)
+[ "${BM25_SAVE_PER_QUERY:-0}" = "1" ] && BM25_ARGS+=(--save-per-query)
+[ "${BM25_SAVE_ZERO_RECALL:-0}" = "1" ] && BM25_ARGS+=(--save-zero-recall)
+[ "${BM25_NO_EXCLUDE_TEST_QIDS:-0}" = "1" ] && BM25_ARGS+=(--no-exclude-test-qids)
 [ -n "${BM25_QUERY_FIELD:-}" ] && ! _query_field_has_comma "$BM25_QUERY_FIELD" && BM25_ARGS+=(--query-field "$BM25_QUERY_FIELD")
 
 if [ -f "$BM25_OUT/metrics.csv" ] || [ -n "$(find "$BM25_OUT/runs" -maxdepth 1 -name '*.tsv' 2>/dev/null | head -1)" ]; then
@@ -422,7 +422,7 @@ elif [ -n "${BM25_QUERY_FIELD:-}" ] && _query_field_has_comma "$BM25_QUERY_FIELD
       echo "  BM25 sub-run skip (exists): $_bm25_sub"
     else
       _bm25_one=("${BM25_ARGS[@]}")
-      # Replace --out_dir target with subdir
+      # Replace --out-dir target with subdir
       _bm25_new=()
       _skip_next=0
       for _a in "${_bm25_one[@]}"; do
@@ -431,7 +431,7 @@ elif [ -n "${BM25_QUERY_FIELD:-}" ] && _query_field_has_comma "$BM25_QUERY_FIELD
           _skip_next=0
           continue
         fi
-        if [ "$_a" = "--out_dir" ]; then
+        if [ "$_a" = "--out-dir" ]; then
           _bm25_new+=("$_a")
           _skip_next=1
           continue
@@ -439,8 +439,8 @@ elif [ -n "${BM25_QUERY_FIELD:-}" ] && _query_field_has_comma "$BM25_QUERY_FIELD
         _bm25_new+=("$_a")
       done
       _bm25_one=("${_bm25_new[@]}")
-      _bm25_one+=(--query-field "$_qf" --no_eval --skip-empty-query-field)
-      python "$SCRIPT_DIR/retrieval/eval_bm25_rm3.py" "${_bm25_one[@]}"
+      _bm25_one+=(--query-field "$_qf" --no-eval --skip-empty-query-field)
+      python "$SCRIPT_DIR/retrieval/retrieve_bm25.py" "${_bm25_one[@]}"
     fi
     _BM25_FUSE_DIRS+=("$_bm25_sub/runs")
   done
@@ -454,7 +454,7 @@ elif [ -n "${BM25_QUERY_FIELD:-}" ] && _query_field_has_comma "$BM25_QUERY_FIELD
 else
   echo "[1/$TOTAL_STEPS] BM25..."
   STEP_BM25_START=$(date +%s)
-  python "$SCRIPT_DIR/retrieval/eval_bm25_rm3.py" "${BM25_ARGS[@]}"
+  python "$SCRIPT_DIR/retrieval/retrieve_bm25.py" "${BM25_ARGS[@]}"
   STEP_BM25_END=$(date +%s)
   echo "[timing] BM25 step: $((STEP_BM25_END-STEP_BM25_START))s"
   _log_run "step" "1" "BM25" "$((STEP_BM25_END-STEP_BM25_START))s"
@@ -465,28 +465,28 @@ fi
 # Exactly one of these should normally be set in the config; if both are set, DENSE_INDEX_GLOB wins.
 if [ -n "${DENSE_INDEX_GLOB:-}" ]; then
   DENSE_ARGS=(
-    --index_glob "$DENSE_INDEX_GLOB"
-    --out_dir "$DENSE_OUT"
+    --index-glob "$DENSE_INDEX_GLOB"
+    --out-dir "$DENSE_OUT"
     --topk "$DENSE_TOP_K"
     --ks "$RECALL_KS"
   )
 else
   DENSE_ARGS=(
-    --index_dir "$DENSE_INDEX_DIR"
-    --out_dir "$DENSE_OUT"
+    --index-dir "$DENSE_INDEX_DIR"
+    --out-dir "$DENSE_OUT"
     --topk "$DENSE_TOP_K"
     --ks "$RECALL_KS"
   )
 fi
 [ -n "${INPUT_JSONL:-}" ] && DENSE_ARGS+=(--train-jsonl "$INPUT_JSONL")
 [ -n "${INPUT_BATCH_JSONLS:-}" ] && DENSE_ARGS+=(--test-batch-jsonls $INPUT_BATCH_JSONLS)
-[ -n "${DENSE_EF_SEARCH:-}" ] && DENSE_ARGS+=(--ef_search "$DENSE_EF_SEARCH")
-[ -n "${DENSE_EF_CAP:-}" ] && DENSE_ARGS+=(--ef_cap "$DENSE_EF_CAP")
-[ -n "${DENSE_BATCH_SIZE:-}" ] && DENSE_ARGS+=(--batch_size "$DENSE_BATCH_SIZE")
+[ -n "${DENSE_EF_SEARCH:-}" ] && DENSE_ARGS+=(--ef-search "$DENSE_EF_SEARCH")
+[ -n "${DENSE_EF_CAP:-}" ] && DENSE_ARGS+=(--ef-cap "$DENSE_EF_CAP")
+[ -n "${DENSE_BATCH_SIZE:-}" ] && DENSE_ARGS+=(--batch-size "$DENSE_BATCH_SIZE")
 [ -n "${DENSE_DEVICE:-}" ] && DENSE_ARGS+=(--device "$DENSE_DEVICE")
-[ -n "${DENSE_MODEL_NAME:-}" ] && DENSE_ARGS+=(--model_name "$DENSE_MODEL_NAME")
-[ "${DENSE_NO_EVAL:-0}" = "1" ] && DENSE_ARGS+=(--no_eval)
-[ "${DENSE_SAVE_PER_QUERY:-0}" = "1" ] && DENSE_ARGS+=(--save_per_query)
+[ -n "${DENSE_MODEL_NAME:-}" ] && DENSE_ARGS+=(--model-name "$DENSE_MODEL_NAME")
+[ "${DENSE_NO_EVAL:-0}" = "1" ] && DENSE_ARGS+=(--no-eval)
+[ "${DENSE_SAVE_PER_QUERY:-0}" = "1" ] && DENSE_ARGS+=(--save-per-query)
 [ -n "${DENSE_QUERY_FIELD:-}" ] && ! _query_field_has_comma "$DENSE_QUERY_FIELD" && DENSE_ARGS+=(--query-field "$DENSE_QUERY_FIELD")
 
 if [ -f "$DENSE_OUT/metrics.csv" ] || [ -n "$(find "$DENSE_OUT/runs" -maxdepth 1 -name '*.tsv' 2>/dev/null | head -1)" ]; then
@@ -516,7 +516,7 @@ elif [ -n "${DENSE_QUERY_FIELD:-}" ] && _query_field_has_comma "$DENSE_QUERY_FIE
           _skip_next=0
           continue
         fi
-        if [ "$_a" = "--out_dir" ]; then
+        if [ "$_a" = "--out-dir" ]; then
           _dense_new+=("$_a")
           _skip_next=1
           continue
@@ -524,8 +524,8 @@ elif [ -n "${DENSE_QUERY_FIELD:-}" ] && _query_field_has_comma "$DENSE_QUERY_FIE
         _dense_new+=("$_a")
       done
       _dense_one=("${_dense_new[@]}")
-      _dense_one+=(--query-field "$_qf" --no_eval --skip-empty-query-field)
-      python "$SCRIPT_DIR/retrieval/eval_dense.py" "${_dense_one[@]}"
+      _dense_one+=(--query-field "$_qf" --no-eval --skip-empty-query-field)
+      python "$SCRIPT_DIR/retrieval/retrieve_dense.py" "${_dense_one[@]}"
     fi
     _DENSE_FUSE_DIRS+=("$_dense_sub/runs")
   done
@@ -540,7 +540,7 @@ elif [ -n "${DENSE_QUERY_FIELD:-}" ] && _query_field_has_comma "$DENSE_QUERY_FIE
 else
   echo "[2/$TOTAL_STEPS] Dense..."
   STEP_DENSE_START=$(date +%s)
-  python "$SCRIPT_DIR/retrieval/eval_dense.py" "${DENSE_ARGS[@]}"
+  python "$SCRIPT_DIR/retrieval/retrieve_dense.py" "${DENSE_ARGS[@]}"
   STEP_DENSE_END=$(date +%s)
   echo "[timing] Dense step: $((STEP_DENSE_END-STEP_DENSE_START))s"
   _log_run "step" "2" "Dense" "$((STEP_DENSE_END-STEP_DENSE_START))s"
@@ -548,27 +548,27 @@ fi
 
 # ----- Hybrid -----
 HYBRID_ARGS=(
-  --bm25_runs_dir "$BM25_OUT/runs"
-  --bm25_method "$BM25_METHOD_FOR_HYBRID"
-  --bm25_topk "$BM25_TOP_K"
-  --dense_root "$DENSE_OUT"
-  --out_dir "$HYBRID_OUT"
-  --k_max_eval "$HYBRID_K_MAX_EVAL"
+  --bm25-runs-dir "$BM25_OUT/runs"
+  --bm25-method "$BM25_METHOD_FOR_HYBRID"
+  --bm25-topk "$BM25_TOP_K"
+  --dense-root "$DENSE_OUT"
+  --out-dir "$HYBRID_OUT"
+  --k-max-eval "$HYBRID_K_MAX_EVAL"
   --cap "$HYBRID_CAP"
   --ks "$RECALL_KS"
 )
 [ -n "${INPUT_JSONL:-}" ] && HYBRID_ARGS+=(--train-jsonl "$INPUT_JSONL")
 [ -n "${INPUT_BATCH_JSONLS:-}" ] && HYBRID_ARGS+=(--test-batch-jsonls $INPUT_BATCH_JSONLS)
 [ -n "${HYBRID_MODE:-}" ] && HYBRID_ARGS+=(--mode "$HYBRID_MODE")
-[ -n "${HYBRID_K_RRF:-}" ] && HYBRID_ARGS+=(--k_rrf "$HYBRID_K_RRF")
-[ -n "${HYBRID_W_BM25:-}" ] && HYBRID_ARGS+=(--w_bm25 "$HYBRID_W_BM25")
-[ -n "${HYBRID_W_DENSE:-}" ] && HYBRID_ARGS+=(--w_dense "$HYBRID_W_DENSE")
+[ -n "${HYBRID_K_RRF:-}" ] && HYBRID_ARGS+=(--k-rrf "$HYBRID_K_RRF")
+[ -n "${HYBRID_W_BM25:-}" ] && HYBRID_ARGS+=(--w-bm25 "$HYBRID_W_BM25")
+[ -n "${HYBRID_W_DENSE:-}" ] && HYBRID_ARGS+=(--w-dense "$HYBRID_W_DENSE")
 [ -n "${HYBRID_WEIGHTS:-}" ] && HYBRID_ARGS+=(--weights "$HYBRID_WEIGHTS")
-[ -n "${HYBRID_K_RRF_LIST:-}" ] && HYBRID_ARGS+=(--k_rrf_list "$HYBRID_K_RRF_LIST")
+[ -n "${HYBRID_K_RRF_LIST:-}" ] && HYBRID_ARGS+=(--k-rrf-list "$HYBRID_K_RRF_LIST")
 [ -n "${HYBRID_JOBS:-}" ] && HYBRID_ARGS+=(--jobs "$HYBRID_JOBS")
-[ "${HYBRID_NO_EVAL:-0}" = "1" ] && HYBRID_ARGS+=(--no_eval)
-[ "${HYBRID_NO_PLOTS:-0}" = "1" ] && HYBRID_ARGS+=(--no_plots)
-[ "${HYBRID_SAVE_PLOTS:-0}" = "1" ] && HYBRID_ARGS+=(--save_plots)
+[ "${HYBRID_NO_EVAL:-0}" = "1" ] && HYBRID_ARGS+=(--no-eval)
+[ "${HYBRID_NO_PLOTS:-0}" = "1" ] && HYBRID_ARGS+=(--no-plots)
+[ "${HYBRID_SAVE_PLOTS:-0}" = "1" ] && HYBRID_ARGS+=(--save-plots)
 
 if [ -f "$HYBRID_OUT/ranked_test_avg.csv" ] || [ -f "$HYBRID_OUT/metrics.csv" ] || [ -n "$(find "$HYBRID_OUT/runs" -maxdepth 1 -name '*.tsv' 2>/dev/null | head -1)" ]; then
   echo "[3/$TOTAL_STEPS] Hybrid... (skip: output exists)"
@@ -576,7 +576,7 @@ if [ -f "$HYBRID_OUT/ranked_test_avg.csv" ] || [ -f "$HYBRID_OUT/metrics.csv" ] 
 else
   echo "[3/$TOTAL_STEPS] Hybrid..."
   STEP_HYBRID_START=$(date +%s)
-  python "$SCRIPT_DIR/retrieval/eval_hybrid.py" "${HYBRID_ARGS[@]}"
+  python "$SCRIPT_DIR/retrieval/fuse_retrieval.py" "${HYBRID_ARGS[@]}"
   STEP_HYBRID_END=$(date +%s)
   echo "[timing] Hybrid step: $((STEP_HYBRID_END-STEP_HYBRID_START))s"
   _log_run "step" "3" "Hybrid" "$((STEP_HYBRID_END-STEP_HYBRID_START))s"
@@ -586,7 +586,7 @@ fi
 # Figures are named hybrid_reranker_recall_map10_{label}.png (one per dataset label)
 if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
   STEP_RERANK_START=$(date +%s)
-  # Only consider rerank "complete" when metrics.csv exists; partial TSVs allow resume in rerank_stage2.py
+  # Only consider rerank "complete" when metrics.csv exists; partial TSVs allow resume in rerank_crossencoder.py
   RERANK_RESULTS_EXIST=0
   if [ -f "$CROSS_ENCODER_OUT/metrics.csv" ] || [ -n "$(find "$CROSS_ENCODER_OUT/runs" -maxdepth 1 -name '*.tsv' 2>/dev/null | head -1)" ]; then
     RERANK_RESULTS_EXIST=1
@@ -663,7 +663,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
           [ "${RERANK_LLM_USE_FP16:-1}" = "0" ] && RERANK_ARGS+=(--no-llm-use-fp16)
           [ "${RERANK_LLM_USE_BF16:-0}" = "1" ] && RERANK_ARGS+=(--llm-use-bf16)
           [ -n "${RERANK_PROGRESS_EVERY:-}" ] && RERANK_ARGS+=(--progress-every "$RERANK_PROGRESS_EVERY")
-          python "$SCRIPT_DIR/rerank/rerank_stage2.py" "${RERANK_ARGS[@]}"
+          python "$SCRIPT_DIR/rerank/rerank_crossencoder.py" "${RERANK_ARGS[@]}"
         fi
         _RERANK_FUSE_DIRS+=("$_rr_sub/runs")
       done
@@ -696,7 +696,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
       [ "${RERANK_LLM_USE_FP16:-1}" = "0" ] && RERANK_ARGS+=(--no-llm-use-fp16)
       [ "${RERANK_LLM_USE_BF16:-0}" = "1" ] && RERANK_ARGS+=(--llm-use-bf16)
       [ -n "${RERANK_PROGRESS_EVERY:-}" ] && RERANK_ARGS+=(--progress-every "$RERANK_PROGRESS_EVERY")
-      python "$SCRIPT_DIR/rerank/rerank_stage2.py" "${RERANK_ARGS[@]}"
+      python "$SCRIPT_DIR/rerank/rerank_crossencoder.py" "${RERANK_ARGS[@]}"
     fi
   fi
   STEP_RERANK_END=$(date +%s)
@@ -805,7 +805,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
       [ -n "${INPUT_BATCH_JSONLS:-}" ] && RRF_ARGS+=(--test-batch-jsonls $INPUT_BATCH_JSONLS)
       [ -n "${RERANK_KS_RECALL:-}" ] && RRF_ARGS+=(--ks-recall "$RERANK_KS_RECALL")
       [ "${RERANK_DISABLE_METRICS:-0}" = "1" ] && RRF_ARGS+=(--disable-metrics)
-      python "$SCRIPT_DIR/rerank/rerank_rrf_hybrid.py" "${RRF_ARGS[@]}"
+      python "$SCRIPT_DIR/rerank/fuse_rerank.py" "${RRF_ARGS[@]}"
     fi
     if [ "$_RRF_STEP5_OUT" = "$POST_RERANK_FUSION_OUT" ]; then
       _apply_rerank_tstar_cutoff "$_RRF_STEP5_OUT/runs" "$POST_RERANK_FUSION_TSTAR_OUT" "post_rerank_fusion"
@@ -829,7 +829,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
       _RRF_POOL_HYBRID_200="${RRF_POOL_TOP_HYBRID:-${RRF_POOL_TOP:-200}}"
       [ "$_RRF_POOL_RERANK_200" -lt 200 ] && _RRF_POOL_RERANK_200=200
       [ "$_RRF_POOL_HYBRID_200" -lt 200 ] && _RRF_POOL_HYBRID_200=200
-      python "$SCRIPT_DIR/rerank/rerank_rrf_hybrid.py" \
+      python "$SCRIPT_DIR/rerank/fuse_rerank.py" \
         --hybrid-runs-dir "$HYBRID_OUT/runs" \
         --rerank-runs-dir "$CROSS_ENCODER_OUT/runs" \
         --output-dir "$POST_RERANK_FUSION_SNIPPET_OUT" \
@@ -983,7 +983,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
             fi
             [ "${SNIPPET_CE_LLM_USE_FP16:-${RERANK_LLM_USE_FP16:-1}}" = "0" ] && SNIPPET_ARGS+=(--no-ce-llm-use-fp16)
             [ "${SNIPPET_CE_LLM_USE_BF16:-${RERANK_LLM_USE_BF16:-0}}" = "1" ] && SNIPPET_ARGS+=(--ce-llm-use-bf16)
-            python "$SCRIPT_DIR/evidence/snippet_rerank.py" "${SNIPPET_ARGS[@]}"
+            python "$SCRIPT_DIR/evidence/rerank_snippets.py" "${SNIPPET_ARGS[@]}"
           fi
           _SNIP_FUSE_DIRS+=("$_sn_sub/runs")
         done
@@ -1039,7 +1039,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
         fi
         [ "${SNIPPET_CE_LLM_USE_FP16:-${RERANK_LLM_USE_FP16:-1}}" = "0" ] && SNIPPET_ARGS+=(--no-ce-llm-use-fp16)
         [ "${SNIPPET_CE_LLM_USE_BF16:-${RERANK_LLM_USE_BF16:-0}}" = "1" ] && SNIPPET_ARGS+=(--ce-llm-use-bf16)
-        python "$SCRIPT_DIR/evidence/snippet_rerank.py" "${SNIPPET_ARGS[@]}"
+        python "$SCRIPT_DIR/evidence/rerank_snippets.py" "${SNIPPET_ARGS[@]}"
       fi
     fi
     STEP_SNIPPET_END=$(date +%s)
@@ -1072,7 +1072,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
       fi
       # Pool size default: SNIPPET_FINAL_POOL, falling back to SNIPPET_N_DOCS (and then 100)
       _SNIP_POOL="${SNIPPET_FINAL_POOL:-${SNIPPET_N_DOCS:-100}}"
-      python "$SCRIPT_DIR/rerank/rerank_rrf_hybrid.py" \
+      python "$SCRIPT_DIR/rerank/fuse_rerank.py" \
         --hybrid-runs-dir "$_STEP7_DOCS_DIR/runs" \
         --rerank-runs-dir "$SNIPPET_RERANK_OUT/runs" \
         --output-dir "$SNIPPET_DOC_FUSION_OUT" \
@@ -1223,7 +1223,7 @@ _DOCS_JSONL_OK=0
       if [ ! -f "$_post_json" ]; then
         echo "[Evidence] Post-rerank JSONL ($_split)..."
         if [ "$_USE_SNIPPET_CTX" = "1" ] && [ -f "$SNIPPET_RERANK_OUT/windows/${_split}.jsonl" ]; then
-          python "$SCRIPT_DIR/evidence/post_rerank_jsonl.py" \
+          python "$SCRIPT_DIR/evidence/build_retrieval_jsonl.py" \
             --run-path "$_tsv" \
             --query-jsonl "$_query_jsonl" \
             --output-path "$_post_json" \
@@ -1235,7 +1235,7 @@ _DOCS_JSONL_OK=0
           if [ "$_USE_SNIPPET_CTX" = "1" ]; then
             echo "[Evidence] Warning: no windows file $SNIPPET_RERANK_OUT/windows/${_split}.jsonl; post_rerank without CE merge" >&2
           fi
-          python "$SCRIPT_DIR/evidence/post_rerank_jsonl.py" \
+          python "$SCRIPT_DIR/evidence/build_retrieval_jsonl.py" \
             --run-path "$_tsv" \
             --query-jsonl "$_query_jsonl" \
             --output-path "$_post_json" \
@@ -1249,7 +1249,7 @@ _DOCS_JSONL_OK=0
       if [ ! -f "$_ctx_json" ]; then
         if [ "$_USE_SNIPPET_CTX" = "1" ]; then
           echo "[Evidence] Contexts from snippets ($_split)..."
-          python "$SCRIPT_DIR/evidence/build_contexts_from_snippets.py" \
+          python "$SCRIPT_DIR/evidence/build_snippet_contexts.py" \
             --post-rerank-jsonl "$_post_json" \
             --snippet-windows-dir "$SNIPPET_RERANK_OUT/windows" \
             --split-name "$_split" \
@@ -1260,7 +1260,7 @@ _DOCS_JSONL_OK=0
             --evidence-top-k "$_EVIDENCE_TOP_K"
         else
           echo "[Evidence] Contexts from documents ($_split)..."
-          python "$SCRIPT_DIR/evidence/build_contexts_from_documents.py" \
+          python "$SCRIPT_DIR/evidence/build_doc_contexts.py" \
             --post-rerank-jsonl "$_post_json" \
             --corpus-path "$DOCS_JSONL" \
             --output-path "$_ctx_json" \

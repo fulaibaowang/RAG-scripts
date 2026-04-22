@@ -156,7 +156,7 @@ def _build_full_report(
 
         row: dict = {
             "qid": qid,
-            "question": meta.get("body", ""),
+            "question": meta.get("query_text", ""),
             "type": meta.get("type", "unknown"),
             "n_rel": len(gold_pmids),
             f"hybrid_R@{cap}": round(hybrid_recall.get(qid, float("nan")), 6),

@@ -170,10 +170,9 @@ def parse_args() -> argparse.Namespace:
         help="Max docs after threshold (before floor top-up). Omit for no extra cap beyond input length.",
     )
     p.add_argument("--pattern", type=str, default="*.tsv", help="Glob under input-runs-dir")
-    p.add_argument("--train-jsonl", "--train-json", type=Path, default=None, dest="train_jsonl")
+    p.add_argument("--train-jsonl", type=Path, default=None, dest="train_jsonl")
     p.add_argument(
         "--test-batch-jsonls",
-        "--test-batch-jsons",
         type=Path,
         nargs="*",
         default=None,

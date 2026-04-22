@@ -2,3 +2,4 @@ demo/
 __pycache__/
 *.pyc
 .hf_cache/
+CLAUDE.md
