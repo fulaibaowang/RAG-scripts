@@ -73,7 +73,7 @@ def parse_args() -> argparse.Namespace:
         "--query-field",
         type=str,
         default="query_text",
-        help="Question JSON key for listwise query text (e.g. query_text, body_hyde). "
+        help="Question JSON key for listwise query text (e.g. query_text, query_text_hyde). "
         "Falls back to question_body() (query_text / legacy body / query / question) if the key is missing.",
     )
 

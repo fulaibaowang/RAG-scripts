@@ -137,7 +137,7 @@ while [ $# -gt 0 ]; do
       echo "  EVIDENCE_TOP_K / EVIDENCE_TOP_K_BASELINE / EVIDENCE_TOP_K_SNIPPET   Max docs per question for contexts (build_contexts; default: EVIDENCE_TOP_K or 10)."
       echo ""
       echo "Example: $0 --config scripts/private_scripts/config.env"
-      echo "Example: $0 -c config.env --no-rerank --bm25-query-field body_expansion_long --dense-query-field query_text"
+      echo "Example: $0 -c config.env --no-rerank --bm25-query-field query_text_expansion_long --dense-query-field query_text"
       echo "Example: source workflow_config_baseline.env && $0"
       exit 0
       ;;
@@ -344,11 +344,11 @@ _build_mquery_labels() {
     _sep=","
   done
 }
-# Usage: _run_multi_query_fuse <out_runs_dir> <glob_pattern> <k_rrf> <weights_or_empty> <cap_or_empty> <labels_csv_or_empty> <body_weight_or_empty> -- <run_dir1> <run_dir2> ...
+# Usage: _run_multi_query_fuse <out_runs_dir> <glob_pattern> <k_rrf> <weights_or_empty> <cap_or_empty> <labels_csv_or_empty> <query_text_weight_or_empty> -- <run_dir1> <run_dir2> ...
 # Eval is auto-enabled when HAVE_GROUND_TRUTH!=0 and INPUT_JSONL/INPUT_BATCH_JSONLS are set.
 # Set _FUSE_EXTRA_ARGS=(...) before calling to pass additional flags (e.g. --plot, --no-fused-all-plots, --recall-k-max).
 _run_multi_query_fuse() {
-  local _out="$1" _pat="$2" _k="$3" _weights="$4" _cap="$5" _labels="$6" _body_w="$7"
+  local _out="$1" _pat="$2" _k="$3" _weights="$4" _cap="$5" _labels="$6" _query_text_w="$7"
   shift 7
   if [ "${1:-}" != "--" ]; then
     echo "Error: _run_multi_query_fuse internal: expected -- before run-dirs" >&2
@@ -367,7 +367,7 @@ _run_multi_query_fuse() {
   [ -n "$_weights" ] && _args+=(--weights "$_weights")
   [ -n "$_cap" ] && _args+=(--cap "$_cap")
   [ -n "$_labels" ] && _args+=(--labels "$_labels")
-  [ -n "$_body_w" ] && _args+=(--body-weight "$_body_w")
+  [ -n "$_query_text_w" ] && _args+=(--query-text-weight "$_query_text_w")
   if [ "${HAVE_GROUND_TRUTH:-1}" != "0" ]; then
     [ -n "${INPUT_JSONL:-}" ] && _args+=(--train-jsonl "$INPUT_JSONL")
     [ -n "${INPUT_BATCH_JSONLS:-}" ] && _args+=(--test-batch-jsonls $INPUT_BATCH_JSONLS)
@@ -447,7 +447,7 @@ elif [ -n "${BM25_QUERY_FIELD:-}" ] && _query_field_has_comma "$BM25_QUERY_FIELD
   mkdir -p "$BM25_OUT/runs"
   _build_mquery_labels
   _FUSE_EXTRA_ARGS=()
-  _run_multi_query_fuse "$BM25_OUT/runs" "*.tsv" "${BM25_QUERY_FUSION_K_RRF:-60}" "${BM25_QUERY_FUSION_WEIGHTS:-}" "$BM25_TOP_K" "$_MQUERY_LABELS" "${BM25_QUERY_BODY_WEIGHT:-}" -- "${_BM25_FUSE_DIRS[@]}"
+  _run_multi_query_fuse "$BM25_OUT/runs" "*.tsv" "${BM25_QUERY_FUSION_K_RRF:-60}" "${BM25_QUERY_FUSION_WEIGHTS:-}" "$BM25_TOP_K" "$_MQUERY_LABELS" "${BM25_QUERY_TEXT_WEIGHT:-}" -- "${_BM25_FUSE_DIRS[@]}"
   STEP_BM25_END=$(date +%s)
   echo "[timing] BM25 step: $((STEP_BM25_END-STEP_BM25_START))s"
   _log_run "step" "1" "BM25" "$((STEP_BM25_END-STEP_BM25_START))s"
@@ -532,7 +532,7 @@ elif [ -n "${DENSE_QUERY_FIELD:-}" ] && _query_field_has_comma "$DENSE_QUERY_FIE
   mkdir -p "$DENSE_OUT/runs"
   _build_mquery_labels
   _FUSE_EXTRA_ARGS=(--plot recall --no-fused-all-plots)
-  _run_multi_query_fuse "$DENSE_OUT/runs" "dense_*.tsv" "${DENSE_QUERY_FUSION_K_RRF:-60}" "${DENSE_QUERY_FUSION_WEIGHTS:-}" "$DENSE_TOP_K" "$_MQUERY_LABELS" "${DENSE_QUERY_BODY_WEIGHT:-}" -- "${_DENSE_FUSE_DIRS[@]}"
+  _run_multi_query_fuse "$DENSE_OUT/runs" "dense_*.tsv" "${DENSE_QUERY_FUSION_K_RRF:-60}" "${DENSE_QUERY_FUSION_WEIGHTS:-}" "$DENSE_TOP_K" "$_MQUERY_LABELS" "${DENSE_QUERY_TEXT_WEIGHT:-}" -- "${_DENSE_FUSE_DIRS[@]}"
   _FUSE_EXTRA_ARGS=()
   STEP_DENSE_END=$(date +%s)
   echo "[timing] Dense step: $((STEP_DENSE_END-STEP_DENSE_START))s"
@@ -670,7 +670,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
       mkdir -p "$CROSS_ENCODER_OUT/runs"
       _build_mquery_labels
       _FUSE_EXTRA_ARGS=(--no-fused-all-plots --recall-k-max "$RERANK_EFFECTIVE")
-      _run_multi_query_fuse "$CROSS_ENCODER_OUT/runs" "*.tsv" "${RERANK_QUERY_FUSION_K_RRF:-60}" "${RERANK_QUERY_FUSION_WEIGHTS:-}" "$RERANK_EFFECTIVE" "$_MQUERY_LABELS" "${RERANK_QUERY_BODY_WEIGHT:-}" -- "${_RERANK_FUSE_DIRS[@]}"
+      _run_multi_query_fuse "$CROSS_ENCODER_OUT/runs" "*.tsv" "${RERANK_QUERY_FUSION_K_RRF:-60}" "${RERANK_QUERY_FUSION_WEIGHTS:-}" "$RERANK_EFFECTIVE" "$_MQUERY_LABELS" "${RERANK_QUERY_TEXT_WEIGHT:-}" -- "${_RERANK_FUSE_DIRS[@]}"
       _FUSE_EXTRA_ARGS=()
     else
       RERANK_ARGS=(
@@ -990,7 +990,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
         mkdir -p "$SNIPPET_RERANK_OUT/runs"
         _build_mquery_labels
         _FUSE_EXTRA_ARGS=(--no-fused-all-plots --recall-k-max "$_SNIP_FUSE_CAP")
-        _run_multi_query_fuse "$SNIPPET_RERANK_OUT/runs" "*.tsv" "${RERANK_QUERY_FUSION_K_RRF:-60}" "${RERANK_QUERY_FUSION_WEIGHTS:-}" "$_SNIP_FUSE_CAP" "$_MQUERY_LABELS" "${RERANK_QUERY_BODY_WEIGHT:-}" -- "${_SNIP_FUSE_DIRS[@]}"
+        _run_multi_query_fuse "$SNIPPET_RERANK_OUT/runs" "*.tsv" "${RERANK_QUERY_FUSION_K_RRF:-60}" "${RERANK_QUERY_FUSION_WEIGHTS:-}" "$_SNIP_FUSE_CAP" "$_MQUERY_LABELS" "${RERANK_QUERY_TEXT_WEIGHT:-}" -- "${_SNIP_FUSE_DIRS[@]}"
         _FUSE_EXTRA_ARGS=()
         mkdir -p "$SNIPPET_RERANK_OUT/windows"
         rm -f "$SNIPPET_RERANK_OUT"/windows/*.part 2>/dev/null || true

@@ -215,7 +215,7 @@ def build_topics_and_gold(
 ) -> Tuple[pd.DataFrame, Dict[str, List[str]]]:
     """Return topics_df(qid, query) and gold_map[qid]=[pmids].
 
-    If *query_field* is set (e.g. ``'body_hyde'``), that key must be present and
+    If *query_field* is set (e.g. ``'query_text_hyde'``), that key must be present and
     non-empty on each question.  By default, an empty/missing value raises
     ``ValueError`` (catches misconfigured single-field runs).
 

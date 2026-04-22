@@ -732,7 +732,7 @@ def main():
         "--query-field",
         type=str,
         default="query_text",
-        help="Question key to use as query text (strict query JSONL: query_text; HyDE etc.: body_hyde). Default: query_text.",
+        help="Question key to use as query text (strict query JSONL: query_text; HyDE etc.: query_text_hyde). Default: query_text.",
     )
     ap.add_argument(
         "--skip-empty-query-field",

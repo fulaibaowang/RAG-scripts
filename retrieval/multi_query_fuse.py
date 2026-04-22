@@ -84,17 +84,17 @@ def fuse_n_way_rrf(
     weights: Sequence[float],
     k_rrf: float,
     cap: int | None,
-    body_weight: float | None = None,
+    query_text_weight: float | None = None,
 ) -> pd.DataFrame:
     """N-way weighted RRF fusion.
 
-    When *body_weight* is set, per-qid adaptive weighting is used:
-    the first sub-run (index 0, "body") gets *body_weight*, and the remaining
+    When *query_text_weight* is set, per-qid adaptive weighting is used:
+    the first sub-run (index 0, "query_text") gets *query_text_weight*, and the remaining
     weight is split equally among whichever other sub-runs are active for that
-    qid.  If only the body sub-run is active, it receives weight 1.0.
-    When *body_weight* is ``None``, the fixed *weights* vector is used.
+    qid.  If only the query_text sub-run is active, it receives weight 1.0.
+    When *query_text_weight* is ``None``, the fixed *weights* vector is used.
     """
-    if body_weight is None and len(dfs) != len(weights):
+    if query_text_weight is None and len(dfs) != len(weights):
         raise ValueError("dfs and weights length mismatch")
     if not dfs:
         raise ValueError("no dataframes")
@@ -116,18 +116,18 @@ def fuse_n_way_rrf(
 
     for qid in qid_order:
         # Determine per-qid weights
-        if body_weight is not None:
+        if query_text_weight is not None:
             active = [i for i, qs in enumerate(df_qid_sets) if qid in qs]
-            body_idx = 0
-            non_body = [i for i in active if i != body_idx]
-            n_nb = len(non_body)
+            query_text_idx = 0
+            non_query_text = [i for i in active if i != query_text_idx]
+            n_nb = len(non_query_text)
             qw: Dict[int, float] = {}
-            if body_idx in active:
-                qw[body_idx] = body_weight if n_nb else 1.0
-                rest = (1.0 - body_weight) if n_nb else 0.0
+            if query_text_idx in active:
+                qw[query_text_idx] = query_text_weight if n_nb else 1.0
+                rest = (1.0 - query_text_weight) if n_nb else 0.0
             else:
                 rest = 1.0
-            for i in non_body:
+            for i in non_query_text:
                 qw[i] = rest / n_nb
         else:
             qw = {i: w for i, w in enumerate(weights)}
@@ -354,9 +354,9 @@ def _eval_fused_runs(
                 for df in sub_dfs
             ]
 
-            # "different qids" = union of non-body (non-first) sub-run qid sets
-            non_body_sets = [qs for i, qs in enumerate(qid_sets) if i > 0 and qs]
-            diff_qids = set().union(*non_body_sets) if non_body_sets else set()
+            # "different qids" = union of non-query_text (non-first) sub-run qid sets
+            non_query_text_sets = [qs for i, qs in enumerate(qid_sets) if i > 0 and qs]
+            diff_qids = set().union(*non_query_text_sets) if non_query_text_sets else set()
 
             if diff_qids:
                 for idx, (lbl, sdf) in enumerate(zip(labels, sub_dfs)):
@@ -479,13 +479,13 @@ def main() -> None:
     ap.add_argument("--no-eval", action="store_true", help="Skip evaluation even when gold JSONs are provided.")
     ap.add_argument(
         "--labels", type=str, default="",
-        help="Comma-separated labels matching --run-dirs order (e.g. 'body,body_hyde'). "
+        help="Comma-separated labels matching --run-dirs order (e.g. 'query_text,query_text_hyde'). "
         "Enables comparison plots: per-field + fused curves on different-queries subset.",
     )
     ap.add_argument(
-        "--body-weight", type=float, default=None,
-        help="Adaptive per-qid weighting: the first field (body) gets this weight, "
-        "remaining weight is split equally among active non-body fields per query. "
+        "--query-text-weight", type=float, default=None,
+        help="Adaptive per-qid weighting: the first field (query_text) gets this weight, "
+        "remaining weight is split equally among active non-query_text fields per query. "
         "Ignored when --weights is explicitly set.",
     )
     ap.add_argument(
@@ -521,17 +521,17 @@ def main() -> None:
     n = len(run_dirs)
     has_explicit_weights = bool(args.weights and args.weights.strip())
     weights = parse_weights(args.weights or None, n)
-    body_weight: float | None = None
+    query_text_weight: float | None = None
     if has_explicit_weights:
-        if args.body_weight is not None:
+        if args.query_text_weight is not None:
             print(
-                "[multi_query_fuse] WARNING: both --weights and --body-weight set; "
+                "[multi_query_fuse] WARNING: both --weights and --query-text-weight set; "
                 "--weights takes precedence",
                 file=sys.stderr,
             )
-    elif args.body_weight is not None:
-        body_weight = args.body_weight
-        print(f"[multi_query_fuse] adaptive weighting: body={body_weight}, rest shared per-qid")
+    elif args.query_text_weight is not None:
+        query_text_weight = args.query_text_weight
+        print(f"[multi_query_fuse] adaptive weighting: query_text={query_text_weight}, rest shared per-qid")
 
     for path0 in matched:
         name = path0.name
@@ -541,7 +541,7 @@ def main() -> None:
             print(f"Warning: skip {name} (missing: {missing})", file=sys.stderr)
             continue
         dfs = [_load_run_tsv(p) for p in paths]
-        fused = fuse_n_way_rrf(dfs, weights, args.k_rrf, args.cap, body_weight=body_weight)
+        fused = fuse_n_way_rrf(dfs, weights, args.k_rrf, args.cap, query_text_weight=query_text_weight)
         out_path = out_dir / name
         fused.to_csv(out_path, sep="\t", index=False)
         print(f"[multi_query_fuse] wrote {out_path} ({len(fused)} rows)")
