@@ -45,5 +45,7 @@ jobs:
 
       - name: Assert outputs exist
         run: |
-          test -f demo/output/hybrid/results_all.csv || { echo "Missing hybrid/results_all.csv"; exit 1; }
-          test -f demo/output/rerank/metrics.csv     || { echo "Missing rerank/metrics.csv";     exit 1; }
+          find demo/output/retrieval/fusion/runs -name '*.tsv' 2>/dev/null | head -1 | grep -q . \
+            || { echo "Missing hybrid fusion run TSVs in demo/output/retrieval/fusion/runs/"; exit 1; }
+          find demo/output/rerank/cross_encoder/runs -name '*.tsv' 2>/dev/null | head -1 | grep -q . \
+            || { echo "Missing rerank run TSVs in demo/output/rerank/cross_encoder/runs/"; exit 1; }
