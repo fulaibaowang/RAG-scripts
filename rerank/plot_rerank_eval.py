@@ -199,6 +199,7 @@ def main() -> None:
     ap.add_argument(
         "--test-batch-jsonls",
         "--test-batch-jsons",
+        "--test_batch_jsonls",
         "--test_batch_jsons",
         type=Path,
         nargs="*",

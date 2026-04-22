@@ -609,7 +609,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
       echo "[4/$TOTAL_STEPS] Reranker... (generating eval plots from existing results)"
       PLOT_ARGS=(--output-dir "$CROSS_ENCODER_OUT" --runs-dir "$HYBRID_OUT/runs")
       [ -n "${INPUT_JSONL:-}" ] && PLOT_ARGS+=(--train-jsonl "$INPUT_JSONL")
-      [ -n "${INPUT_BATCH_JSONLS:-}" ] && PLOT_ARGS+=(--test_batch_jsonls $INPUT_BATCH_JSONLS)
+      [ -n "${INPUT_BATCH_JSONLS:-}" ] && PLOT_ARGS+=(--test-batch-jsonls $INPUT_BATCH_JSONLS)
       python "$SCRIPT_DIR/rerank/plot_rerank_eval.py" "${PLOT_ARGS[@]}"
     else
       echo "[4/$TOTAL_STEPS] Reranker... (skip: run TSVs exist but no metrics.csv; plots require metrics, e.g. HAVE_GROUND_TRUTH=1)"
@@ -650,7 +650,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
             --skip-empty-query-field
           )
           [ -n "${INPUT_JSONL:-}" ] && RERANK_ARGS+=(--train-jsonl "$INPUT_JSONL")
-          [ -n "${INPUT_BATCH_JSONLS:-}" ] && RERANK_ARGS+=(--test_batch_jsonls $INPUT_BATCH_JSONLS)
+          [ -n "${INPUT_BATCH_JSONLS:-}" ] && RERANK_ARGS+=(--test-batch-jsonls $INPUT_BATCH_JSONLS)
           [ -n "${RERANK_MODEL:-}" ] && RERANK_ARGS+=(--model "$RERANK_MODEL")
           [ -n "${RERANK_MODEL_DEVICE:-}" ] && RERANK_ARGS+=(--model-device "$RERANK_MODEL_DEVICE")
           [ -n "${RERANK_MODEL_BATCH:-}" ] && RERANK_ARGS+=(--model-batch "$RERANK_MODEL_BATCH")
@@ -681,7 +681,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
         --ks-recall "${RERANK_KS_RECALL:-$RECALL_KS}"
       )
       [ -n "${INPUT_JSONL:-}" ] && RERANK_ARGS+=(--train-jsonl "$INPUT_JSONL")
-      [ -n "${INPUT_BATCH_JSONLS:-}" ] && RERANK_ARGS+=(--test_batch_jsonls $INPUT_BATCH_JSONLS)
+      [ -n "${INPUT_BATCH_JSONLS:-}" ] && RERANK_ARGS+=(--test-batch-jsonls $INPUT_BATCH_JSONLS)
       [ -n "${RERANK_MODEL:-}" ] && RERANK_ARGS+=(--model "$RERANK_MODEL")
       [ -n "${RERANK_MODEL_DEVICE:-}" ] && RERANK_ARGS+=(--model-device "$RERANK_MODEL_DEVICE")
       [ -n "${RERANK_MODEL_BATCH:-}" ] && RERANK_ARGS+=(--model-batch "$RERANK_MODEL_BATCH")
