@@ -27,7 +27,7 @@ _EVIDENCE_DIR = Path(__file__).resolve().parent
 for _p in (_SHARED_SCRIPTS, _EVIDENCE_DIR):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
-from retrieval_eval.common import iter_questions_jsonl, question_qid, write_questions_jsonl
+from retrieval_eval.common import iter_jsonl_dicts, question_qid, write_questions_jsonl
 from snippet_window_ce import CONTEXT_MODE_DOCUMENT
 from retrieval_eval.doc_id_util import ranked_doc_ids_for_evidence
 
@@ -71,7 +71,7 @@ def load_post_rerank_questions(
     evidence_top_k: Optional[int],
 ) -> Tuple[List[dict], Set[str]]:
     """Load post-rerank JSONL; ``needed`` is PMIDs for capped doc lists."""
-    questions = list(iter_questions_jsonl(post_rerank_path))
+    questions = list(iter_jsonl_dicts(post_rerank_path, label="post-rerank JSONL"))
     needed: Set[str] = set()
     for q in questions:
         for doc_id in ranked_doc_ids_for_evidence(q, evidence_top_k):

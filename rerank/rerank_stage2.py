@@ -135,8 +135,8 @@ def parse_args() -> argparse.Namespace:
     inputs.add_argument(
         "--query-field",
         type=str,
-        default="body",
-        help="Question key to use as query text for reranker (e.g. body, body_expansion_synonyms, body_expansion_long). Default: body.",
+        default="query_text",
+        help="Question key to use as query text for reranker (strict query JSONL: query_text; HyDE etc.: body_hyde). Default: query_text.",
     )
     inputs.add_argument(
         "--skip-empty-query-field",
@@ -643,7 +643,7 @@ def _llm_rerank_worker(
         questions = load_questions(Path(json_path))
         topics_df, _ = build_topics_and_gold(
             questions,
-            query_field=worker_args.get("query_field") or "body",
+            query_field=worker_args.get("query_field") or "query_text",
             skip_empty=bool(worker_args.get("skip_empty_query_field")),
         )
         topics_map.update(dict(zip(topics_df["qid"], topics_df["query"])))

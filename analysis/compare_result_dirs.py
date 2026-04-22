@@ -369,7 +369,12 @@ def parse_args() -> argparse.Namespace:
         dest="test_batch_jsonls",
         help="Test batch .jsonl (for gold, needed for MAP curve).",
     )
-    parser.add_argument("--query-field", type=str, default="body", help="Query field in normalized question dicts (from .jsonl).")
+    parser.add_argument(
+        "--query-field",
+        type=str,
+        default="query_text",
+        help="Query field in question dicts from strict query .jsonl (default: query_text).",
+    )
     parser.add_argument("--log-x", action="store_true", help="Use log scale for x-axis (K) in recall and MAP curves.")
     parser.add_argument("--plots-by-split", action="store_true", help="Output one recall and one MAP plot per split (train/test); uses 'role' from metrics, or 'label' if role missing.")
     parser.add_argument("--force-from-runs", action="store_true", help="Recompute metrics from runs/*.tsv even when metrics.csv exists. Useful when --ks-recall differs from the K values in metrics.csv.")

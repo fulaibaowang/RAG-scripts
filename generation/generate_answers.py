@@ -638,11 +638,11 @@ def load_contexts_jsonl(path: Path) -> List[Dict[str, Any]]:
     _shared = Path(__file__).resolve().parents[1]
     if str(_shared) not in sys.path:
         sys.path.insert(0, str(_shared))
-    from retrieval_eval.common import iter_questions_jsonl
+    from retrieval_eval.common import iter_jsonl_dicts
 
     if path.suffix.lower() != ".jsonl":
         raise ValueError(f"Contexts input must be .jsonl, got: {path}")
-    return list(iter_questions_jsonl(path))
+    return list(iter_jsonl_dicts(path, label="contexts JSONL"))
 
 
 def main() -> int:

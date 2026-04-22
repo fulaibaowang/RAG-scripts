@@ -491,7 +491,7 @@ def parse_args() -> argparse.Namespace:
         default=None,
         dest="test_batch_jsonls",
     )
-    inp.add_argument("--query-field", type=str, default="body")
+    inp.add_argument("--query-field", type=str, default="query_text")
     inp.add_argument(
         "--skip-empty-query-field",
         action="store_true",

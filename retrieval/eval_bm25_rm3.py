@@ -215,8 +215,8 @@ def main():
     ap.add_argument(
         "--query-field",
         type=str,
-        default="body",
-        help="Question key to use as query text (e.g. body, body_expansion_synonyms, body_expansion_long). Default: body.",
+        default="query_text",
+        help="Question key to use as query text (strict query JSONL: query_text; HyDE etc.: body_hyde). Default: query_text.",
     )
     ap.add_argument(
         "--skip-empty-query-field",

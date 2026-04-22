@@ -156,9 +156,9 @@ def main() -> int:
         logger.error("generate_answers.py not found: %s", GENERATE_ANSWERS)
         return 1
 
-    from retrieval_eval.common import iter_questions_jsonl, question_body, question_qid, question_type, write_questions_jsonl
+    from retrieval_eval.common import iter_jsonl_dicts, question_body, question_qid, question_type, write_questions_jsonl
 
-    records = list(iter_questions_jsonl(args.input))
+    records = list(iter_jsonl_dicts(args.input, label="generation JSONL"))
 
     # Find records with error; optionally only 504
     failed = [
@@ -232,7 +232,7 @@ def main() -> int:
         if not rescued_path.exists():
             logger.error("Expected output not found: %s", rescued_path)
             return 1
-        rescued_list = list(iter_questions_jsonl(rescued_path))
+        rescued_list = list(iter_jsonl_dicts(rescued_path, label="rescued answers JSONL"))
 
     # Merge: build id -> rescued record, then replace in original list
     rescued_by_id = {str(question_qid(r)): r for r in rescued_list if question_qid(r) is not None}
