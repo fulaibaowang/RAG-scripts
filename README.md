@@ -27,10 +27,39 @@ Output layout (directories, fusion names, run format, logs): [docs/output.md](do
 
 ## Quickstart
 
-**Docker (recommended)** TODO: add demo here
+### Try the demo (self-contained)
 
 ```bash
-docker build -t rag-scripts .
+git clone https://github.com/fulaibaowang/RAG-scripts.git
+git clone https://github.com/fulaibaowang/RAG-scripts-demo-data.git RAG-scripts/demo
+cd RAG-scripts
+docker run --rm \
+  -v "$PWD:/work" \
+  -e HF_HOME=/work/.hf_cache \
+  -e HF_HUB_CACHE=/work/.hf_cache/hub \
+  -e SENTENCE_TRANSFORMERS_HOME=/work/.hf_cache/sentence_transformers \
+  --workdir /work \
+  fulaibaowang/bioasq:08.03.26b200 \
+  bash -c "./run_retrieval_rerank_pipeline.sh --config demo/config.env"
+```
+
+Outputs land in `demo/output/` (BM25 → dense → hybrid → rerank).
+
+### Run on your own data
+
+```bash
+git clone https://github.com/fulaibaowang/RAG-scripts.git
+cd RAG-scripts
+cp workflow_config_baseline.env my_run.env
+# edit my_run.env: set WORKFLOW_OUTPUT_DIR, TRAIN_JSON, TEST_BATCH_JSONS,
+#                  BM25_INDEX_PATH, DENSE_INDEX_DIR, DOCS_JSONL
+docker run --rm \
+  -v "$PWD:/work" \
+  -v "/path/to/your/data:/data" \
+  -e HF_HOME=/work/.hf_cache \
+  --workdir /work \
+  fulaibaowang/bioasq:08.03.26b200 \
+  bash -c "./run_retrieval_rerank_pipeline.sh --config my_run.env"
 ```
 
 ## Running the pipeline (high level)

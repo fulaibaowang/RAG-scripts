@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout demo data
+        uses: actions/checkout@v4
+        with:
+          repository: fulaibaowang/RAG-scripts-demo-data
+          path: demo
+
+      - name: Cache HuggingFace models
+        uses: actions/cache@v4
+        with:
+          path: .hf_cache
+          key: hf-abhinand-MedEmbed-small-v0.1-BAAI-bge-reranker-v2-m3
+
+      - name: Pull Docker image
+        run: docker pull fulaibaowang/bioasq:08.03.26b200
+
+      - name: Run pipeline
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}:/work" \
+            -v "${{ github.workspace }}/.hf_cache:/hf_cache" \
+            -e HF_HOME=/hf_cache \
+            -e HF_HUB_CACHE=/hf_cache/hub \
+            -e SENTENCE_TRANSFORMERS_HOME=/hf_cache/sentence_transformers \
+            -e OMP_NUM_THREADS=2 \
+            -e PYTHONUNBUFFERED=1 \
+            -e TQDM_DISABLE=1 \
+            --workdir /work \
+            fulaibaowang/bioasq:08.03.26b200 \
+            bash -c "./run_retrieval_rerank_pipeline.sh --config demo/config.env"
+
+      - name: Assert outputs exist
+        run: |
+          test -f demo/output/hybrid/results_all.csv || { echo "Missing hybrid/results_all.csv"; exit 1; }
+          test -f demo/output/rerank/metrics.csv     || { echo "Missing rerank/metrics.csv";     exit 1; }
