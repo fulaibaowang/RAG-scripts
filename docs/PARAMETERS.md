@@ -1,6 +1,6 @@
 # Tunable parameters
 
-Authoritative commented list of **every** workflow variable: [workflow_config_full.env](../workflow_config_full.env) (section banners `# ---------- ... ----------` match the headings below). This document adds **tuning ranges**, **constraints**, **how caps chain across stages**, and links to notebooks. For BioASQ-oriented paths and Docker, see [BioASQ docs/USAGE.md](https://github.com/fulaibaowang/BioASQ/blob/main/docs/USAGE.md) and the script index [BioASQ scripts/public/README.md](https://github.com/fulaibaowang/BioASQ/blob/main/scripts/public/README.md).
+Authoritative commented list of **every** workflow variable: [workflow_config_full.env](../conf/workflow_config_full.env) (section banners `# ---------- ... ----------` match the headings below). This document adds **tuning ranges**, **constraints**, **how caps chain across stages**, and links to notebooks. For BioASQ-oriented paths and Docker, see [BioASQ docs/USAGE.md](https://github.com/fulaibaowang/BioASQ/blob/main/docs/USAGE.md) and the script index [BioASQ scripts/public/README.md](https://github.com/fulaibaowang/BioASQ/blob/main/scripts/public/README.md).
 
 ## Quick index
 
@@ -21,15 +21,15 @@ Authoritative commented list of **every** workflow variable: [workflow_config_fu
 
 ## Ground truth (eval metrics)
 
-Corresponds to `# ---------- Ground truth (eval metrics) ----------` in [workflow_config_full.env](../workflow_config_full.env).
+Corresponds to `# ---------- Ground truth (eval metrics) ----------` in [workflow_config_full.env](../conf/workflow_config_full.env).
 
-Set `HAVE_GROUND_TRUTH=0` to skip evaluation metrics for BM25, Dense, Hybrid, and Rerank when you have no qrels.
+Set `HAVE_GROUND_TRUTH=0` to skip evaluation metrics for BM25, Dense, Retrieval Fusion, and Rerank when you have no qrels.
 
 ---
 
 ## Shared paths and retrieval depth
 
-Corresponds to `# ---------- Shared (paths + retrieval depth) ----------` in [workflow_config_full.env](../workflow_config_full.env).
+Corresponds to `# ---------- Shared (paths + retrieval depth) ----------` in [workflow_config_full.env](../conf/workflow_config_full.env).
 
 ### Query inputs (JSONL)
 
@@ -44,7 +44,7 @@ Legacy names `TRAIN_JSON` / `TEST_BATCH_JSONS` are accepted by the shell driver 
 
 ### Unified retrieval depth (`TOP_K`)
 
-`TOP_K` is the single config for “how many documents per query” at the workflow level. Stage scripts use different CLI flags internally (`k_eval`, `topk`, `cap`, `candidate_limit`), but the orchestration sets them from `TOP_K` unless you set stage overrides (`BM25_TOP_K`, `DENSE_TOP_K`, `HYBRID_*`, `RERANK_CANDIDATE_LIMIT`, etc.).
+`TOP_K` is the single config for “how many documents per query” at the workflow level. Stage scripts use different CLI flags internally (`k_eval`, `topk`, `cap`, `candidate_limit`), but the orchestration sets them from `TOP_K` unless you set stage overrides (`BM25_TOP_K`, `DENSE_TOP_K`, `RETRIEVAL_FUSION_*`, `RERANK_CANDIDATE_LIMIT`, etc.).
 
 **Commonly required / shared**
 
@@ -61,7 +61,7 @@ Legacy names `TRAIN_JSON` / `TEST_BATCH_JSONS` are accepted by the shell driver 
 | `RUN_BASELINE` | Build baseline evidence / generation | `1` |
 | `RUN_SNIPPET_RRF` | Enable snippet-RRF route | `0` |
 
-Exhaustive `BM25_*`, `DENSE_*`, `HYBRID_*`, … names are listed under each `# ----------` block in [workflow_config_full.env](../workflow_config_full.env).
+Exhaustive `BM25_*`, `DENSE_*`, `RETRIEVAL_FUSION_*`, … names are listed under each `# ----------` block in [workflow_config_full.env](../conf/workflow_config_full.env).
 
 ### Caps and internal flags (per stage)
 
@@ -69,22 +69,22 @@ Exhaustive `BM25_*`, `DENSE_*`, `HYBRID_*`, … names are listed under each `# -
 |-------|------------------|--------------|
 | BM25 | `k_eval` | `TOP_K` or `BM25_TOP_K` |
 | Dense | `topk` | `TOP_K` or `DENSE_TOP_K` |
-| Hybrid | `bm25_topk`, `cap`, `k_max_eval` | `TOP_K` or `HYBRID_*` |
-| Reranker | `candidate_limit` | `min(RERANK_CANDIDATE_LIMIT, HYBRID_CAP)` clamped to 30–2000 |
+| Retrieval Fusion | `bm25_topk`, `cap`, `k_max_eval` | `TOP_K` or `RETRIEVAL_FUSION_*` |
+| Reranker | `candidate_limit` | `min(RERANK_CANDIDATE_LIMIT, RETRIEVAL_FUSION_CAP)` clamped to 30–2000 |
 
-The reranker cannot use more documents than hybrid produced; for small corpora set `TOP_K` lower (for example 1000) and a smaller `RECALL_KS` so metrics stay meaningful.
+The reranker cannot use more documents than retrieval fusion produced; for small corpora set `TOP_K` lower (for example 1000) and a smaller `RECALL_KS` so metrics stay meaningful.
 
 ### Recommended operating ranges
 
 | Parameter | Suggested range | Default | Constraint |
 |-----------|------------------|---------|------------|
 | `TOP_K` | 1000 – 5000 | 5000 | Retrieval depth for BM25 and Dense |
-| `HYBRID_CAP` | 1000 – 2000 | `TOP_K` | ≤ `TOP_K` |
-| `RERANK_CANDIDATE_LIMIT` | 200 – 1000 | `TOP_K` (clamped [30, 2000]) | ≤ `HYBRID_CAP` |
+| `RETRIEVAL_FUSION_CAP` | 1000 – 2000 | `TOP_K` | ≤ `TOP_K` |
+| `RERANK_CANDIDATE_LIMIT` | 200 – 1000 | `TOP_K` (clamped [30, 2000]) | ≤ `RETRIEVAL_FUSION_CAP` |
 | `pool_top_rerank` | 50 – 200 | 50 | ≤ effective rerank depth |
-| `pool_top_hybrid` | 50 – 200 | 50 | ≤ `HYBRID_CAP` |
+| `pool_top_retrieval` | 50 – 200 | 50 | ≤ `RETRIEVAL_FUSION_CAP` |
 
-Chains: `pool_top ≤ RERANK_CANDIDATE_LIMIT ≤ HYBRID_CAP ≤ TOP_K` (see constraints below).
+Chains: `pool_top ≤ RERANK_CANDIDATE_LIMIT ≤ RETRIEVAL_FUSION_CAP ≤ TOP_K` (see constraints below).
 
 ### Parameter constraints (data-flow)
 
@@ -93,17 +93,17 @@ The pipeline cascades `TOP_K` (default 5000) into stage-specific defaults. These
 ```
 TOP_K ──► BM25_TOP_K ──────────┐
      ──► DENSE_TOP_K ──────────┤
-                                ├──► HYBRID_CAP ──► RERANK_CANDIDATE_LIMIT ──► pool_top_rerank
-                                │                                               pool_top_hybrid ◄── HYBRID_CAP
+                                ├──► RETRIEVAL_FUSION_CAP ──► RERANK_CANDIDATE_LIMIT ──► pool_top_rerank
+                                │                                                         pool_top_retrieval ◄── RETRIEVAL_FUSION_CAP
                                 │
                                 └──► (RRF fusion top-N union) ──► evidence top-K ──► generation
 ```
 
 | Constraint | Why | What happens on violation |
 |------------|-----|---------------------------|
-| `RERANK_CANDIDATE_LIMIT ≤ HYBRID_CAP` | Reranker reads hybrid runs | Pipeline enforces `min(RERANK_CANDIDATE_LIMIT, HYBRID_CAP)` |
+| `RERANK_CANDIDATE_LIMIT ≤ RETRIEVAL_FUSION_CAP` | Reranker reads retrieval fusion runs | Pipeline enforces `min(RERANK_CANDIDATE_LIMIT, RETRIEVAL_FUSION_CAP)` |
 | `pool_top_rerank ≤ RERANK_EFFECTIVE` | Fusion draws from reranker output | Silent truncation |
-| `pool_top_hybrid ≤ HYBRID_CAP` | Fusion draws from hybrid output | Silent truncation |
+| `pool_top_retrieval ≤ RETRIEVAL_FUSION_CAP` | Fusion draws from retrieval fusion output | Silent truncation |
 | `RERANK_EFFECTIVE ≥ 30` | Minimum reranker input | Pipeline clamps to 30 with a warning |
 | `RERANK_EFFECTIVE ≤ 2000` | Cost cap | Pipeline clamps to 2000 with a warning |
 | `ef_search ≥ DENSE_TOP_K` | HNSW needs ef ≥ k | Auto-promoted: `ef = max(meta, topk)` |
@@ -115,24 +115,24 @@ With default `TOP_K=5000`:
 
 | Variable | Resolved value | Safe? |
 |----------|----------------|-------|
-| `HYBRID_CAP` | 5000 | ≥ `pool_top_hybrid` (50) |
+| `RETRIEVAL_FUSION_CAP` | 5000 | ≥ `pool_top_retrieval` (50) |
 | `RERANK_CANDIDATE_LIMIT` | 5000 → clamped 2000 | ≥ `pool_top_rerank` (50) |
 | `pool_top_rerank` | 50 | ≤ 2000 |
-| `pool_top_hybrid` | 50 | ≤ 5000 |
+| `pool_top_retrieval` | 50 | ≤ 5000 |
 | `ef_search` | max(100, 5000) = 5000 | ≥ `DENSE_TOP_K` |
 
 #### Potential issues when overriding defaults
 
-1. **`TOP_K` < 50**: May cascade below default `pool_top_rerank` / `pool_top_hybrid`; fusion uses fewer docs (warnings).
+1. **`TOP_K` < 50**: May cascade below default `pool_top_rerank` / `pool_top_retrieval`; fusion uses fewer docs (warnings).
 2. **`RERANK_CANDIDATE_LIMIT` < 50**: After clamping, reranker output may be smaller than `pool_top_rerank`; pipeline warns.
 3. **`DENSE_EF_CAP` too low**: If `DENSE_EF_CAP < DENSE_TOP_K`, deep recall degrades.
-4. **`HYBRID_CAP` ≪ `RERANK_CANDIDATE_LIMIT`**: Effective rerank input becomes `min` of the two.
+4. **`RETRIEVAL_FUSION_CAP` ≪ `RERANK_CANDIDATE_LIMIT`**: Effective rerank input becomes `min` of the two.
 
 ---
 
 ## Index paths
 
-Corresponds to `# ---------- Index paths ----------` in [workflow_config_full.env](../workflow_config_full.env).
+Corresponds to `# ---------- Index paths ----------` in [workflow_config_full.env](../conf/workflow_config_full.env).
 
 | Variable | Role |
 |----------|------|
@@ -143,7 +143,7 @@ Corresponds to `# ---------- Index paths ----------` in [workflow_config_full.en
 
 ## Query text fields (optional)
 
-Corresponds to `# ---------- Query text fields (optional) ----------` in [workflow_config_full.env](../workflow_config_full.env).
+Corresponds to `# ---------- Query text fields (optional) ----------` in [workflow_config_full.env](../conf/workflow_config_full.env).
 
 Comma-separated `BM25_QUERY_FIELD`, `DENSE_QUERY_FIELD`, `RERANK_QUERY_FIELD` run per-field subdirectories and optional weighted RRF fusion back into canonical `bm25/runs`, `dense/runs`, `rerank/runs`. See comments in the env file for `*_QUERY_FUSION_WEIGHTS`, `*_QUERY_FUSION_K_RRF`, and `*_QUERY_BODY_WEIGHT`.
 
@@ -151,7 +151,7 @@ Comma-separated `BM25_QUERY_FIELD`, `DENSE_QUERY_FIELD`, `RERANK_QUERY_FIELD` ru
 
 ## BM25 + RM3
 
-Corresponds to `# ---------- BM25 + RM3 ----------` in [workflow_config_full.env](../workflow_config_full.env).
+Corresponds to `# ---------- BM25 + RM3 ----------` in [workflow_config_full.env](../conf/workflow_config_full.env).
 
 | Parameter | Range tested | Default | Notes |
 |-----------|--------------|---------|-------|
@@ -167,7 +167,7 @@ See [notebooks/bm25_test.ipynb](https://github.com/fulaibaowang/BioASQ/blob/main
 
 ## Dense retrieval (HNSW)
 
-Corresponds to `# ---------- Dense ----------` in [workflow_config_full.env](../workflow_config_full.env).
+Corresponds to `# ---------- Dense ----------` in [workflow_config_full.env](../conf/workflow_config_full.env).
 
 | Parameter | Range tested | Default | Notes |
 |-----------|--------------|---------|-------|
@@ -193,9 +193,9 @@ See [notebooks/hybrid_pubmedbert.ipynb](https://github.com/fulaibaowang/BioASQ/b
 
 ---
 
-## Hybrid retrieval (RRF)
+## Retrieval fusion (BM25 + Dense RRF)
 
-Corresponds to `# ---------- Hybrid ----------` in [workflow_config_full.env](../workflow_config_full.env).
+Corresponds to `# ---------- Retrieval Fusion (BM25 + Dense RRF) ----------` in [workflow_config_full.env](../conf/workflow_config_full.env).
 
 | Parameter | Range tested | Default | Notes |
 |-----------|--------------|---------|-------|
@@ -211,7 +211,7 @@ See [notebooks/hybrid.ipynb](https://github.com/fulaibaowang/BioASQ/blob/main/no
 
 ## Stage 2 rerank and post-rerank fusion
 
-Corresponds to `# ---------- Reranker + Evidence (global: PubMed/literature corpus) ----------` and `# ---------- RRF fusion (Hybrid + Rerank, top-10) ----------` in [workflow_config_full.env](../workflow_config_full.env).
+Corresponds to `# ---------- Reranker + Evidence (global: PubMed/literature corpus) ----------` and `# ---------- RRF fusion (Retrieval + Rerank) ----------` in [workflow_config_full.env](../conf/workflow_config_full.env).
 
 ### Cross-encoder rerank
 
@@ -238,13 +238,13 @@ See [notebooks/analyze_results.ipynb](https://github.com/fulaibaowang/BioASQ/blo
 
 | Parameter | Range tested | Default | Notes |
 |-----------|--------------|---------|-------|
-| `k_rrf` (fusion) | 30, 60 | **60** | RRF constant for BGE + Hybrid fusion |
-| `w_bge` | 0.5 – 1.0 | **0.8** | BGE reranker weight |
-| `w_hybrid` | 0.0 – 0.5 | **0.2** | Hybrid stage-1 weight |
+| `k_rrf` (fusion) | 30, 60 | **60** | RRF constant for reranker + retrieval fusion |
+| `w_rerank` | 0.5 – 1.0 | **0.8** | Reranker weight |
+| `w_retrieval` | 0.0 – 0.5 | **0.2** | Retrieval fusion weight |
 | `pool_top_rerank` | 50, 100, 200 | **50** | Top-K from reranker for fusion pool |
-| `pool_top_hybrid` | 20, 50, 100, 200 | **50** | Top-K from hybrid for fusion pool |
+| `pool_top_retrieval` | 20, 50, 100, 200 | **50** | Top-K from retrieval fusion for fusion pool |
 
-**Decision:** Reranker-dominant fusion (`w_bge=0.8, w_hybrid=0.2`) outperforms pure reranker output. Optimal for MAP@10: `k_rrf=30, pool_rerank=50, pool_hybrid=50`. Optimal for Recall@50: `k_rrf=60, pool_rerank=100, pool_hybrid=200`.
+**Decision:** Reranker-dominant fusion (`w_rerank=0.8, w_retrieval=0.2`) outperforms pure reranker output. Optimal for MAP@10: `k_rrf=30, pool_rerank=50, pool_retrieval=50`. Optimal for Recall@50: `k_rrf=60, pool_rerank=100, pool_retrieval=200`.
 
 See [notebooks/analyze_workflow_results.ipynb](https://github.com/fulaibaowang/BioASQ/blob/main/notebooks/analyze_workflow_results.ipynb) for the fusion sweep.
 
@@ -252,7 +252,7 @@ See [notebooks/analyze_workflow_results.ipynb](https://github.com/fulaibaowang/B
 
 ## Post-fusion score cutoff (t-star)
 
-Corresponds to `# ---------- Post-fusion global rerank score cutoff (t*) ----------` in [workflow_config_full.env](../workflow_config_full.env).
+Corresponds to `# ---------- Post-fusion global rerank score cutoff (t*) ----------` in [workflow_config_full.env](../conf/workflow_config_full.env).
 
 Optional filter after post-rerank RRF fusion (t*): `RERANK_TSTAR_ENABLE`, `RERANK_TSTAR`, floor/cap variables as documented in the env block. When enabled, writes `rerank/post_rerank_fusion_tstar/` and `rerank/post_rerank_fusion_snippet_tstar/`.
 
@@ -260,7 +260,7 @@ Optional filter after post-rerank RRF fusion (t*): `RERANK_TSTAR_ENABLE`, `RERAN
 
 ## Snippet-RRF route (optional)
 
-Corresponds to `# ---------- Snippet RRF route (--snippet-rrf) ----------` in [workflow_config_full.env](../workflow_config_full.env).
+Corresponds to `# ---------- Snippet RRF route (--snippet-rrf) ----------` in [workflow_config_full.env](../conf/workflow_config_full.env).
 
 The snippet-RRF route adds snippet window reranking and final doc/snippet fusion:
 
@@ -297,7 +297,7 @@ See [notebooks/snippet_extraction.ipynb](https://github.com/fulaibaowang/BioASQ/
 
 ## Listwise reranking (optional)
 
-Corresponds to `# ---------- Listwise Reranking (RankZephyr, separate container) ----------` in [workflow_config_full.env](../workflow_config_full.env).
+Corresponds to `# ---------- Listwise Reranking (RankZephyr, separate container) ----------` in [workflow_config_full.env](../conf/workflow_config_full.env).
 
 Listwise stages run in a dedicated flow (`Dockerfile.listwise`, scripts under `listwise_script/`). Variables such as `RUN_LISTWISE`, `LISTWISE_*`, and listwise fusion weights are documented in that env block.
 
@@ -305,7 +305,7 @@ Listwise stages run in a dedicated flow (`Dockerfile.listwise`, scripts under `l
 
 ## Evidence (contexts)
 
-Corresponds to `# ---------- Evidence (post-rerank JSON + contexts JSONL) ----------` in [workflow_config_full.env](../workflow_config_full.env).
+Corresponds to `# ---------- Evidence (post-rerank JSON + contexts JSONL) ----------` in [workflow_config_full.env](../conf/workflow_config_full.env).
 
 | Parameter | Suggested range | Default | Notes |
 |-----------|-----------------|---------|-------|
@@ -317,7 +317,7 @@ Corresponds to `# ---------- Evidence (post-rerank JSON + contexts JSONL) ------
 
 ## Answer generation (LLM)
 
-Corresponds to `# ---------- Generation (LLM answers from contexts JSONL) ----------` in [workflow_config_full.env](../workflow_config_full.env).
+Corresponds to `# ---------- Generation (LLM answers from contexts JSONL) ----------` in [workflow_config_full.env](../conf/workflow_config_full.env).
 
 | Parameter | Range tested | Default | Notes |
 |-----------|--------------|---------|-------|
@@ -339,9 +339,9 @@ See [notebooks/generation_test.ipynb](https://github.com/fulaibaowang/BioASQ/blo
 |-------|--------|--------------|
 | 1a | BM25 + RM3 | `fb_docs=20, fb_terms=30, fb_lambda=0.6` |
 | 1b | Dense (MedEmbed) | `M=32, ef_construction=200, ef_search=max(meta,topk)` |
-| 2 | Hybrid RRF | `K_RRF=150, weights=1.0/1.0, cap=TOP_K` |
+| 2 | Retrieval Fusion RRF | `K_RRF=150, weights=1.0/1.0, cap=TOP_K` |
 | 2 | Rerank (BGE v2) | `candidate_limit` clamped [30,2000], `max_length=512` |
-| 2 | Fusion (BGE + Hybrid) | `k_rrf=60, w_bge=0.8, w_hybrid=0.2, pool_top_rerank=50, pool_top_hybrid=50` (pools 200 when snippet route is active) |
+| 2 | Post-Rerank Fusion (reranker + retrieval) | `k_rrf=60, w_rerank=0.8, w_retrieval=0.2, pool_top_rerank=50, pool_top_retrieval=50` (pools 200 when snippet route is active) |
 | 2.5 (optional) | Snippet rerank + fusion | `SNIPPET_N_DOCS=100, window=3/1, top_w=8, final_pool=SNIPPET_N_DOCS, weights=0.8/0.2` |
 | 3 | Generation | `temperature=0.0, max_contexts=10` |
 

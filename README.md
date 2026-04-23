@@ -50,7 +50,7 @@ Outputs land in `demo/output/` (BM25 → dense → hybrid → rerank).
 ```bash
 git clone https://github.com/fulaibaowang/RAG-scripts.git
 cd RAG-scripts
-cp workflow_config_baseline.env my_run.env
+cp conf/workflow_config_baseline.env my_run.env
 # edit my_run.env: set WORKFLOW_OUTPUT_DIR, TRAIN_JSON, TEST_BATCH_JSONS,
 #                  BM25_INDEX_PATH, DENSE_INDEX_DIR, DOCS_JSONL
 docker run --rm \
@@ -64,7 +64,7 @@ docker run --rm \
 
 ## Running the pipeline (high level)
 
-1. Copy an example env ([workflow_config_baseline.env](workflow_config_baseline.env), [workflow_config_full.env](workflow_config_full.env)) or create your own.
+1. Copy an example env ([conf/workflow_config_baseline.env](conf/workflow_config_baseline.env), [conf/workflow_config_full.env](conf/workflow_config_full.env)) or create your own.
 2. Set `WORKFLOW_OUTPUT_DIR`, query `.jsonl` paths (`INPUT_JSONL` / `INPUT_BATCH_JSONLS`), index paths, and `DOCS_JSONL` for reranking or building evidence.
 3. From **this directory**:
 

@@ -139,7 +139,7 @@ def main() -> int:
         if str(p) not in sys.path:
             sys.path.insert(0, str(p))
     try:
-        from logging_config import configure_logging_from_env
+        from utils.logging_config import configure_logging_from_env
         configure_logging_from_env()
     except ImportError:
         pass

@@ -59,13 +59,13 @@ Run all stages with one script and a config file. The script skips stages whose 
 ./run_retrieval_rerank_pipeline.sh --config /path/to/your.env
 ```
 
-Example templates in the repository root: [workflow_config_baseline.env](../workflow_config_baseline.env), [workflow_config_snippet.env](../workflow_config_snippet.env), [workflow_config_full.env](../workflow_config_full.env). Every variable is commented in [workflow_config_full.env](../workflow_config_full.env); tuning notes: [PARAMETERS.md](PARAMETERS.md). BioASQ + Docker walkthrough: [BioASQ docs/USAGE.md](https://github.com/fulaibaowang/BioASQ/blob/main/docs/USAGE.md). Public script index (format, adapt-out): [BioASQ scripts/public/README.md](https://github.com/fulaibaowang/BioASQ/blob/main/scripts/public/README.md).
+Example templates in `conf/`: [workflow_config_baseline.env](../conf/workflow_config_baseline.env), [workflow_config_snippet.env](../conf/workflow_config_snippet.env), [workflow_config_full.env](../conf/workflow_config_full.env). Every variable is commented in [workflow_config_full.env](../conf/workflow_config_full.env); tuning notes: [PARAMETERS.md](PARAMETERS.md). BioASQ + Docker walkthrough: [BioASQ docs/USAGE.md](https://github.com/fulaibaowang/BioASQ/blob/main/docs/USAGE.md). Public script index (format, adapt-out): [BioASQ scripts/public/README.md](https://github.com/fulaibaowang/BioASQ/blob/main/scripts/public/README.md).
 
 ### Snippet-RRF route (optional)
 
 ```bash
 ./run_retrieval_rerank_pipeline.sh \
-  --config workflow_config_baseline.env \
+  --config conf/workflow_config_baseline.env \
   --snippet-rrf
 ```
 

@@ -68,30 +68,30 @@ def load_run_tsv(path: Path) -> pd.DataFrame:
 
 
 def _rrf_fuse_docs(
-    bge_docs: List[str],
-    hybrid_docs: List[str],
+    rerank_docs: List[str],
+    retrieval_docs: List[str],
     pool_top_rerank: int,
-    pool_top_hybrid: int,
+    pool_top_retrieval: int,
     k_rrf: int,
-    w_bge: float,
-    w_hybrid: float,
+    w_rerank: float,
+    w_retrieval: float,
 ) -> List[str]:
-    """Union of top-N from BGE + Hybrid, weighted RRF, full fused ranking."""
-    bge_top = bge_docs[:pool_top_rerank]
-    hyb_top = hybrid_docs[:pool_top_hybrid]
-    rank_bge = {d: i + 1 for i, d in enumerate(bge_top)}
-    rank_hyb = {d: i + 1 for i, d in enumerate(hyb_top)}
+    """Union of top-N from reranker + retrieval fusion, weighted RRF, full fused ranking."""
+    rerank_top = rerank_docs[:pool_top_rerank]
+    retrieval_top = retrieval_docs[:pool_top_retrieval]
+    rank_rerank = {d: i + 1 for i, d in enumerate(rerank_top)}
+    rank_retrieval = {d: i + 1 for i, d in enumerate(retrieval_top)}
 
-    union: List[str] = list(dict.fromkeys(bge_top + hyb_top))
+    union: List[str] = list(dict.fromkeys(rerank_top + retrieval_top))
     scores = []
     for d in union:
         s = 0.0
-        rb = rank_bge.get(d)
-        rh = rank_hyb.get(d)
-        if rb is not None:
-            s += w_bge / (k_rrf + rb)
-        if rh is not None:
-            s += w_hybrid / (k_rrf + rh)
+        rr = rank_rerank.get(d)
+        rt = rank_retrieval.get(d)
+        if rr is not None:
+            s += w_rerank / (k_rrf + rr)
+        if rt is not None:
+            s += w_retrieval / (k_rrf + rt)
         scores.append((d, s))
     scores.sort(key=lambda x: (-x[1], x[0]))
     return [d for d, _ in scores]
@@ -99,11 +99,11 @@ def _rrf_fuse_docs(
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="RRF fusion of existing BGE rerank runs and Hybrid runs (top-50 union, weighted RRF, top-10).",
+        description="RRF fusion of cross-encoder rerank runs and retrieval fusion runs (weighted RRF).",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    p.add_argument("--hybrid-runs-dir", type=Path, required=True, help="Hybrid runs directory (best_rrf_*.tsv).")
-    p.add_argument("--rerank-runs-dir", type=Path, required=True, help="BGE rerank runs directory (best_rrf_*.tsv).")
+    p.add_argument("--hybrid-runs-dir", type=Path, required=True, help="Retrieval fusion runs directory (best_rrf_*.tsv).")
+    p.add_argument("--rerank-runs-dir", type=Path, required=True, help="Cross-encoder rerank runs directory (best_rrf_*.tsv).")
     p.add_argument(
         "--output-dir",
         type=Path,
@@ -114,19 +114,25 @@ def parse_args() -> argparse.Namespace:
         "--pool-top-rerank",
         type=int,
         default=50,
-        help="Top-K from reranker (BGE) for the fusion pool.",
+        help="Top-K from reranker for the fusion pool.",
+    )
+    p.add_argument(
+        "--pool-top-retrieval",
+        type=int,
+        default=50,
+        help="Top-K from retrieval fusion for the fusion pool.",
     )
     p.add_argument(
         "--pool-top-hybrid",
         type=int,
-        default=50,
-        help="Top-K from hybrid stage-1 for the fusion pool.",
+        default=None,
+        help="(Deprecated) Alias for --pool-top-retrieval.",
     )
     p.add_argument(
         "--pool-top",
         type=int,
         default=None,
-        help="(Deprecated) Sets both --pool-top-rerank and --pool-top-hybrid to the same value.",
+        help="(Deprecated) Sets both --pool-top-rerank and --pool-top-retrieval to the same value.",
     )
     p.add_argument(
         "--k-rrf",
@@ -135,16 +141,28 @@ def parse_args() -> argparse.Namespace:
         help="RRF K parameter in 1/(K+rank).",
     )
     p.add_argument(
-        "--w-bge",
+        "--w-rerank",
         type=float,
         default=0.8,
-        help="Weight for BGE rerank scores in RRF.",
+        help="Weight for reranker scores in RRF.",
+    )
+    p.add_argument(
+        "--w-bge",
+        type=float,
+        default=None,
+        help="(Deprecated) Alias for --w-rerank.",
+    )
+    p.add_argument(
+        "--w-retrieval",
+        type=float,
+        default=None,
+        help="Weight for retrieval fusion scores in RRF (default: 1 - w_rerank when not set).",
     )
     p.add_argument(
         "--w-hybrid",
         type=float,
         default=None,
-        help="Weight for Hybrid scores in RRF (default: 1 - w_bge when not set).",
+        help="(Deprecated) Alias for --w-retrieval.",
     )
     p.add_argument(
         "--train-jsonl",
@@ -183,12 +201,18 @@ def _parse_ks_recall(raw: str) -> Tuple[int, ...]:
 def main() -> None:
     args = parse_args()
 
-    # Resolve pool-top: legacy --pool-top overrides both if set
+    # Resolve pool sizes: deprecated aliases take precedence for backwards compat
     pool_top_rerank = args.pool_top_rerank
-    pool_top_hybrid = args.pool_top_hybrid
+    pool_top_retrieval = args.pool_top_retrieval
+    if args.pool_top_hybrid is not None:
+        pool_top_retrieval = args.pool_top_hybrid
     if args.pool_top is not None:
         pool_top_rerank = args.pool_top
-        pool_top_hybrid = args.pool_top
+        pool_top_retrieval = args.pool_top
+
+    # Resolve weights: deprecated --w-bge / --w-hybrid aliases
+    w_rerank = float(args.w_bge) if args.w_bge is not None else float(args.w_rerank)
+    w_retrieval_raw = args.w_hybrid if args.w_hybrid is not None else args.w_retrieval
 
     hybrid_runs_dir: Path = args.hybrid_runs_dir
     rerank_runs_dir: Path = args.rerank_runs_dir
@@ -215,36 +239,35 @@ def main() -> None:
             print(f"skip {rerank_path}: missing hybrid run {hybrid_path}")
             continue
 
-        # Resolve effective weights (w_hybrid defaults to 1 - w_bge when not set)
-        w_bge = float(args.w_bge)
-        w_hybrid = float(args.w_hybrid) if args.w_hybrid is not None else float(1.0 - w_bge)
+        # Resolve effective weights (w_retrieval defaults to 1 - w_rerank when not set)
+        w_retrieval = float(w_retrieval_raw) if w_retrieval_raw is not None else float(1.0 - w_rerank)
 
         print(
             f"RRF fusion for split={split} using {rerank_path.name} "
             f"+ {hybrid_path.name} (pool_top_rerank={pool_top_rerank}, "
-            f"pool_top_hybrid={pool_top_hybrid}, k_rrf={args.k_rrf}, "
-            f"w_bge={w_bge}, w_hybrid={w_hybrid})"
+            f"pool_top_retrieval={pool_top_retrieval}, k_rrf={args.k_rrf}, "
+            f"w_rerank={w_rerank}, w_retrieval={w_retrieval})"
         )
-        bge_df = load_run_tsv(rerank_path)
-        hyb_df = load_run_tsv(hybrid_path)
+        rerank_df = load_run_tsv(rerank_path)
+        retrieval_df = load_run_tsv(hybrid_path)
 
         fused_rows = []
-        for qid, bge_group in bge_df.groupby("qid", sort=False):
-            bge_docs = bge_group["docno"].tolist()
-            hyb_group = hyb_df[hyb_df["qid"] == qid]
-            hybrid_docs = hyb_group["docno"].tolist()
+        for qid, rerank_group in rerank_df.groupby("qid", sort=False):
+            rerank_docs = rerank_group["docno"].tolist()
+            retrieval_group = retrieval_df[retrieval_df["qid"] == qid]
+            retrieval_docs = retrieval_group["docno"].tolist()
 
-            if not bge_docs and not hybrid_docs:
+            if not rerank_docs and not retrieval_docs:
                 continue
 
             fused_docs = _rrf_fuse_docs(
-                bge_docs=bge_docs,
-                hybrid_docs=hybrid_docs,
+                rerank_docs=rerank_docs,
+                retrieval_docs=retrieval_docs,
                 pool_top_rerank=pool_top_rerank,
-                pool_top_hybrid=pool_top_hybrid,
+                pool_top_retrieval=pool_top_retrieval,
                 k_rrf=int(args.k_rrf),
-                w_bge=w_bge,
-                w_hybrid=w_hybrid,
+                w_rerank=w_rerank,
+                w_retrieval=w_retrieval,
             )
 
             for rank, docno in enumerate(fused_docs, start=1):
@@ -257,7 +280,7 @@ def main() -> None:
         fused_df = pd.DataFrame(fused_rows).sort_values(["qid", "rank"]).reset_index(drop=True)
         fused_runs[split] = fused_df
 
-        out_path = out_runs / f"{name}_rrf_poolR{pool_top_rerank}_poolH{pool_top_hybrid}_k{int(args.k_rrf)}.tsv"
+        out_path = out_runs / f"{name}_rrf_poolR{pool_top_rerank}_poolH{pool_top_retrieval}_k{int(args.k_rrf)}.tsv"
         fused_df.to_csv(out_path, sep="\t", index=False)
 
     if args.disable_metrics or not fused_runs:
@@ -293,7 +316,7 @@ def main() -> None:
             continue
         metrics, perq = evaluate_run(gold_for_run, run_map, ks_recall=ks_recall)
         perq.to_csv(
-            out_per_query / f"{split}_rrf_poolR{pool_top_rerank}_poolH{pool_top_hybrid}_k{int(args.k_rrf)}.csv",
+            out_per_query / f"{split}_rrf_poolR{pool_top_rerank}_poolH{pool_top_retrieval}_k{int(args.k_rrf)}.csv",
             index=False,
         )
 

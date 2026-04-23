@@ -11,7 +11,7 @@
 #   ./run_listwise_rerank.sh -c <path/to/config.env>
 #
 # Required config variables: WORKFLOW_OUTPUT_DIR
-# Optional: INPUT_JSONL / INPUT_BATCH_JSONLS (or legacy TRAIN_JSON / TEST_BATCH_JSONS; .jsonl only), LISTWISE_* (see workflow_config_full.env)
+# Optional: INPUT_JSONL / INPUT_BATCH_JSONLS (or legacy TRAIN_JSON / TEST_BATCH_JSONS; .jsonl only), LISTWISE_* (see conf/workflow_config_full.env)
 #
 set -e
 

@@ -12,9 +12,9 @@
 # Config file sets: WORKFLOW_OUTPUT_DIR, INPUT_JSONL / INPUT_BATCH_JSONLS (optional; .jsonl only), TOP_K,
 # RECALL_KS, BM25_INDEX_PATH, DENSE_INDEX_DIR, DOCS_JSONL (optional),
 # BM25_QUERY_FIELD / DENSE_QUERY_FIELD (comma-separated = multi-query RRF fusion per stage),
-# and stage overrides (BM25_*, DENSE_*, HYBRID_*, RERANK_*). Evidence: POST_RERANK_DOC_POOL (docs written
+# and stage overrides (BM25_*, DENSE_*, RETRIEVAL_FUSION_*, RERANK_*). Evidence: POST_RERANK_DOC_POOL (docs written
 # to post_rerank_*.jsonl), EVIDENCE_TOP_K and optional EVIDENCE_TOP_K_BASELINE / EVIDENCE_TOP_K_SNIPPET
-# (caps in build_contexts_from_*). See workflow_config_full.env.
+# (caps in build_contexts_from_*). See conf/workflow_config_full.env.
 #
 set -e
 
@@ -129,7 +129,7 @@ while [ $# -gt 0 ]; do
       echo "Env toggles:"
       echo "  RUN_BASELINE=0|1        Control baseline evidence/generation route (default 1)."
       echo "  RUN_SNIPPET_RRF=0|1     Control snippet-rrf route (steps 6–7, evidence/evidence_snippet/, generation/generation_snippet/)."
-      echo "  RUN_RRF_FUSION=0|1      Control Hybrid+Rerank RRF fusion (default 1; 0 is same as --no-rrf-fusion)."
+      echo "  RUN_RRF_FUSION=0|1      Control Retrieval+Rerank RRF fusion (default 1; 0 is same as --no-rrf-fusion)."
       echo "  RUN_GENERATION_BASELINE=0|1   Run generation for baseline route (default 1)."
       echo "  RUN_GENERATION_SNIPPET=0|1    Run generation for snippet route (default 1)."
       echo "  GENERATION_SCHEMAS_DIR       Directory of schema *.txt for LLM prompts (default: scripts/public/shared_scripts/prompts/schemas under repo root)."
@@ -138,7 +138,7 @@ while [ $# -gt 0 ]; do
       echo ""
       echo "Example: $0 --config scripts/private_scripts/config.env"
       echo "Example: $0 -c config.env --no-rerank --bm25-query-field query_text_expansion_long --dense-query-field query_text"
-      echo "Example: source workflow_config_baseline.env && $0"
+      echo "Example: source conf/workflow_config_baseline.env && $0"
       exit 0
       ;;
     *)
@@ -178,9 +178,9 @@ fi
 if [ "${HAVE_GROUND_TRUTH:-1}" = "0" ]; then
   export BM25_NO_EVAL=1
   export DENSE_NO_EVAL=1
-  export HYBRID_NO_EVAL=1
+  export RETRIEVAL_FUSION_NO_EVAL=1
   export RERANK_DISABLE_METRICS=1
-  echo "HAVE_GROUND_TRUTH=0: eval metrics disabled for BM25, Dense, Hybrid, Rerank"
+  echo "HAVE_GROUND_TRUTH=0: eval metrics disabled for BM25, Dense, Retrieval Fusion, Rerank"
 fi
 
 cd "$REPO_ROOT"
@@ -232,15 +232,15 @@ done
 # Stage-specific retrieval depth (default to TOP_K)
 BM25_TOP_K="${BM25_TOP_K:-$TOP_K}"
 DENSE_TOP_K="${DENSE_TOP_K:-$TOP_K}"
-HYBRID_CAP="${HYBRID_CAP:-$TOP_K}"
-HYBRID_K_MAX_EVAL="${HYBRID_K_MAX_EVAL:-$TOP_K}"
+RETRIEVAL_FUSION_CAP="${RETRIEVAL_FUSION_CAP:-$TOP_K}"
+RETRIEVAL_FUSION_K_MAX_EVAL="${RETRIEVAL_FUSION_K_MAX_EVAL:-$TOP_K}"
 RERANK_CANDIDATE_LIMIT="${RERANK_CANDIDATE_LIMIT:-$TOP_K}"
 
-# Reranker takes top K from hybrid; must be <= hybrid output, clamped to [30, 2000]
-if [ "$RERANK_CANDIDATE_LIMIT" -le "$HYBRID_CAP" ]; then
+# Reranker takes top K from retrieval fusion; must be <= fusion output, clamped to [30, 2000]
+if [ "$RERANK_CANDIDATE_LIMIT" -le "$RETRIEVAL_FUSION_CAP" ]; then
   RERANK_RAW=$RERANK_CANDIDATE_LIMIT
 else
-  RERANK_RAW=$HYBRID_CAP
+  RERANK_RAW=$RETRIEVAL_FUSION_CAP
 fi
 if [ "$RERANK_RAW" -lt 30 ]; then
   RERANK_EFFECTIVE=30
@@ -546,40 +546,40 @@ else
   _log_run "step" "2" "Dense" "$((STEP_DENSE_END-STEP_DENSE_START))s"
 fi
 
-# ----- Hybrid -----
-HYBRID_ARGS=(
+# ----- Retrieval Fusion (BM25 + Dense RRF) -----
+RETRIEVAL_FUSION_ARGS=(
   --bm25-runs-dir "$BM25_OUT/runs"
   --bm25-method "$BM25_METHOD_FOR_HYBRID"
   --bm25-topk "$BM25_TOP_K"
   --dense-root "$DENSE_OUT"
   --out-dir "$HYBRID_OUT"
-  --k-max-eval "$HYBRID_K_MAX_EVAL"
-  --cap "$HYBRID_CAP"
+  --k-max-eval "$RETRIEVAL_FUSION_K_MAX_EVAL"
+  --cap "$RETRIEVAL_FUSION_CAP"
   --ks "$RECALL_KS"
 )
-[ -n "${INPUT_JSONL:-}" ] && HYBRID_ARGS+=(--train-jsonl "$INPUT_JSONL")
-[ -n "${INPUT_BATCH_JSONLS:-}" ] && HYBRID_ARGS+=(--test-batch-jsonls $INPUT_BATCH_JSONLS)
-[ -n "${HYBRID_MODE:-}" ] && HYBRID_ARGS+=(--mode "$HYBRID_MODE")
-[ -n "${HYBRID_K_RRF:-}" ] && HYBRID_ARGS+=(--k-rrf "$HYBRID_K_RRF")
-[ -n "${HYBRID_W_BM25:-}" ] && HYBRID_ARGS+=(--w-bm25 "$HYBRID_W_BM25")
-[ -n "${HYBRID_W_DENSE:-}" ] && HYBRID_ARGS+=(--w-dense "$HYBRID_W_DENSE")
-[ -n "${HYBRID_WEIGHTS:-}" ] && HYBRID_ARGS+=(--weights "$HYBRID_WEIGHTS")
-[ -n "${HYBRID_K_RRF_LIST:-}" ] && HYBRID_ARGS+=(--k-rrf-list "$HYBRID_K_RRF_LIST")
-[ -n "${HYBRID_JOBS:-}" ] && HYBRID_ARGS+=(--jobs "$HYBRID_JOBS")
-[ "${HYBRID_NO_EVAL:-0}" = "1" ] && HYBRID_ARGS+=(--no-eval)
-[ "${HYBRID_NO_PLOTS:-0}" = "1" ] && HYBRID_ARGS+=(--no-plots)
-[ "${HYBRID_SAVE_PLOTS:-0}" = "1" ] && HYBRID_ARGS+=(--save-plots)
+[ -n "${INPUT_JSONL:-}" ] && RETRIEVAL_FUSION_ARGS+=(--train-jsonl "$INPUT_JSONL")
+[ -n "${INPUT_BATCH_JSONLS:-}" ] && RETRIEVAL_FUSION_ARGS+=(--test-batch-jsonls $INPUT_BATCH_JSONLS)
+[ -n "${RETRIEVAL_FUSION_MODE:-}" ] && RETRIEVAL_FUSION_ARGS+=(--mode "$RETRIEVAL_FUSION_MODE")
+[ -n "${RETRIEVAL_FUSION_K_RRF:-}" ] && RETRIEVAL_FUSION_ARGS+=(--k-rrf "$RETRIEVAL_FUSION_K_RRF")
+[ -n "${RETRIEVAL_FUSION_W_BM25:-}" ] && RETRIEVAL_FUSION_ARGS+=(--w-bm25 "$RETRIEVAL_FUSION_W_BM25")
+[ -n "${RETRIEVAL_FUSION_W_DENSE:-}" ] && RETRIEVAL_FUSION_ARGS+=(--w-dense "$RETRIEVAL_FUSION_W_DENSE")
+[ -n "${RETRIEVAL_FUSION_WEIGHTS:-}" ] && RETRIEVAL_FUSION_ARGS+=(--weights "$RETRIEVAL_FUSION_WEIGHTS")
+[ -n "${RETRIEVAL_FUSION_K_RRF_LIST:-}" ] && RETRIEVAL_FUSION_ARGS+=(--k-rrf-list "$RETRIEVAL_FUSION_K_RRF_LIST")
+[ -n "${RETRIEVAL_FUSION_JOBS:-}" ] && RETRIEVAL_FUSION_ARGS+=(--jobs "$RETRIEVAL_FUSION_JOBS")
+[ "${RETRIEVAL_FUSION_NO_EVAL:-0}" = "1" ] && RETRIEVAL_FUSION_ARGS+=(--no-eval)
+[ "${RETRIEVAL_FUSION_NO_PLOTS:-0}" = "1" ] && RETRIEVAL_FUSION_ARGS+=(--no-plots)
+[ "${RETRIEVAL_FUSION_SAVE_PLOTS:-0}" = "1" ] && RETRIEVAL_FUSION_ARGS+=(--save-plots)
 
 if [ -f "$HYBRID_OUT/ranked_test_avg.csv" ] || [ -f "$HYBRID_OUT/metrics.csv" ] || [ -n "$(find "$HYBRID_OUT/runs" -maxdepth 1 -name '*.tsv' 2>/dev/null | head -1)" ]; then
-  echo "[3/$TOTAL_STEPS] Hybrid... (skip: output exists)"
-  _log_run "step" "3" "Hybrid" "skip"
+  echo "[3/$TOTAL_STEPS] Retrieval fusion... (skip: output exists)"
+  _log_run "step" "3" "RetrievalFusion" "skip"
 else
-  echo "[3/$TOTAL_STEPS] Hybrid..."
-  STEP_HYBRID_START=$(date +%s)
-  python "$SCRIPT_DIR/retrieval/fuse_retrieval.py" "${HYBRID_ARGS[@]}"
-  STEP_HYBRID_END=$(date +%s)
-  echo "[timing] Hybrid step: $((STEP_HYBRID_END-STEP_HYBRID_START))s"
-  _log_run "step" "3" "Hybrid" "$((STEP_HYBRID_END-STEP_HYBRID_START))s"
+  echo "[3/$TOTAL_STEPS] Retrieval fusion..."
+  STEP_RFUSION_START=$(date +%s)
+  python "$SCRIPT_DIR/retrieval/fuse_retrieval.py" "${RETRIEVAL_FUSION_ARGS[@]}"
+  STEP_RFUSION_END=$(date +%s)
+  echo "[timing] Retrieval fusion step: $((STEP_RFUSION_END-STEP_RFUSION_START))s"
+  _log_run "step" "3" "RetrievalFusion" "$((STEP_RFUSION_END-STEP_RFUSION_START))s"
 fi
 
 # ----- Reranker (optional: only if DOCS_JSONL set and not --no-rerank) -----
@@ -769,7 +769,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
     _RRF_DEFAULT=50
     [ "${DO_SNIPPET_RRF:-0}" = "1" ] && [ "${RUN_BOTH_ROUTES:-0}" != "1" ] && _RRF_DEFAULT=200
     _RRF_POOL_RERANK="${RRF_POOL_TOP_RERANK:-${RRF_POOL_TOP:-$_RRF_DEFAULT}}"
-    _RRF_POOL_HYBRID="${RRF_POOL_TOP_HYBRID:-${RRF_POOL_TOP:-$_RRF_DEFAULT}}"
+    _RRF_POOL_RETRIEVAL="${RRF_POOL_TOP_RETRIEVAL:-${RRF_POOL_TOP:-$_RRF_DEFAULT}}"
     if [ "${DO_SNIPPET_RRF:-0}" = "1" ] && [ "${RUN_BOTH_ROUTES:-0}" != "1" ]; then
       _RRF_STEP5_OUT="$POST_RERANK_FUSION_SNIPPET_OUT"
     else
@@ -780,15 +780,15 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
       RRF_EXIST=1
     fi
     if [ "$RRF_EXIST" = "1" ]; then
-      echo "[5/$TOTAL_STEPS] RRF fusion (Hybrid + Rerank, top-10)... (skip: output exists in $_RRF_STEP5_OUT)"
+      echo "[5/$TOTAL_STEPS] RRF fusion (Retrieval + Rerank)... (skip: output exists in $_RRF_STEP5_OUT)"
     else
-      echo "[5/$TOTAL_STEPS] RRF fusion (Hybrid + Rerank, top-10)... (pool R=$_RRF_POOL_RERANK H=$_RRF_POOL_HYBRID -> $_RRF_STEP5_OUT)"
+      echo "[5/$TOTAL_STEPS] RRF fusion (Retrieval + Rerank)... (pool R=$_RRF_POOL_RERANK H=$_RRF_POOL_RETRIEVAL -> $_RRF_STEP5_OUT)"
       # Validate: pool sizes must not exceed upstream output sizes
       if [ "$_RRF_POOL_RERANK" -gt "$RERANK_EFFECTIVE" ]; then
         echo "WARNING: RRF_POOL_TOP_RERANK ($_RRF_POOL_RERANK) > RERANK_CANDIDATE_LIMIT ($RERANK_EFFECTIVE); reranker output will be silently truncated." >&2
       fi
-      if [ "$_RRF_POOL_HYBRID" -gt "$HYBRID_CAP" ]; then
-        echo "WARNING: RRF_POOL_TOP_HYBRID ($_RRF_POOL_HYBRID) > HYBRID_CAP ($HYBRID_CAP); hybrid output will be silently truncated." >&2
+      if [ "$_RRF_POOL_RETRIEVAL" -gt "$RETRIEVAL_FUSION_CAP" ]; then
+        echo "WARNING: RRF_POOL_TOP_RETRIEVAL ($_RRF_POOL_RETRIEVAL) > RETRIEVAL_FUSION_CAP ($RETRIEVAL_FUSION_CAP); retrieval fusion output will be silently truncated." >&2
       fi
 
       RRF_ARGS=(
@@ -796,11 +796,11 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
         --rerank-runs-dir "$CROSS_ENCODER_OUT/runs"
         --output-dir "$_RRF_STEP5_OUT"
         --pool-top-rerank "$_RRF_POOL_RERANK"
-        --pool-top-hybrid "$_RRF_POOL_HYBRID"
+        --pool-top-retrieval "$_RRF_POOL_RETRIEVAL"
       )
-      [ -n "${RRF_K_RRF:-}" ] && RRF_ARGS+=(--k-rrf "$RRF_K_RRF")
-      [ -n "${RRF_W_BGE:-}" ] && RRF_ARGS+=(--w-bge "$RRF_W_BGE")
-      [ -n "${RRF_W_HYBRID:-}" ] && RRF_ARGS+=(--w-hybrid "$RRF_W_HYBRID")
+      [ -n "${RRF_K:-}" ] && RRF_ARGS+=(--k-rrf "$RRF_K")
+      [ -n "${RRF_W_RERANK:-}" ] && RRF_ARGS+=(--w-rerank "$RRF_W_RERANK")
+      [ -n "${RRF_W_RETRIEVAL:-}" ] && RRF_ARGS+=(--w-retrieval "$RRF_W_RETRIEVAL")
       [ -n "${INPUT_JSONL:-}" ] && RRF_ARGS+=(--train-jsonl "$INPUT_JSONL")
       [ -n "${INPUT_BATCH_JSONLS:-}" ] && RRF_ARGS+=(--test-batch-jsonls $INPUT_BATCH_JSONLS)
       [ -n "${RERANK_KS_RECALL:-}" ] && RRF_ARGS+=(--ks-recall "$RERANK_KS_RECALL")
@@ -813,7 +813,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
       _apply_rerank_tstar_cutoff "$_RRF_STEP5_OUT/runs" "$POST_RERANK_FUSION_SNIPPET_TSTAR_OUT" "post_rerank_fusion_snippet"
     fi
     STEP_RRF_END=$(date +%s)
-    echo "[timing] Hybrid+Rerank RRF fusion step: $((STEP_RRF_END-STEP_RRF_START))s"
+    echo "[timing] Retrieval+Rerank RRF fusion step: $((STEP_RRF_END-STEP_RRF_START))s"
     _log_run "step" "5" "RRF" "$((STEP_RRF_END-STEP_RRF_START))s"
   fi
 
@@ -826,18 +826,18 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
     else
       echo "[5b] RRF fusion pool=200 (for snippet route)..."
       _RRF_POOL_RERANK_200="${RRF_POOL_TOP_RERANK:-${RRF_POOL_TOP:-200}}"
-      _RRF_POOL_HYBRID_200="${RRF_POOL_TOP_HYBRID:-${RRF_POOL_TOP:-200}}"
+      _RRF_POOL_RETRIEVAL_200="${RRF_POOL_TOP_RETRIEVAL:-${RRF_POOL_TOP:-200}}"
       [ "$_RRF_POOL_RERANK_200" -lt 200 ] && _RRF_POOL_RERANK_200=200
-      [ "$_RRF_POOL_HYBRID_200" -lt 200 ] && _RRF_POOL_HYBRID_200=200
+      [ "$_RRF_POOL_RETRIEVAL_200" -lt 200 ] && _RRF_POOL_RETRIEVAL_200=200
       python "$SCRIPT_DIR/rerank/fuse_rerank.py" \
         --hybrid-runs-dir "$HYBRID_OUT/runs" \
         --rerank-runs-dir "$CROSS_ENCODER_OUT/runs" \
         --output-dir "$POST_RERANK_FUSION_SNIPPET_OUT" \
         --pool-top-rerank "$_RRF_POOL_RERANK_200" \
-        --pool-top-hybrid "$_RRF_POOL_HYBRID_200" \
-        ${RRF_K_RRF:+--k-rrf "$RRF_K_RRF"} \
-        ${RRF_W_BGE:+--w-bge "$RRF_W_BGE"} \
-        ${RRF_W_HYBRID:+--w-hybrid "$RRF_W_HYBRID"} \
+        --pool-top-retrieval "$_RRF_POOL_RETRIEVAL_200" \
+        ${RRF_K:+--k-rrf "$RRF_K"} \
+        ${RRF_W_RERANK:+--w-rerank "$RRF_W_RERANK"} \
+        ${RRF_W_RETRIEVAL:+--w-retrieval "$RRF_W_RETRIEVAL"} \
         ${INPUT_JSONL:+--train-jsonl "$INPUT_JSONL"} \
         ${INPUT_BATCH_JSONLS:+--test-batch-jsonls $INPUT_BATCH_JSONLS} \
         ${RERANK_KS_RECALL:+--ks-recall "$RERANK_KS_RECALL"} \
@@ -847,26 +847,26 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
   fi
 
   # ----- Compare (independent checkpoints: run when inputs exist and figures missing; not tied to 5/5b) -----
-  # (1) Rerank vs Hybrid+Rerank (pool 50): output in post_rerank_fusion/figures (always pre-t* fusion; t* summaries live under post_rerank_fusion_tstar/).
+  # (1) Rerank vs Retrieval+Rerank (pool 50): output in post_rerank_fusion/figures (always pre-t* fusion; t* summaries live under post_rerank_fusion_tstar/).
   COMPARE_KS="${COMPARE_KS:-10,20,30,50,100,200,300}"
   _COMPARE_RECALL_MAX=300
   if [ -n "${COMPARE_RECALL_K_MAX:-}" ]; then
     _COMPARE_RECALL_MAX="$COMPARE_RECALL_K_MAX"
-  elif [ -n "${RRF_POOL_TOP_RERANK:-}" ] && [ -n "${RRF_POOL_TOP_HYBRID:-}" ]; then
-    _COMPARE_RECALL_MAX="$((RRF_POOL_TOP_RERANK + RRF_POOL_TOP_HYBRID))"
+  elif [ -n "${RRF_POOL_TOP_RERANK:-}" ] && [ -n "${RRF_POOL_TOP_RETRIEVAL:-}" ]; then
+    _COMPARE_RECALL_MAX="$((RRF_POOL_TOP_RERANK + RRF_POOL_TOP_RETRIEVAL))"
   fi
   if [ "${HAVE_GROUND_TRUTH:-1}" != "0" ] && [ -d "$CROSS_ENCODER_OUT/runs" ] && [ -d "$POST_RERANK_FUSION_OUT/runs" ]; then
     COMPARE_FIGS_EXIST=0
     [ -n "$(find "$POST_RERANK_FUSION_OUT/figures" -maxdepth 1 -name 'compare_*.png' 2>/dev/null | head -1)" ] && COMPARE_FIGS_EXIST=1
     if [ "$COMPARE_FIGS_EXIST" = "1" ]; then
-      echo "[Compare] Rerank vs Hybrid+Rerank... (skip: figures exist)"
+      echo "[Compare] Rerank vs Retrieval+Rerank... (skip: figures exist)"
       _log_run "step" "Compare" "skip"
     else
-      echo "[Compare] Rerank vs Hybrid+Rerank (recall & MAP @ $COMPARE_KS, recall-k-max $_COMPARE_RECALL_MAX)..."
+      echo "[Compare] Rerank vs Retrieval+Rerank (recall & MAP @ $COMPARE_KS, recall-k-max $_COMPARE_RECALL_MAX)..."
       STEP_COMPARE_START=$(date +%s)
       COMPARE_ARGS=(
         --dirs "$CROSS_ENCODER_OUT" "$POST_RERANK_FUSION_OUT"
-        --labels "Rerank" "Hybrid+Rerank"
+        --labels "Rerank" "Retrieval+Rerank"
         --plot both
         --map-ks "$COMPARE_KS"
         --ks-recall "$COMPARE_KS"
@@ -883,25 +883,25 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
       _log_run "step" "Compare" "$((STEP_COMPARE_END-STEP_COMPARE_START))s"
     fi
   else
-    echo "[Compare] Rerank vs Hybrid+Rerank... (skip: HAVE_GROUND_TRUTH=0 or rerank/cross_encoder/runs or rerank/post_rerank_fusion/runs missing)"
+    echo "[Compare] Rerank vs Retrieval+Rerank... (skip: HAVE_GROUND_TRUTH=0 or rerank/cross_encoder/runs or rerank/post_rerank_fusion/runs missing)"
     _log_run "step" "Compare" "skip (condition)"
   fi
 
-  # (2) Rerank vs Hybrid+Rerank pool=200: output in post_rerank_fusion_snippet/figures (always pre-t*; t* stats under post_rerank_fusion_snippet_tstar/).
+  # (2) Rerank vs Retrieval+Rerank pool=200: output in post_rerank_fusion_snippet/figures (always pre-t*; t* stats under post_rerank_fusion_snippet_tstar/).
   _COMPARE_RECALL_MAX_200=400
   [ -n "${COMPARE_RECALL_K_MAX:-}" ] && _COMPARE_RECALL_MAX_200="$COMPARE_RECALL_K_MAX"
   if [ "${HAVE_GROUND_TRUTH:-1}" != "0" ] && [ -d "$CROSS_ENCODER_OUT/runs" ] && [ -d "$POST_RERANK_FUSION_SNIPPET_OUT/runs" ]; then
     COMPARE_200_FIGS_EXIST=0
     [ -n "$(find "$POST_RERANK_FUSION_SNIPPET_OUT/figures" -maxdepth 1 -name 'compare_*.png' 2>/dev/null | head -1)" ] && COMPARE_200_FIGS_EXIST=1
     if [ "$COMPARE_200_FIGS_EXIST" = "1" ]; then
-      echo "[Compare] Rerank vs Hybrid+Rerank (pool=200)... (skip: figures exist)"
+      echo "[Compare] Rerank vs Retrieval+Rerank (pool=200)... (skip: figures exist)"
       _log_run "step" "Compare200" "skip"
     else
-      echo "[Compare] Rerank vs Hybrid+Rerank (pool=200) (recall & MAP @ $COMPARE_KS, recall-k-max $_COMPARE_RECALL_MAX_200)..."
+      echo "[Compare] Rerank vs Retrieval+Rerank (pool=200) (recall & MAP @ $COMPARE_KS, recall-k-max $_COMPARE_RECALL_MAX_200)..."
       STEP_COMPARE_200_START=$(date +%s)
       COMPARE_200_ARGS=(
         --dirs "$CROSS_ENCODER_OUT" "$POST_RERANK_FUSION_SNIPPET_OUT"
-        --labels "Rerank" "Hybrid+Rerank (pool=200)"
+        --labels "Rerank" "Retrieval+Rerank (pool=200)"
         --plot both
         --map-ks "$COMPARE_KS"
         --ks-recall "$COMPARE_KS"
@@ -918,7 +918,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
       _log_run "step" "Compare200" "$((STEP_COMPARE_200_END-STEP_COMPARE_200_START))s"
     fi
   else
-    echo "[Compare] Rerank vs Hybrid+Rerank (pool=200)... (skip: HAVE_GROUND_TRUTH=0 or rerank/cross_encoder/runs or rerank/post_rerank_fusion_snippet/runs missing)"
+    echo "[Compare] Rerank vs Retrieval+Rerank (pool=200)... (skip: HAVE_GROUND_TRUTH=0 or rerank/cross_encoder/runs or rerank/post_rerank_fusion_snippet/runs missing)"
     _log_run "step" "Compare200" "skip (condition)"
   fi
 
@@ -947,7 +947,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
           echo "Error: RERANK_QUERY_FIELD must list at least two fields when using commas (snippet uses same var)." >&2
           exit 1
         fi
-        _SNIP_FUSE_CAP="${HYBRID_CAP:-$TOP_K}"
+        _SNIP_FUSE_CAP="${RETRIEVAL_FUSION_CAP:-$TOP_K}"
         _SNIP_FUSE_DIRS=()
         for _qf in "${_MQUERY_FIELDS[@]}"; do
           _sn_sub="$SNIPPET_RERANK_OUT/$(_subdir_for_query_field "$_qf")"
@@ -1077,10 +1077,10 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
         --rerank-runs-dir "$SNIPPET_RERANK_OUT/runs" \
         --output-dir "$SNIPPET_DOC_FUSION_OUT" \
         --pool-top-rerank "$_SNIP_POOL" \
-        --pool-top-hybrid "$_SNIP_POOL" \
+        --pool-top-retrieval "$_SNIP_POOL" \
         --k-rrf "${SNIPPET_RRF_K:-60}" \
-        --w-bge "${SNIPPET_RRF_W_SNIPPET:-0.2}" \
-        --w-hybrid "${SNIPPET_RRF_W_DOCS:-0.8}" \
+        --w-rerank "${SNIPPET_RRF_W_SNIPPET:-0.2}" \
+        --w-retrieval "${SNIPPET_RRF_W_DOCS:-0.8}" \
         ${INPUT_JSONL:+--train-jsonl "$INPUT_JSONL"} \
         ${INPUT_BATCH_JSONLS:+--test-batch-jsonls $INPUT_BATCH_JSONLS} \
         ${RERANK_KS_RECALL:+--ks-recall "$RERANK_KS_RECALL"} \
@@ -1095,7 +1095,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
     fi
   fi
 
-  # ----- Compare (Snippet RRF vs Hybrid+Rerank): recall and MAP up to SNIPPET_N_DOCS -----
+  # ----- Compare (Snippet RRF vs Retrieval+Rerank): recall and MAP up to SNIPPET_N_DOCS -----
   # Compares snippet_doc_fusion run to the doc-side run (post_rerank_fusion_snippet); eval k capped at SNIPPET_N_DOCS.
   # Only run when snippet_doc_fusion actually has run files (step 7 may skip all if stems don't match).
   _SNIPPET_RRF_HAS_RUNS=0
@@ -1109,14 +1109,14 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
     SNIPPET_COMPARE_FIGS=0
     [ -n "$(find "$SNIPPET_DOC_FUSION_OUT/figures" -maxdepth 1 -name 'compare_*.png' 2>/dev/null | head -1)" ] && SNIPPET_COMPARE_FIGS=1
     if [ "$SNIPPET_COMPARE_FIGS" = "1" ]; then
-      echo "[Compare] Snippet RRF vs Hybrid+Rerank... (skip: figures exist in snippet/snippet_doc_fusion/figures)"
+      echo "[Compare] Snippet RRF vs Retrieval+Rerank... (skip: figures exist in snippet/snippet_doc_fusion/figures)"
       _log_run "step" "SnippetCompare" "skip"
     else
-      echo "[Compare] Snippet RRF vs Hybrid+Rerank (recall & MAP up to k=$_SNIP_N)..."
+      echo "[Compare] Snippet RRF vs Retrieval+Rerank (recall & MAP up to k=$_SNIP_N)..."
       STEP_SNIPPET_COMPARE_START=$(date +%s)
       SNIPPET_COMPARE_ARGS=(
         --dirs "$POST_RERANK_FUSION_SNIPPET_OUT" "$SNIPPET_DOC_FUSION_OUT"
-        --labels "Hybrid+Rerank (docs)" "Snippet RRF (docs+CE)"
+        --labels "Retrieval+Rerank (docs)" "Snippet RRF (docs+CE)"
         --plot both
         --map-ks "$COMPARE_KS_SNIPPET"
         --ks-recall "$COMPARE_KS_SNIPPET"
@@ -1160,7 +1160,7 @@ _DOCS_JSONL_OK=0
     fi
     for _route in $_ROUTES_LIST; do
       if [ "$_route" = "baseline" ]; then
-        # When RRF fusion is enabled, baseline evidence uses Hybrid+Rerank runs.
+        # When RRF fusion is enabled, baseline evidence uses Retrieval+Rerank runs.
         # When RUN_RRF_FUSION=0, fall back to raw Rerank runs so downstream steps still work.
         if [ "$RUN_RRF_FUSION" = "1" ]; then
           if [ "${RERANK_TSTAR_ENABLE:-0}" = "1" ]; then
