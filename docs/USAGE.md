@@ -73,17 +73,17 @@ Or set `RUN_SNIPPET_RRF=1` (and `RUN_BASELINE` / `RUN_SNIPPET_RRF` as needed) in
 
 ## Retrieval
 
-Replace paths below with your index, corpus JSONL, and train/test query `.jsonl` files.
+Replace paths below with your index, corpus JSONL, and input query `.jsonl` files.
 
 ### BM25 + RM3
 
 ```bash
 python retrieval/retrieve_bm25.py \
   --index_path "/path/to/indexes/my_bm25_index/data.properties" \
-  --train_json "/path/to/train_queries.json" \
-  --test_batch_jsons \
-    /path/to/test_batch_a.json \
-    /path/to/test_batch_b.json \
+  --input-jsonl "/path/to/primary_queries.jsonl" \
+  --input-batch-jsonls \
+    /path/to/batch_a.jsonl \
+    /path/to/batch_b.jsonl \
   --out-dir "output/retrieve_bm25" \
   --threads 4 \
   --k_eval 5000 \
@@ -107,10 +107,10 @@ python retrieval/retrieve_bm25.py \
 ```bash
 python retrieval/retrieve_dense.py \
   --index_dir "/path/to/indexes/my_dense_index" \
-  --train-jsonl "/path/to/train_queries.jsonl" \
-  --test-batch-jsonls \
-    /path/to/test_batch_a.jsonl \
-    /path/to/test_batch_b.jsonl \
+  --input-jsonl "/path/to/primary_queries.jsonl" \
+  --input-batch-jsonls \
+    /path/to/batch_a.jsonl \
+    /path/to/batch_b.jsonl \
   --out-dir "output/retrieve_dense" \
   --topk 5000 \
   --ks "50,100,200,500,2000,5000" \
@@ -124,10 +124,10 @@ python retrieval/retrieve_dense.py \
 python retrieval/fuse_retrieval.py \
   --bm25-runs-dir "output/retrieve_bm25/runs" \
   --dense-root "output/retrieve_dense" \
-  --train-jsonl "/path/to/train_queries.jsonl" \
-  --test-batch-jsonls \
-    /path/to/test_batch_a.jsonl \
-    /path/to/test_batch_b.jsonl \
+  --input-jsonl "/path/to/primary_queries.jsonl" \
+  --input-batch-jsonls \
+    /path/to/batch_a.jsonl \
+    /path/to/batch_b.jsonl \
   --out-dir "output/fuse_retrieval" \
   --mode "default" \
   --k_rrf 150 \
@@ -141,10 +141,10 @@ python retrieval/fuse_retrieval.py \
 python rerank/rerank_crossencoder.py \
   --runs-dir "output/fuse_retrieval/runs" \
   --docs-jsonl "/path/to/corpus.jsonl" \
-  --train-jsonl "/path/to/train_queries.jsonl" \
-  --test-batch-jsonls \
-    /path/to/test_batch_a.jsonl \
-    /path/to/test_batch_b.jsonl \
+  --input-jsonl "/path/to/primary_queries.jsonl" \
+  --input-batch-jsonls \
+    /path/to/batch_a.jsonl \
+    /path/to/batch_b.jsonl \
   --output-dir "output/eval_stage2_rerank" \
   --candidate-limit 2000 \
   --model "cross-encoder/ms-marco-MiniLM-L-12-v2" \

@@ -63,12 +63,12 @@ def parse_args() -> argparse.Namespace:
                    help="Root output directory (e.g. <workflow>/listwise_rerank).")
 
     # Query JSONs (for evaluation)
-    p.add_argument("--train-jsonl", type=Path, default=None,
-                   dest="train_jsonl",
-                   help="Training queries .jsonl.")
-    p.add_argument("--test-batch-jsonls", type=Path, nargs="*", default=[],
-                   dest="test_batch_jsonls",
-                   help="Test-batch .jsonl files.")
+    p.add_argument("--input-jsonl", type=Path, default=None,
+                   dest="input_jsonl",
+                   help="Primary input queries .jsonl (single batch).")
+    p.add_argument("--input-batch-jsonls", type=Path, nargs="*", default=[],
+                   dest="input_batch_jsonls",
+                   help="Additional input batch .jsonl files.")
     p.add_argument(
         "--query-field",
         type=str,
@@ -440,9 +440,9 @@ def main():
     all_questions: List[dict] = []
     qid_to_query: Dict[str, str] = {}
     query_json_paths: List[Path] = []
-    if args.train_jsonl and args.train_jsonl.exists():
-        query_json_paths.append(args.train_jsonl)
-    query_json_paths.extend(p for p in args.test_batch_jsonls if p.exists())
+    if args.input_jsonl and args.input_jsonl.exists():
+        query_json_paths.append(args.input_jsonl)
+    query_json_paths.extend(p for p in args.input_batch_jsonls if p.exists())
 
     for p in query_json_paths:
         qs = load_questions(p)

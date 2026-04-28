@@ -59,9 +59,9 @@ from retrieval_eval.common import (  # noqa: E402
 
 
 def _resolve_dense_query_paths(args: argparse.Namespace) -> tuple[Path | None, list[Path]]:
-    tj = (getattr(args, "train_jsonl", "") or "").strip()
+    tj = (getattr(args, "input_jsonl", "") or "").strip()
     train_path = Path(tj).expanduser().resolve() if tj else None
-    tests = [Path(p).expanduser().resolve() for p in (getattr(args, "test_batch_jsonls", None) or [])]
+    tests = [Path(p).expanduser().resolve() for p in (getattr(args, "input_batch_jsonls", None) or [])]
     return train_path, tests
 
 
@@ -687,17 +687,17 @@ def main():
         help="Output directory (dense_*.parquet, *_meta.json, *_run_map.json)",
     )
     ap.add_argument(
-        "--train-jsonl",
-        dest="train_jsonl",
+        "--input-jsonl",
+        dest="input_jsonl",
         default="",
-        help="Path to training queries .jsonl.",
+        help="Path to primary input .jsonl (single batch).",
     )
     ap.add_argument(
-        "--test-batch-jsonls",
-        dest="test_batch_jsonls",
+        "--input-batch-jsonls",
+        dest="input_batch_jsonls",
         nargs="*",
         default=[],
-        help="Test batch .jsonl files.",
+        help="Additional input batch .jsonl files.",
     )
 
     ap.add_argument("--topk", type=int, default=5000)
@@ -749,9 +749,9 @@ def main():
 
     train_path, test_paths = _resolve_dense_query_paths(args)
     if train_path is None and not test_paths:
-        raise SystemExit("Provide --train-jsonl and/or --test-batch-jsonls (at least one non-empty).")
+        raise SystemExit("Provide --input-jsonl and/or --input-batch-jsonls (at least one non-empty).")
     if train_path is not None and not train_path.is_file():
-        raise SystemExit(f"--train-jsonl not found: {train_path}")
+        raise SystemExit(f"--input-jsonl not found: {train_path}")
     for p in test_paths:
         if not p.is_file():
             raise SystemExit(f"Test batch file not found: {p}")

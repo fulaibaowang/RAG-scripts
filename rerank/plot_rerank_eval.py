@@ -195,13 +195,13 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Generate Hybrid vs Reranker eval plots from existing metrics and runs.")
     ap.add_argument("--output-dir", type=Path, required=True, help="Rerank output dir (contains metrics.csv).")
     ap.add_argument("--runs-dir", type=Path, required=True, help="Hybrid runs dir (TSV files).")
-    ap.add_argument("--train-jsonl", type=Path, default=None, dest="train_jsonl")
+    ap.add_argument("--input-jsonl", type=Path, default=None, dest="input_jsonl")
     ap.add_argument(
-        "--test-batch-jsonls",
+        "--input-batch-jsonls",
         type=Path,
         nargs="*",
         default=None,
-        dest="test_batch_jsonls",
+        dest="input_batch_jsonls",
     )
     args = ap.parse_args()
 
@@ -233,13 +233,13 @@ def main() -> None:
         for qid, docs in gold_map.items():
             gold_map_all[qid] = docs
 
-    if args.train_jsonl:
-        _add_questions(args.train_jsonl)
-    for path in args.test_batch_jsonls or []:
+    if args.input_jsonl:
+        _add_questions(args.input_jsonl)
+    for path in args.input_batch_jsonls or []:
         _add_questions(Path(path))
 
     if not gold_map_all:
-        raise ValueError("No gold loaded; provide --train-jsonl and/or --test-batch-jsonls")
+        raise ValueError("No gold loaded; provide --input-jsonl and/or --input-batch-jsonls")
 
     candidate_limit = None
     plot_config = None
@@ -250,19 +250,19 @@ def main() -> None:
             candidate_limit = config.get("candidate_limit")
             plot_config = dict(config)
             if "split_to_role" not in plot_config and (
-                "train_jsonl" in config
-                or "test_batch_jsonls" in config
+                "input_jsonl" in config
+                or "input_batch_jsonls" in config
             ):
                 s2r: Dict[str, str] = {}
                 s2l: Dict[str, str] = {}
-                train_path = config.get("train_jsonl")
+                train_path = config.get("input_jsonl")
                 if train_path:
                     train_stem = Path(train_path).stem
-                    s2r[train_stem] = "train"
+                    s2r[train_stem] = "batch"
                     s2l[train_stem] = train_stem
-                for p in (config.get("test_batch_jsonls") or []):
+                for p in (config.get("input_batch_jsonls") or []):
                     stem = Path(p).stem
-                    s2r[stem] = "test"
+                    s2r[stem] = "batches"
                     s2l[stem] = stem
                 if s2r:
                     plot_config["split_to_role"] = s2r
