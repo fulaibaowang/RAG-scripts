@@ -151,11 +151,11 @@ def parse_args() -> argparse.Namespace:
                     help="Weight for snippet_rrf side in RRF.")
     p.add_argument("--w-listwise", type=float, default=0.6,
                     help="Weight for listwise side in RRF.")
-    p.add_argument("--train-jsonl", type=Path, default=None, dest="train_jsonl",
-                    help="Training queries .jsonl for metrics (optional).")
-    p.add_argument("--test-batch-jsonls", type=Path, nargs="*", default=None,
-                    dest="test_batch_jsonls",
-                    help="Test-batch .jsonl for metrics (optional).")
+    p.add_argument("--input-jsonl", type=Path, default=None, dest="input_jsonl",
+                    help="Primary input queries .jsonl for metrics (optional).")
+    p.add_argument("--input-batch-jsonls", type=Path, nargs="*", default=None,
+                    dest="input_batch_jsonls",
+                    help="Additional input batch .jsonl files for metrics (optional).")
     p.add_argument("--disable-metrics", action="store_true",
                     help="Skip metrics and plots (only write fused runs).")
     return p.parse_args()
@@ -317,12 +317,12 @@ def main() -> None:
         return
 
     all_questions: List[dict] = []
-    if args.train_jsonl and args.train_jsonl.exists():
-        qs = load_questions(args.train_jsonl)
+    if args.input_jsonl and args.input_jsonl.exists():
+        qs = load_questions(args.input_jsonl)
         all_questions.extend(qs)
-        print(f"Loaded {len(qs)} questions from {args.train_jsonl}")
-    if args.test_batch_jsonls:
-        for p in args.test_batch_jsonls:
+        print(f"Loaded {len(qs)} questions from {args.input_jsonl}")
+    if args.input_batch_jsonls:
+        for p in args.input_batch_jsonls:
             if p and p.exists():
                 qs = load_questions(p)
                 all_questions.extend(qs)

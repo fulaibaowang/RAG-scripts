@@ -170,8 +170,8 @@ cat > "$LISTWISE_OUTPUT_DIR/config.json" <<CONFIGEOF
     "fuse_sliding": $LISTWISE_FUSE_SLIDING
   },
   "query_sources": {
-    "train_jsonl": "${INPUT_JSONL:-null}",
-    "test_batch_jsonls": "${INPUT_BATCH_JSONLS:-null}"
+    "input_jsonl": "${INPUT_JSONL:-null}",
+    "input_batch_jsonls": "${INPUT_BATCH_JSONLS:-null}"
   }
 }
 CONFIGEOF
@@ -218,14 +218,14 @@ else
     --query-field "$LISTWISE_QUERY_FIELD"
   )
 
-  [ -n "${INPUT_JSONL:-}" ] && [ -f "$INPUT_JSONL" ] && LISTWISE_ARGS+=(--train-jsonl "$INPUT_JSONL")
+  [ -n "${INPUT_JSONL:-}" ] && [ -f "$INPUT_JSONL" ] && LISTWISE_ARGS+=(--input-jsonl "$INPUT_JSONL")
   if [ -n "${INPUT_BATCH_JSONLS:-}" ]; then
     _TEST_PATHS=()
     for _p in $INPUT_BATCH_JSONLS; do
       [ -f "$_p" ] && _TEST_PATHS+=("$_p")
     done
     if [ ${#_TEST_PATHS[@]} -gt 0 ]; then
-      LISTWISE_ARGS+=(--test-batch-jsonls "${_TEST_PATHS[@]}")
+      LISTWISE_ARGS+=(--input-batch-jsonls "${_TEST_PATHS[@]}")
     fi
   fi
   [ "$LISTWISE_DISABLE_METRICS" = "1" ] && LISTWISE_ARGS+=(--disable-metrics)
@@ -258,14 +258,14 @@ _build_fusion_args() {
     --w-snippet-rrf "$LISTWISE_FUSION_W_SNIPPET"
     --w-listwise "$LISTWISE_FUSION_W_LISTWISE"
   )
-  [ -n "${INPUT_JSONL:-}" ] && [ -f "$INPUT_JSONL" ] && _FUSION_ARGS+=(--train-jsonl "$INPUT_JSONL")
+  [ -n "${INPUT_JSONL:-}" ] && [ -f "$INPUT_JSONL" ] && _FUSION_ARGS+=(--input-jsonl "$INPUT_JSONL")
   if [ -n "${INPUT_BATCH_JSONLS:-}" ]; then
     local _TEST_PATHS=()
     for _p in $INPUT_BATCH_JSONLS; do
       [ -f "$_p" ] && _TEST_PATHS+=("$_p")
     done
     if [ ${#_TEST_PATHS[@]} -gt 0 ]; then
-      _FUSION_ARGS+=(--test-batch-jsonls "${_TEST_PATHS[@]}")
+      _FUSION_ARGS+=(--input-batch-jsonls "${_TEST_PATHS[@]}")
     fi
   fi
   [ "$LISTWISE_DISABLE_METRICS" = "1" ] && _FUSION_ARGS+=(--disable-metrics)

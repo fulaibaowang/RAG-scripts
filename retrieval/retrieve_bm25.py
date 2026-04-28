@@ -164,8 +164,8 @@ def ensure_pt(java_mem: str | None = None):
 def main():
     ap = argparse.ArgumentParser(description="Evaluate BM25+RM3 on query JSONL batches.")
     ap.add_argument("--index-path", required=True, dest="index_path", help="Path to Terrier index directory")
-    ap.add_argument("--train-jsonl", default=None, dest="train_jsonl", help="Path to training subset .jsonl.")
-    ap.add_argument("--test-batch-jsonls", nargs="*", default=[], dest="test_batch_jsonls", help="Test batch .jsonl files.")
+    ap.add_argument("--input-jsonl", default=None, dest="input_jsonl", help="Path to primary input .jsonl (single batch).")
+    ap.add_argument("--input-batch-jsonls", nargs="*", default=[], dest="input_batch_jsonls", help="Additional input batch .jsonl files.")
     ap.add_argument("--out-dir", required=True, dest="out_dir", help="Output directory")
     ap.add_argument("--threads", type=int, default=4, help="Terrier retrieval threads")
     ap.add_argument("--java-mem", default=None, dest="java_mem", help='Optional JVM heap, e.g. "8g"')
@@ -250,12 +250,12 @@ def main():
 
     # Load datasets
     test_files: List[Path] = []
-    if args.test_batch_jsonls:
-        test_files = [Path(fp).resolve() for fp in args.test_batch_jsonls]
+    if args.input_batch_jsonls:
+        test_files = [Path(fp).resolve() for fp in args.input_batch_jsonls]
 
-    train_path = Path(args.train_jsonl).resolve() if args.train_jsonl else None
+    train_path = Path(args.input_jsonl).resolve() if args.input_jsonl else None
     if train_path is None and not test_files:
-        raise SystemExit("Provide --train-jsonl and/or --test-batch-jsonls.")
+        raise SystemExit("Provide --input-jsonl and/or --input-batch-jsonls.")
 
     for fp in test_files:
         if not fp.exists():

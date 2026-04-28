@@ -516,17 +516,17 @@ def main() -> None:
     ap.add_argument("--dense-root", required=True, dest="dense_root", help="Path to dense output folder (dense_*.parquet)")
 
     ap.add_argument(
-        "--train-jsonl",
-        dest="train_jsonl",
+        "--input-jsonl",
+        dest="input_jsonl",
         default="",
-        help="Training queries .jsonl.",
+        help="Primary input queries .jsonl (single batch).",
     )
     ap.add_argument(
-        "--test-batch-jsonls",
-        dest="test_batch_jsonls",
+        "--input-batch-jsonls",
+        dest="input_batch_jsonls",
         nargs="*",
         default=[],
-        help="Test batch .jsonl files.",
+        help="Additional input batch .jsonl files.",
     )
 
     ap.add_argument("--out-dir", required=True, dest="out_dir")
@@ -561,11 +561,11 @@ def main() -> None:
     runs_dir.mkdir(exist_ok=True)
     figs_dir.mkdir(exist_ok=True)
 
-    train_path = Path(args.train_jsonl).resolve() if (args.train_jsonl or "").strip() else None
-    test_files = [Path(p).resolve() for p in (args.test_batch_jsonls or [])]
+    train_path = Path(args.input_jsonl).resolve() if (args.input_jsonl or "").strip() else None
+    test_files = [Path(p).resolve() for p in (args.input_batch_jsonls or [])]
 
     if train_path is None and not test_files:
-        raise SystemExit("Provide --train-jsonl and/or --test-batch-jsonls (at least one).")
+        raise SystemExit("Provide --input-jsonl and/or --input-batch-jsonls (at least one).")
 
     for fp in test_files:
         if not fp.exists():

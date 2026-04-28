@@ -369,8 +369,8 @@ _run_multi_query_fuse() {
   [ -n "$_labels" ] && _args+=(--labels "$_labels")
   [ -n "$_query_text_w" ] && _args+=(--query-text-weight "$_query_text_w")
   if [ "${HAVE_GROUND_TRUTH:-1}" != "0" ]; then
-    [ -n "${INPUT_JSONL:-}" ] && _args+=(--train-jsonl "$INPUT_JSONL")
-    [ -n "${INPUT_BATCH_JSONLS:-}" ] && _args+=(--test-batch-jsonls $INPUT_BATCH_JSONLS)
+    [ -n "${INPUT_JSONL:-}" ] && _args+=(--input-jsonl "$INPUT_JSONL")
+    [ -n "${INPUT_BATCH_JSONLS:-}" ] && _args+=(--input-batch-jsonls $INPUT_BATCH_JSONLS)
     [ -n "${RECALL_KS:-}" ] && _args+=(--ks "$RECALL_KS")
   else
     _args+=(--no-eval)
@@ -386,8 +386,8 @@ BM25_ARGS=(
   --k-eval "$BM25_TOP_K"
   --ks "$RECALL_KS"
 )
-[ -n "${INPUT_JSONL:-}" ] && BM25_ARGS+=(--train-jsonl "$INPUT_JSONL")
-[ -n "${INPUT_BATCH_JSONLS:-}" ] && BM25_ARGS+=(--test-batch-jsonls $INPUT_BATCH_JSONLS)
+[ -n "${INPUT_JSONL:-}" ] && BM25_ARGS+=(--input-jsonl "$INPUT_JSONL")
+[ -n "${INPUT_BATCH_JSONLS:-}" ] && BM25_ARGS+=(--input-batch-jsonls $INPUT_BATCH_JSONLS)
 [ -n "${BM25_JAVA_MEM:-}" ] && BM25_ARGS+=(--java-mem "$BM25_JAVA_MEM")
 [ -n "${BM25_THREADS:-}" ] && BM25_ARGS+=(--threads "$BM25_THREADS")
 [ -n "${BM25_RM3_FEEDBACK_POOL:-}" ] && BM25_ARGS+=(--k-feedback "$BM25_RM3_FEEDBACK_POOL")
@@ -478,8 +478,8 @@ else
     --ks "$RECALL_KS"
   )
 fi
-[ -n "${INPUT_JSONL:-}" ] && DENSE_ARGS+=(--train-jsonl "$INPUT_JSONL")
-[ -n "${INPUT_BATCH_JSONLS:-}" ] && DENSE_ARGS+=(--test-batch-jsonls $INPUT_BATCH_JSONLS)
+[ -n "${INPUT_JSONL:-}" ] && DENSE_ARGS+=(--input-jsonl "$INPUT_JSONL")
+[ -n "${INPUT_BATCH_JSONLS:-}" ] && DENSE_ARGS+=(--input-batch-jsonls $INPUT_BATCH_JSONLS)
 [ -n "${DENSE_EF_SEARCH:-}" ] && DENSE_ARGS+=(--ef-search "$DENSE_EF_SEARCH")
 [ -n "${DENSE_EF_CAP:-}" ] && DENSE_ARGS+=(--ef-cap "$DENSE_EF_CAP")
 [ -n "${DENSE_BATCH_SIZE:-}" ] && DENSE_ARGS+=(--batch-size "$DENSE_BATCH_SIZE")
@@ -557,8 +557,8 @@ RETRIEVAL_FUSION_ARGS=(
   --cap "$RETRIEVAL_FUSION_CAP"
   --ks "$RECALL_KS"
 )
-[ -n "${INPUT_JSONL:-}" ] && RETRIEVAL_FUSION_ARGS+=(--train-jsonl "$INPUT_JSONL")
-[ -n "${INPUT_BATCH_JSONLS:-}" ] && RETRIEVAL_FUSION_ARGS+=(--test-batch-jsonls $INPUT_BATCH_JSONLS)
+[ -n "${INPUT_JSONL:-}" ] && RETRIEVAL_FUSION_ARGS+=(--input-jsonl "$INPUT_JSONL")
+[ -n "${INPUT_BATCH_JSONLS:-}" ] && RETRIEVAL_FUSION_ARGS+=(--input-batch-jsonls $INPUT_BATCH_JSONLS)
 [ -n "${RETRIEVAL_FUSION_MODE:-}" ] && RETRIEVAL_FUSION_ARGS+=(--mode "$RETRIEVAL_FUSION_MODE")
 [ -n "${RETRIEVAL_FUSION_K_RRF:-}" ] && RETRIEVAL_FUSION_ARGS+=(--k-rrf "$RETRIEVAL_FUSION_K_RRF")
 [ -n "${RETRIEVAL_FUSION_W_BM25:-}" ] && RETRIEVAL_FUSION_ARGS+=(--w-bm25 "$RETRIEVAL_FUSION_W_BM25")
@@ -608,8 +608,8 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
     elif [ -f "$CROSS_ENCODER_OUT/metrics.csv" ]; then
       echo "[4/$TOTAL_STEPS] Reranker... (generating eval plots from existing results)"
       PLOT_ARGS=(--output-dir "$CROSS_ENCODER_OUT" --runs-dir "$HYBRID_OUT/runs")
-      [ -n "${INPUT_JSONL:-}" ] && PLOT_ARGS+=(--train-jsonl "$INPUT_JSONL")
-      [ -n "${INPUT_BATCH_JSONLS:-}" ] && PLOT_ARGS+=(--test-batch-jsonls $INPUT_BATCH_JSONLS)
+      [ -n "${INPUT_JSONL:-}" ] && PLOT_ARGS+=(--input-jsonl "$INPUT_JSONL")
+      [ -n "${INPUT_BATCH_JSONLS:-}" ] && PLOT_ARGS+=(--input-batch-jsonls $INPUT_BATCH_JSONLS)
       python "$SCRIPT_DIR/rerank/plot_rerank_eval.py" "${PLOT_ARGS[@]}"
     else
       echo "[4/$TOTAL_STEPS] Reranker... (skip: run TSVs exist but no metrics.csv; plots require metrics, e.g. HAVE_GROUND_TRUTH=1)"
@@ -649,8 +649,8 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
             --disable-metrics
             --skip-empty-query-field
           )
-          [ -n "${INPUT_JSONL:-}" ] && RERANK_ARGS+=(--train-jsonl "$INPUT_JSONL")
-          [ -n "${INPUT_BATCH_JSONLS:-}" ] && RERANK_ARGS+=(--test-batch-jsonls $INPUT_BATCH_JSONLS)
+          [ -n "${INPUT_JSONL:-}" ] && RERANK_ARGS+=(--input-jsonl "$INPUT_JSONL")
+          [ -n "${INPUT_BATCH_JSONLS:-}" ] && RERANK_ARGS+=(--input-batch-jsonls $INPUT_BATCH_JSONLS)
           [ -n "${RERANK_MODEL:-}" ] && RERANK_ARGS+=(--model "$RERANK_MODEL")
           [ -n "${RERANK_MODEL_DEVICE:-}" ] && RERANK_ARGS+=(--model-device "$RERANK_MODEL_DEVICE")
           [ -n "${RERANK_MODEL_BATCH:-}" ] && RERANK_ARGS+=(--model-batch "$RERANK_MODEL_BATCH")
@@ -680,8 +680,8 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
         --candidate-limit "$RERANK_EFFECTIVE"
         --ks-recall "${RERANK_KS_RECALL:-$RECALL_KS}"
       )
-      [ -n "${INPUT_JSONL:-}" ] && RERANK_ARGS+=(--train-jsonl "$INPUT_JSONL")
-      [ -n "${INPUT_BATCH_JSONLS:-}" ] && RERANK_ARGS+=(--test-batch-jsonls $INPUT_BATCH_JSONLS)
+      [ -n "${INPUT_JSONL:-}" ] && RERANK_ARGS+=(--input-jsonl "$INPUT_JSONL")
+      [ -n "${INPUT_BATCH_JSONLS:-}" ] && RERANK_ARGS+=(--input-batch-jsonls $INPUT_BATCH_JSONLS)
       [ -n "${RERANK_MODEL:-}" ] && RERANK_ARGS+=(--model "$RERANK_MODEL")
       [ -n "${RERANK_MODEL_DEVICE:-}" ] && RERANK_ARGS+=(--model-device "$RERANK_MODEL_DEVICE")
       [ -n "${RERANK_MODEL_BATCH:-}" ] && RERANK_ARGS+=(--model-batch "$RERANK_MODEL_BATCH")
@@ -751,8 +751,8 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
     fi
     [ -n "${RERANK_TSTAR_CAP:-}" ] && _TS_ARGS+=(--cap "$RERANK_TSTAR_CAP")
     if [ "${HAVE_GROUND_TRUTH:-1}" != "0" ] && [ "${RERANK_DISABLE_METRICS:-0}" != "1" ]; then
-      [ -n "${INPUT_JSONL:-}" ] && _TS_ARGS+=(--train-jsonl "$INPUT_JSONL")
-      [ -n "${INPUT_BATCH_JSONLS:-}" ] && _TS_ARGS+=(--test-batch-jsonls $INPUT_BATCH_JSONLS)
+      [ -n "${INPUT_JSONL:-}" ] && _TS_ARGS+=(--input-jsonl "$INPUT_JSONL")
+      [ -n "${INPUT_BATCH_JSONLS:-}" ] && _TS_ARGS+=(--input-batch-jsonls $INPUT_BATCH_JSONLS)
     else
       _TS_ARGS+=(--disable-metrics)
     fi
@@ -801,8 +801,8 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
       [ -n "${RRF_K:-}" ] && RRF_ARGS+=(--k-rrf "$RRF_K")
       [ -n "${RRF_W_RERANK:-}" ] && RRF_ARGS+=(--w-rerank "$RRF_W_RERANK")
       [ -n "${RRF_W_RETRIEVAL:-}" ] && RRF_ARGS+=(--w-retrieval "$RRF_W_RETRIEVAL")
-      [ -n "${INPUT_JSONL:-}" ] && RRF_ARGS+=(--train-jsonl "$INPUT_JSONL")
-      [ -n "${INPUT_BATCH_JSONLS:-}" ] && RRF_ARGS+=(--test-batch-jsonls $INPUT_BATCH_JSONLS)
+      [ -n "${INPUT_JSONL:-}" ] && RRF_ARGS+=(--input-jsonl "$INPUT_JSONL")
+      [ -n "${INPUT_BATCH_JSONLS:-}" ] && RRF_ARGS+=(--input-batch-jsonls $INPUT_BATCH_JSONLS)
       [ -n "${RERANK_KS_RECALL:-}" ] && RRF_ARGS+=(--ks-recall "$RERANK_KS_RECALL")
       [ "${RERANK_DISABLE_METRICS:-0}" = "1" ] && RRF_ARGS+=(--disable-metrics)
       python "$SCRIPT_DIR/rerank/fuse_rerank.py" "${RRF_ARGS[@]}"
@@ -838,8 +838,8 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
         ${RRF_K:+--k-rrf "$RRF_K"} \
         ${RRF_W_RERANK:+--w-rerank "$RRF_W_RERANK"} \
         ${RRF_W_RETRIEVAL:+--w-retrieval "$RRF_W_RETRIEVAL"} \
-        ${INPUT_JSONL:+--train-jsonl "$INPUT_JSONL"} \
-        ${INPUT_BATCH_JSONLS:+--test-batch-jsonls $INPUT_BATCH_JSONLS} \
+        ${INPUT_JSONL:+--input-jsonl "$INPUT_JSONL"} \
+        ${INPUT_BATCH_JSONLS:+--input-batch-jsonls $INPUT_BATCH_JSONLS} \
         ${RERANK_KS_RECALL:+--ks-recall "$RERANK_KS_RECALL"} \
         $([ "${RERANK_DISABLE_METRICS:-0}" = "1" ] && echo --disable-metrics)
     fi
@@ -875,8 +875,8 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
         --force-from-runs
         --plots-by-split
       )
-      [ -n "${INPUT_JSONL:-}" ] && COMPARE_ARGS+=(--train-jsonl "$INPUT_JSONL")
-      [ -n "${INPUT_BATCH_JSONLS:-}" ] && COMPARE_ARGS+=(--test-batch-jsonls $INPUT_BATCH_JSONLS)
+      [ -n "${INPUT_JSONL:-}" ] && COMPARE_ARGS+=(--input-jsonl "$INPUT_JSONL")
+      [ -n "${INPUT_BATCH_JSONLS:-}" ] && COMPARE_ARGS+=(--input-batch-jsonls $INPUT_BATCH_JSONLS)
       python "$SCRIPT_DIR/analysis/compare_result_dirs.py" "${COMPARE_ARGS[@]}"
       STEP_COMPARE_END=$(date +%s)
       echo "[timing] Compare step: $((STEP_COMPARE_END-STEP_COMPARE_START))s"
@@ -910,8 +910,8 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
         --force-from-runs
         --plots-by-split
       )
-      [ -n "${INPUT_JSONL:-}" ] && COMPARE_200_ARGS+=(--train-jsonl "$INPUT_JSONL")
-      [ -n "${INPUT_BATCH_JSONLS:-}" ] && COMPARE_200_ARGS+=(--test-batch-jsonls $INPUT_BATCH_JSONLS)
+      [ -n "${INPUT_JSONL:-}" ] && COMPARE_200_ARGS+=(--input-jsonl "$INPUT_JSONL")
+      [ -n "${INPUT_BATCH_JSONLS:-}" ] && COMPARE_200_ARGS+=(--input-batch-jsonls $INPUT_BATCH_JSONLS)
       python "$SCRIPT_DIR/analysis/compare_result_dirs.py" "${COMPARE_200_ARGS[@]}"
       STEP_COMPARE_200_END=$(date +%s)
       echo "[timing] Compare (pool=200) step: $((STEP_COMPARE_200_END-STEP_COMPARE_200_START))s"
@@ -969,8 +969,8 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
               --disable-metrics
               --skip-empty-query-field
             )
-            [ -n "${INPUT_JSONL:-}" ] && SNIPPET_ARGS+=(--train-jsonl "$INPUT_JSONL")
-            [ -n "${INPUT_BATCH_JSONLS:-}" ] && SNIPPET_ARGS+=(--test-batch-jsonls $INPUT_BATCH_JSONLS)
+            [ -n "${INPUT_JSONL:-}" ] && SNIPPET_ARGS+=(--input-jsonl "$INPUT_JSONL")
+            [ -n "${INPUT_BATCH_JSONLS:-}" ] && SNIPPET_ARGS+=(--input-batch-jsonls $INPUT_BATCH_JSONLS)
             [ -n "${SNIPPET_DENSE_DEVICE:-}" ] && SNIPPET_ARGS+=(--dense-device "$SNIPPET_DENSE_DEVICE")
             [ -n "${SNIPPET_DENSE_BATCH:-}" ] && SNIPPET_ARGS+=(--dense-batch "$SNIPPET_DENSE_BATCH")
             [ -n "${SNIPPET_CE_DEVICE:-}" ] && SNIPPET_ARGS+=(--ce-device "$SNIPPET_CE_DEVICE")
@@ -1021,8 +1021,8 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
           --dense-model "${SNIPPET_DENSE_MODEL:-abhinand/MedEmbed-small-v0.1}"
           --ce-model "${SNIPPET_CE_MODEL:-${RERANK_MODEL:-BAAI/bge-reranker-v2-m3}}"
         )
-        [ -n "${INPUT_JSONL:-}" ] && SNIPPET_ARGS+=(--train-jsonl "$INPUT_JSONL")
-        [ -n "${INPUT_BATCH_JSONLS:-}" ] && SNIPPET_ARGS+=(--test-batch-jsonls $INPUT_BATCH_JSONLS)
+        [ -n "${INPUT_JSONL:-}" ] && SNIPPET_ARGS+=(--input-jsonl "$INPUT_JSONL")
+        [ -n "${INPUT_BATCH_JSONLS:-}" ] && SNIPPET_ARGS+=(--input-batch-jsonls $INPUT_BATCH_JSONLS)
         [ -n "${SNIPPET_DENSE_DEVICE:-}" ] && SNIPPET_ARGS+=(--dense-device "$SNIPPET_DENSE_DEVICE")
         [ -n "${SNIPPET_DENSE_BATCH:-}" ] && SNIPPET_ARGS+=(--dense-batch "$SNIPPET_DENSE_BATCH")
         [ -n "${SNIPPET_CE_DEVICE:-}" ] && SNIPPET_ARGS+=(--ce-device "$SNIPPET_CE_DEVICE")
@@ -1081,8 +1081,8 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
         --k-rrf "${SNIPPET_RRF_K:-60}" \
         --w-rerank "${SNIPPET_RRF_W_SNIPPET:-0.2}" \
         --w-retrieval "${SNIPPET_RRF_W_DOCS:-0.8}" \
-        ${INPUT_JSONL:+--train-jsonl "$INPUT_JSONL"} \
-        ${INPUT_BATCH_JSONLS:+--test-batch-jsonls $INPUT_BATCH_JSONLS} \
+        ${INPUT_JSONL:+--input-jsonl "$INPUT_JSONL"} \
+        ${INPUT_BATCH_JSONLS:+--input-batch-jsonls $INPUT_BATCH_JSONLS} \
         ${RERANK_KS_RECALL:+--ks-recall "$RERANK_KS_RECALL"} \
         $([ "${RERANK_DISABLE_METRICS:-0}" = "1" ] && echo --disable-metrics)
     fi
@@ -1125,8 +1125,8 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
         --force-from-runs
         --plots-by-split
       )
-      [ -n "${INPUT_JSONL:-}" ] && SNIPPET_COMPARE_ARGS+=(--train-jsonl "$INPUT_JSONL")
-      [ -n "${INPUT_BATCH_JSONLS:-}" ] && SNIPPET_COMPARE_ARGS+=(--test-batch-jsonls $INPUT_BATCH_JSONLS)
+      [ -n "${INPUT_JSONL:-}" ] && SNIPPET_COMPARE_ARGS+=(--input-jsonl "$INPUT_JSONL")
+      [ -n "${INPUT_BATCH_JSONLS:-}" ] && SNIPPET_COMPARE_ARGS+=(--input-batch-jsonls $INPUT_BATCH_JSONLS)
       python "$SCRIPT_DIR/analysis/compare_result_dirs.py" "${SNIPPET_COMPARE_ARGS[@]}"
       STEP_SNIPPET_COMPARE_END=$(date +%s)
       echo "[timing] Snippet compare step: $((STEP_SNIPPET_COMPARE_END-STEP_SNIPPET_COMPARE_START))s"

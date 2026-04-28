@@ -75,22 +75,22 @@ def _build_split_to_role_and_label(
     train_json: Optional[Path],
     test_batch_jsons: List[Path],
 ) -> Tuple[Dict[str, str], Dict[str, str]]:
-    """Build split -> role (train/test) and split -> label (file stem for display)."""
+    """Build split -> role (batch/batches) and split -> label (file stem for display)."""
     split_to_role: Dict[str, str] = {}
     split_to_label: Dict[str, str] = {}
     if train_json and train_json.exists():
         train_stem = train_json.stem
-        split_to_role[train_stem] = "train"
+        split_to_role[train_stem] = "batch"
         split_to_label[train_stem] = train_stem
     for p in test_batch_jsons:
         path = Path(p)
         stem = path.stem
-        split_to_role[stem] = "test"
+        split_to_role[stem] = "batches"
         split_to_label[stem] = stem
     labels = list(split_to_label.values())
     if len(labels) != len(set(labels)):
         raise ValueError(
-            "Duplicate dataset labels; train and test file names (stems) must be distinct. "
+            "Duplicate dataset labels; input file names (stems) must be distinct. "
             f"Labels: {labels}"
         )
     return split_to_role, split_to_label
@@ -113,19 +113,19 @@ def parse_args() -> argparse.Namespace:
         help="JSONL corpus path or glob pattern (e.g. /pubmed/*.jsonl).",
     )
     inputs.add_argument(
-        "--train-jsonl",
+        "--input-jsonl",
         type=Path,
         default=None,
-        dest="train_jsonl",
-        help="Training queries .jsonl.",
+        dest="input_jsonl",
+        help="Primary input queries .jsonl (single batch).",
     )
     inputs.add_argument(
-        "--test-batch-jsonls",
+        "--input-batch-jsonls",
         type=Path,
         nargs="*",
         default=None,
-        dest="test_batch_jsonls",
-        help="Test batch .jsonl files (queries + gold).",
+        dest="input_batch_jsonls",
+        help="Additional input batch .jsonl files (queries + gold).",
     )
     inputs.add_argument("--candidate-limit", type=int, default=2000, help="Stage-1 candidate cutoff per query.")
     inputs.add_argument("--max-queries", type=int, default=None, help="Max queries per split.")
@@ -632,8 +632,8 @@ def _llm_rerank_worker(
     if not run_maps:
         return
     topics_map: Dict[str, str] = {}
-    _tj = worker_args.get("train_jsonl")
-    _tb = worker_args.get("test_batch_jsonls") or []
+    _tj = worker_args.get("input_jsonl")
+    _tb = worker_args.get("input_batch_jsonls") or []
     for json_path in [_tj] + list(_tb):
         if not json_path or not Path(json_path).exists():
             continue
@@ -709,8 +709,8 @@ def main() -> None:
 
     runs_dir = args.runs_dir
     docs_jsonl = Path(args.docs_jsonl)
-    train_json = args.train_jsonl
-    test_batch_jsons = args.test_batch_jsonls or []
+    train_json = args.input_jsonl
+    test_batch_jsons = args.input_batch_jsonls or []
     output_dir = args.output_dir
 
     output_cfg = _build_output_config(output_dir)
@@ -919,8 +919,8 @@ def main() -> None:
         "runs_dir": str(runs_dir),
         "run_files": [str(p) for p in run_files],
         "docs_jsonl": str(docs_jsonl),
-        "train_jsonl": str(train_json) if train_json else "",
-        "test_batch_jsonls": [str(p) for p in test_batch_jsons],
+        "input_jsonl": str(train_json) if train_json else "",
+        "input_batch_jsonls": [str(p) for p in test_batch_jsons],
         "ks_recall": list(ks_recall),
         "split_to_role": split_to_role_cfg,
         "split_to_label": split_to_label_cfg,

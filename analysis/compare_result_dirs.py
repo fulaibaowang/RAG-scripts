@@ -4,7 +4,7 @@ Compare metrics and optionally plot recall and/or MAP curves across two or more
 result directories (e.g. rerank vs rerank_sentence, or hybrid vs rerank).
 - Dirs with metrics.csv are used as-is.
 - Dirs with only runs/*.tsv (e.g. hybrid output) are supported: provide
-  --train-jsonl and/or --test-batch-jsonls so metrics are computed from runs.
+  --input-jsonl and/or --input-batch-jsonls so metrics are computed from runs.
 For MAP@k curve, runs/*.tsv and gold are required.
 
 Example (stage 2 vs stage 3 sentence, with MAP curve 10–200):
@@ -13,8 +13,8 @@ Example (stage 2 vs stage 3 sentence, with MAP curve 10–200):
     --labels "Stage 2" "Stage 3 sentence" \\
     --plot both \\
     --map-ks 10,20,50,100,200 \\
-    --train-jsonl example/training14b_3pct_sample.jsonl \\
-    --test-batch-jsonls example/13b_golden_50q_sample.jsonl \\
+    --input-jsonl example/training14b_3pct_sample.jsonl \\
+    --input-batch-jsonls example/13b_golden_50q_sample.jsonl \\
     --output-dir output/workflow_local_3pct_hpc_bge/compare_plots
 """
 from __future__ import annotations
@@ -101,13 +101,13 @@ def _infer_role_from_run_id(
     train_batch_stems: Tuple[str, ...],
     test_batch_stems: Tuple[str, ...],
 ) -> str:
-    """Infer role (train/test) from run_id by matching batch name stems from JSON paths."""
+    """Infer role (batch/batches) from run_id by matching batch name stems from JSON paths."""
     for stem in test_batch_stems:
         if stem in run_id:
-            return "test"
+            return "batches"
     for stem in train_batch_stems:
         if stem in run_id:
-            return "train"
+            return "batch"
     return "unknown"
 
 
@@ -208,18 +208,18 @@ def load_metrics_from_dirs(
             if "role" not in df.columns and "split" in df.columns:
                 def _split_to_role(s):
                     if not s or pd.isna(s):
-                        return "test"
+                        return "batches"
                     t = str(s).strip().lower()
                     if "training" in t or "_train_" in t or t.endswith("_train"):
-                        return "train"
-                    return "test"
+                        return "batch"
+                    return "batches"
                 df["role"] = df["split"].map(_split_to_role)
             rows.append(df)
         elif runs_dir.is_dir() and list(runs_dir.glob("*.tsv")):
             if not gold_map:
                 raise ValueError(
                     f"Dir {d} has no metrics.csv but has runs/*.tsv. "
-                    "Provide --train-jsonl and/or --test-batch-jsonls to compute metrics from runs."
+                    "Provide --input-jsonl and/or --input-batch-jsonls to compute metrics from runs."
                 )
             df = _metrics_from_runs_dir(
                 runs_dir, gold_map, ks_recall, result_dir=str(d), dir_label=label,
@@ -344,7 +344,7 @@ def parse_args() -> argparse.Namespace:
         description="Compare result dirs: plot recall and/or MAP@k curves.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("--dirs", type=Path, nargs="+", required=True, help="Result dirs: each with metrics.csv, or with runs/*.tsv only (e.g. hybrid; then provide --train-jsonl/--test-batch-jsonls).")
+    parser.add_argument("--dirs", type=Path, nargs="+", required=True, help="Result dirs: each with metrics.csv, or with runs/*.tsv only (e.g. hybrid; then provide --input-jsonl/--input-batch-jsonls).")
     parser.add_argument("--labels", type=str, nargs="*", default=None, help="Display labels for each dir (same order as --dirs). Default: dir name.")
     parser.add_argument("--plot", type=str, choices=("recall", "map", "both"), default="both", help="What to plot.")
     parser.add_argument("--output-dir", type=Path, default=None, help="Where to save figures. Default: first --dirs parent.")
@@ -352,19 +352,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--recall-k-max", type=int, default=None, help="Max K for recall curve (default: use all in metrics).")
     parser.add_argument("--ks-recall", type=str, default="", help="Comma-separated K for MeanR@k when building metrics from runs (e.g. hybrid). Default: 50,100,200,...,5000.")
     parser.add_argument(
-        "--train-jsonl",
+        "--input-jsonl",
         type=Path,
         default=None,
-        dest="train_jsonl",
-        help="Training queries .jsonl (for gold; required for MAP curve and for dirs that only have runs/).",
+        dest="input_jsonl",
+        help="Primary input queries .jsonl (for gold; required for MAP curve and for dirs that only have runs/).",
     )
     parser.add_argument(
-        "--test-batch-jsonls",
+        "--input-batch-jsonls",
         type=Path,
         nargs="*",
         default=None,
-        dest="test_batch_jsonls",
-        help="Test batch .jsonl (for gold, needed for MAP curve).",
+        dest="input_batch_jsonls",
+        help="Additional input batch .jsonl files (for gold, needed for MAP curve).",
     )
     parser.add_argument(
         "--query-field",
@@ -373,7 +373,7 @@ def parse_args() -> argparse.Namespace:
         help="Query field in question dicts from strict query .jsonl (default: query_text).",
     )
     parser.add_argument("--log-x", action="store_true", help="Use log scale for x-axis (K) in recall and MAP curves.")
-    parser.add_argument("--plots-by-split", action="store_true", help="Output one recall and one MAP plot per split (train/test); uses 'role' from metrics, or 'label' if role missing.")
+    parser.add_argument("--plots-by-split", action="store_true", help="Output one recall and one MAP plot per split (batch/batches); uses 'role' from metrics, or 'label' if role missing.")
     parser.add_argument("--force-from-runs", action="store_true", help="Recompute metrics from runs/*.tsv even when metrics.csv exists. Useful when --ks-recall differs from the K values in metrics.csv.")
     return parser.parse_args()
 
@@ -406,15 +406,15 @@ def main() -> None:
     gold_map: Dict[str, List[str]] = {}
     ks_recall = _parse_ks_recall(args.ks_recall)
     if need_gold or args.plot in ("map", "both"):
-        if not args.train_jsonl and not args.test_batch_jsonls:
+        if not args.input_jsonl and not args.input_batch_jsonls:
             if need_gold:
-                raise ValueError("Some dirs have only runs/ (e.g. hybrid). Provide --train-jsonl and/or --test-batch-jsonls to compute metrics.")
-            raise ValueError("For MAP curve provide --train-jsonl and/or --test-batch-jsonls to build gold.")
-        if args.train_jsonl and args.train_jsonl.exists():
-            questions = load_questions(args.train_jsonl)
+                raise ValueError("Some dirs have only runs/ (e.g. hybrid). Provide --input-jsonl and/or --input-batch-jsonls to compute metrics.")
+            raise ValueError("For MAP curve provide --input-jsonl and/or --input-batch-jsonls to build gold.")
+        if args.input_jsonl and args.input_jsonl.exists():
+            questions = load_questions(args.input_jsonl)
             _, g = build_topics_and_gold(questions, query_field=args.query_field)
             gold_map.update(g)
-        for p in args.test_batch_jsonls or []:
+        for p in args.input_batch_jsonls or []:
             if Path(p).exists():
                 questions = load_questions(Path(p))
                 _, g = build_topics_and_gold(questions, query_field=args.query_field)
@@ -422,13 +422,13 @@ def main() -> None:
         if need_gold and not gold_map:
             raise ValueError("No gold loaded; required for dirs that only have runs/*.tsv.")
 
-    # Batch stems from JSON paths: used to infer role (train/test) when building metrics from runs/
+    # Batch stems from JSON paths: used to infer role (batch/batches) when building metrics from runs/
     train_batch_stems: Tuple[str, ...] = ()
     test_batch_stems: Tuple[str, ...] = ()
-    if args.train_jsonl and args.train_jsonl.exists():
-        train_batch_stems = (args.train_jsonl.stem,)
-    if args.test_batch_jsonls:
-        test_batch_stems = tuple(Path(p).stem for p in args.test_batch_jsonls if Path(p).exists())
+    if args.input_jsonl and args.input_jsonl.exists():
+        train_batch_stems = (args.input_jsonl.stem,)
+    if args.input_batch_jsonls:
+        test_batch_stems = tuple(Path(p).stem for p in args.input_batch_jsonls if Path(p).exists())
 
     combined, dir_labels = load_metrics_from_dirs(
         dirs, args.labels,
@@ -441,7 +441,7 @@ def main() -> None:
 
     # Normalize role where possible so --plots-by-split can group curves sensibly.
     # Some upstream scripts may emit role="unknown" even though run/label clearly
-    # correspond to a train or test batch. When we have batch stems, try to fix that.
+    # correspond to a primary or batch input. When we have batch stems, try to fix that.
     if "role" in combined.columns and (train_batch_stems or test_batch_stems):
         def _fix_role(row: pd.Series) -> str:
             role = str(row.get("role") or "").strip().lower()
@@ -451,10 +451,10 @@ def main() -> None:
             text_lower = str(text).lower()
             for stem in test_batch_stems:
                 if str(stem).lower() in text_lower:
-                    return "test"
+                    return "batches"
             for stem in train_batch_stems:
                 if str(stem).lower() in text_lower:
-                    return "train"
+                    return "batch"
             return "unknown"
 
         combined["role"] = combined.apply(_fix_role, axis=1)
@@ -462,7 +462,7 @@ def main() -> None:
     # Summary stats table (always)
     _write_compare_summary(combined, output_dir)
 
-    # Split key for --plots-by-split: "role" (train/test) if present, else "label"
+    # Split key for --plots-by-split: "role" (batch/batches) if present, else "label"
     split_col = "role" if "role" in combined.columns and combined["role"].notna().any() else "label"
     if args.plots_by_split:
         split_values = sorted(combined[split_col].dropna().unique().tolist()) or ["all"]
@@ -493,7 +493,7 @@ def main() -> None:
         if not map_ks:
             map_ks = [10, 20, 50, 100, 200]
         if not gold_map:
-            raise ValueError("For MAP curve provide --train-jsonl and/or --test-batch-jsonls to build gold.")
+            raise ValueError("For MAP curve provide --input-jsonl and/or --input-batch-jsonls to build gold.")
 
         map_by_run: Dict[Tuple[str, str], Dict[int, float]] = {}
         for _, row in combined.iterrows():

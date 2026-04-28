@@ -165,19 +165,19 @@ def parse_args() -> argparse.Namespace:
         help="(Deprecated) Alias for --w-retrieval.",
     )
     p.add_argument(
-        "--train-jsonl",
+        "--input-jsonl",
         type=Path,
         default=None,
-        dest="train_jsonl",
-        help="Training queries .jsonl for metrics (optional).",
+        dest="input_jsonl",
+        help="Primary input queries .jsonl for metrics (optional).",
     )
     p.add_argument(
-        "--test-batch-jsonls",
+        "--input-batch-jsonls",
         type=Path,
         nargs="*",
         default=None,
-        dest="test_batch_jsonls",
-        help="Test batch .jsonl for metrics (optional).",
+        dest="input_batch_jsonls",
+        help="Additional input batch .jsonl files for metrics (optional).",
     )
     p.add_argument(
         "--ks-recall",
@@ -288,8 +288,8 @@ def main() -> None:
         return
 
     # Build gold and evaluate, if questions are provided
-    train_json: Optional[Path] = args.train_jsonl
-    test_batch_jsons: Optional[Sequence[Path]] = args.test_batch_jsonls
+    train_json: Optional[Path] = args.input_jsonl
+    test_batch_jsons: Optional[Sequence[Path]] = args.input_batch_jsonls
 
     all_questions: List[dict] = []
     if train_json and train_json.exists():
