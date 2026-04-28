@@ -43,7 +43,7 @@ _JSONL_ADAPT_HINT = (
 )
 
 # Pipeline query corpora (.jsonl): required keys are query_id + query_text; query_type and documents
-# are normalized when present. Any other top-level keys (e.g. query_text_expansion_long, docs) pass through.
+# are normalized when present. Any other top-level keys (e.g. query_text_synonym_products, docs) pass through.
 PIPELINE_QUERY_JSONL_REQUIRED_KEYS = frozenset({"query_id", "query_text"})
 
 
@@ -90,7 +90,7 @@ def canonical_pipeline_query_jsonl_record(rec: dict) -> dict:
     """Validate and normalize one pipeline query object (one JSONL line).
 
     Required: ``query_id``, ``query_text`` (non-empty after strip); ``query_type`` and ``documents`` are
-    normalized when present. All other top-level keys are left in place (e.g. ``query_text_expansion_long``,
+    normalized when present. All other top-level keys are left in place (e.g. ``query_text_synonym_products``,
     ``docs``) so :func:`build_topics_and_gold` can use ``--query-field`` for alternate strings.
 
     Wrapped BioASQ JSON (top-level ``questions``) is not accepted; use

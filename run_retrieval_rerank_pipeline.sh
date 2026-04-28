@@ -137,7 +137,7 @@ while [ $# -gt 0 ]; do
       echo "  EVIDENCE_TOP_K / EVIDENCE_TOP_K_BASELINE / EVIDENCE_TOP_K_SNIPPET   Max docs per question for contexts (build_contexts; default: EVIDENCE_TOP_K or 10)."
       echo ""
       echo "Example: $0 --config scripts/private_scripts/config.env"
-      echo "Example: $0 -c config.env --no-rerank --bm25-query-field query_text_expansion_long --dense-query-field query_text"
+      echo "Example: $0 -c config.env --no-rerank --bm25-query-field query_text_synonym_products --dense-query-field query_text"
       echo "Example: source conf/workflow_config_baseline.env && $0"
       exit 0
       ;;
