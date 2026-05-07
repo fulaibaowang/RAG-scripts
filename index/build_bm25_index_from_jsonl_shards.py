@@ -52,7 +52,12 @@ def iter_docs(jsonl_glob: str, include_keywords: bool) -> Iterable[Dict]:
       - Only valid PMID required
 
     Yields:
-      {"docno": pmid, "text": title + "\\n\\n" + abstract, "keywords": "..."}  (keywords optional)
+      {"docno": docno, "text": title + "\\n\\n" + body, "keywords": "..."}  (keywords optional)
+
+    docno is the chunk-level identifier from the new corpus (e.g. "<pmid>#abstract"
+    or "<pmid>#body_001"); falls back to the legacy bare PMID for older corpora.
+    body comes from the unified 'text' field in the new corpus, with a fallback
+    to the legacy 'abstract' field.
     """
     count = 0
     skipped = 0
@@ -66,21 +71,24 @@ def iter_docs(jsonl_glob: str, include_keywords: bool) -> Iterable[Dict]:
                     continue
                 d = json.loads(line)
 
-                pmid = (d.get("pmid") or d.get("docno") or "").strip()
-                if not pmid:
+                # Prefer docno (chunk-level identifier in the new corpus); fall
+                # back to pmid for legacy abstract-only corpora where docno=pmid.
+                docno = (d.get("docno") or d.get("pmid") or "").strip()
+                if not docno:
                     skipped += 1
                     continue
 
                 title = (d.get("title") or "").strip()
-                abstract = (d.get("abstract") or "").strip()
-                text = (title + "\n\n" + abstract).strip()
-                
+                # New corpus uses 'text' (unified body). Legacy corpus used 'abstract'.
+                body = (d.get("text") or d.get("abstract") or "").strip()
+                text = (title + "\n\n" + body).strip()
+
                 if not text:
                     skipped += 1
                     continue
                 text = augment_text_for_codes(text)
-    
-                out = {"docno": pmid, "text": text}
+
+                out = {"docno": docno, "text": text}
                 if include_keywords:
                     kw = d.get("keywords")
                     if isinstance(kw, list):
@@ -118,7 +126,9 @@ def build_index(index_path: str, jsonl_glob: str, overwrite: bool, threads: int,
     indexer = pt.IterDictIndexer(
         index_path,
         text_attrs=text_attrs,
-        meta={"docno": 32},  # PMID fits easily
+        # 64 chars covers chunk-level docnos like "<pmid>#body_001"; bare PMIDs
+        # easily fit. Increase further if chunk_id patterns get longer.
+        meta={"docno": 64},
         overwrite=overwrite,
         threads=threads,
     )

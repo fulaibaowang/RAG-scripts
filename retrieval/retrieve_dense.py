@@ -65,23 +65,33 @@ def _resolve_dense_query_paths(args: argparse.Namespace) -> tuple[Path | None, l
     return train_path, tests
 
 
-def _load_rowid_to_pmid_tsv(path: Path) -> list[str]:
-    rowid_to_pmid: list[str] = []
+def _load_rowid_to_docno_tsv(path: Path) -> list[str]:
+    """Load the dense index's rowid → docno mapping.
+
+    Each docno is the chunk-level identifier from the new corpus
+    (e.g. ``<pmid>#abstract`` / ``<pmid>#body_001``) or a bare PMID for
+    legacy abstracts-only indexes.
+    """
+    rowid_to_docno: list[str] = []
     with open(path, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
                 continue
-            rowid_s, pmid = line.split("\t", 1)
+            rowid_s, docno = line.split("\t", 1)
             rowid = int(rowid_s)
-            if rowid != len(rowid_to_pmid):
+            if rowid != len(rowid_to_docno):
                 raise ValueError(
-                    f"Non-contiguous rowid mapping at rowid={rowid}, expected={len(rowid_to_pmid)}"
+                    f"Non-contiguous rowid mapping at rowid={rowid}, expected={len(rowid_to_docno)}"
                 )
-            rowid_to_pmid.append(pmid.strip())
-    if not rowid_to_pmid:
-        raise ValueError(f"Empty rowid_to_pmid mapping: {path}")
-    return rowid_to_pmid
+            rowid_to_docno.append(docno.strip())
+    if not rowid_to_docno:
+        raise ValueError(f"Empty rowid mapping: {path}")
+    return rowid_to_docno
+
+
+# Backward-compat alias for any external caller still importing the old name.
+_load_rowid_to_pmid_tsv = _load_rowid_to_docno_tsv
 
 
 def load_dense_runtime(
@@ -90,17 +100,23 @@ def load_dense_runtime(
     model_name_override: str | None = None,
     ef_search_override: int | None = None,
 ) -> tuple[SentenceTransformer, hnswlib.Index, list[str], dict[str, Any]]:
-    """Load SentenceTransformer + HNSW index + rowid->PMID mapping from a build_dense_hnsw_index output dir."""
+    """Load SentenceTransformer + HNSW index + rowid->docno mapping from a build_dense_hnsw_index output dir."""
     meta_path = index_dir / "meta.json"
     idx_path = index_dir / "hnsw_index.bin"
-    map_path = index_dir / "rowid_to_pmid.tsv"
+    # New indexes use rowid_to_docno.tsv; older ones used rowid_to_pmid.tsv.
+    map_path_new = index_dir / "rowid_to_docno.tsv"
+    map_path_legacy = index_dir / "rowid_to_pmid.tsv"
+    map_path = map_path_new if map_path_new.exists() else map_path_legacy
 
     if not meta_path.exists():
         raise FileNotFoundError(f"Missing meta.json in index_dir: {meta_path}")
     if not idx_path.exists():
         raise FileNotFoundError(f"Missing hnsw_index.bin in index_dir: {idx_path}")
     if not map_path.exists():
-        raise FileNotFoundError(f"Missing rowid_to_pmid.tsv in index_dir: {map_path}")
+        raise FileNotFoundError(
+            f"Missing rowid mapping in index_dir (looked for rowid_to_docno.tsv "
+            f"and rowid_to_pmid.tsv): {index_dir}"
+        )
 
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
 
@@ -159,17 +175,22 @@ def load_dense_index_only(
     dim: int,
     ef_search: int,
 ) -> tuple[hnswlib.Index, list[str], dict[str, Any]]:
-    """Load HNSW index + rowid->PMID mapping only (no model). For additional shards when using --index-glob."""
+    """Load HNSW index + rowid->docno mapping only (no model). For additional shards when using --index-glob."""
     meta_path = index_dir / "meta.json"
     idx_path = index_dir / "hnsw_index.bin"
-    map_path = index_dir / "rowid_to_pmid.tsv"
+    map_path_new = index_dir / "rowid_to_docno.tsv"
+    map_path_legacy = index_dir / "rowid_to_pmid.tsv"
+    map_path = map_path_new if map_path_new.exists() else map_path_legacy
 
     if not meta_path.exists():
         raise FileNotFoundError(f"Missing meta.json in index_dir: {meta_path}")
     if not idx_path.exists():
         raise FileNotFoundError(f"Missing hnsw_index.bin in index_dir: {idx_path}")
     if not map_path.exists():
-        raise FileNotFoundError(f"Missing rowid_to_pmid.tsv in index_dir: {map_path}")
+        raise FileNotFoundError(
+            f"Missing rowid mapping in index_dir (looked for rowid_to_docno.tsv "
+            f"and rowid_to_pmid.tsv): {index_dir}"
+        )
 
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     rowid_to_pmid = _load_rowid_to_pmid_tsv(map_path)

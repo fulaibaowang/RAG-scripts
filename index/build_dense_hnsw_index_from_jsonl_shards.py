@@ -49,12 +49,13 @@ def parse_mesh_terms(mesh_terms: str) -> List[str]:
 
 def build_doc_text(d: Dict, include_mesh: bool = False) -> str:
     title = (d.get("title") or "").strip()
-    abstract = (d.get("abstract") or "").strip()
+    # New corpus uses 'text' (unified body); legacy used 'abstract'.
+    body = (d.get("text") or d.get("abstract") or "").strip()
 
-    if title and abstract:
-        text = f"{title}\n\n{abstract}"
+    if title and body:
+        text = f"{title}\n\n{body}"
     else:
-        text = title or abstract
+        text = title or body
 
     if include_mesh:
         mesh_names = parse_mesh_terms(d.get("mesh_terms") or "")
@@ -64,14 +65,19 @@ def build_doc_text(d: Dict, include_mesh: bool = False) -> str:
     return (text or "").strip()
 
 
-def get_pmid(d: Dict) -> Optional[str]:
-    pmid = d.get("pmid")
-    if pmid is None or str(pmid).strip() == "":
-        pmid = d.get("docno")
-    if pmid is None:
+def get_docno(d: Dict) -> Optional[str]:
+    """Extract the document identifier.
+
+    Prefers the chunk-level ``docno`` from the new corpus; falls back to the
+    bare ``pmid`` for legacy abstracts-only corpora where docno=pmid.
+    """
+    docno = d.get("docno")
+    if docno is None or str(docno).strip() == "":
+        docno = d.get("pmid")
+    if docno is None:
         return None
-    pmid = str(pmid).strip()
-    return pmid or None
+    docno = str(docno).strip()
+    return docno or None
 
 
 # -----------------------------
@@ -96,24 +102,23 @@ def iter_jsonl_records(jsonl_glob: str) -> Iterable[Tuple[str, Dict]]:
                 yield fp, rec
 
 
-def count_unique_pmids(
+def count_unique_docnos(
     jsonl_glob: str,
     dedup_pmids: bool,
     max_docs: Optional[int] = None,
 ) -> int:
-    """First pass: count docs (unique pmids if dedup)."""
+    """First pass: count docs (unique docnos if dedup)."""
     seen = set() if dedup_pmids else None
     n = 0
     for _, rec in tqdm(iter_jsonl_records(jsonl_glob), desc="Counting docs", unit="rec"):
-        pmid = get_pmid(rec)
-        if pmid is None:
+        docno = get_docno(rec)
+        if docno is None:
             continue
         if seen is not None:
-            # pmids are numeric strings in PubMed; int saves memory
             try:
-                key = int(pmid)
+                key = int(docno)
             except Exception:
-                key = pmid
+                key = docno
             if key in seen:
                 continue
             seen.add(key)
@@ -170,7 +175,7 @@ def main():
     os.makedirs(args.out_dir, exist_ok=True)
 
     index_path = os.path.join(args.out_dir, "hnsw_index.bin")
-    map_path = os.path.join(args.out_dir, "rowid_to_pmid.tsv")
+    map_path = os.path.join(args.out_dir, "rowid_to_docno.tsv")
     meta_path = os.path.join(args.out_dir, "meta.json")
 
     # If all expected outputs are present, assume this index is already built and skip work.
@@ -183,7 +188,7 @@ def main():
         n_docs_target = args.max_elements
         print(f"[count] Skipping counting pass. Using max_elements={n_docs_target:,}")
     else:
-        n_docs_target = count_unique_pmids(
+        n_docs_target = count_unique_docnos(
             args.jsonl_glob,
             dedup_pmids=args.dedup_pmids,
             max_docs=args.max_docs,
@@ -216,14 +221,15 @@ def main():
     # 4) Build index (2nd pass): stream shards, batch embed, add
     seen = set() if args.dedup_pmids else None
 
-    # rowid -> pmid mapping (stored as numpy object array for flexibility)
-    rowid_to_pmid: List[str] = []
+    # rowid -> docno mapping (chunk-level identifier from the new corpus, or
+    # bare pmid for legacy abstracts-only corpora)
+    rowid_to_docno: List[str] = []
     next_id = 0
 
     # batching
     batch_texts: List[str] = []
     batch_ids: List[int] = []
-    batch_pmids: List[str] = []
+    batch_docnos: List[str] = []
 
     def flush_batch() -> int:
         n = len(batch_texts)
@@ -243,8 +249,8 @@ def main():
         index.add_items(emb, np.array(batch_ids, dtype=np.int64))
         t2 = time.time()
 
-        # "indexed_in_index" = how many have been flushed into rowid_to_pmid so far (before extending)
-        indexed_in_index_before = len(rowid_to_pmid)
+        # "indexed_in_index" = how many have been flushed into rowid_to_docno so far (before extending)
+        indexed_in_index_before = len(rowid_to_docno)
 
         print(
             f"[flush] indexed_in_index_before={indexed_in_index_before} next_id_assigned={next_id} "
@@ -252,32 +258,30 @@ def main():
             flush=True,
         )
 
-        rowid_to_pmid.extend(batch_pmids)
+        rowid_to_docno.extend(batch_docnos)
         batch_texts.clear()
         batch_ids.clear()
-        batch_pmids.clear()
+        batch_docnos.clear()
         return n
     
     pbar = tqdm(total=n_docs_target, desc="Indexing", unit="doc")
     for _, rec in iter_jsonl_records(args.jsonl_glob):
-        pmid = get_pmid(rec)
-        if pmid is None:
+        docno = get_docno(rec)
+        if docno is None:
             continue
 
         if seen is not None:
             try:
-                key = int(pmid)
+                key = int(docno)
             except Exception:
-                key = pmid
+                key = docno
             if key in seen:
                 continue
             seen.add(key)
 
         text = build_doc_text(rec, include_mesh=args.include_mesh)
-        # You said no filter about deleted/abstract, so we keep even empty abstract/title-only.
-        # But we should skip truly empty text (rare).
+        # Keep even title-only docs; only skip truly empty text (rare).
         if not text:
-            # still keep mapping? better to skip empty, otherwise embedding becomes meaningless
             continue
 
         doc_id = next_id
@@ -285,7 +289,7 @@ def main():
 
         batch_texts.append(text)
         batch_ids.append(doc_id)
-        batch_pmids.append(pmid)
+        batch_docnos.append(docno)
 
         if len(batch_texts) >= args.batch_size:
             n_flushed = flush_batch()
@@ -294,9 +298,9 @@ def main():
             if args.save_every and next_id % args.save_every == 0:
                 ckpt_idx = os.path.join(args.out_dir, "hnsw_index.partial.bin")
                 index.save_index(ckpt_idx)
-                ckpt_map = os.path.join(args.out_dir, "rowid_to_pmid.partial.tsv")
+                ckpt_map = os.path.join(args.out_dir, "rowid_to_docno.partial.tsv")
                 with open(ckpt_map, "w", encoding="utf-8") as f:
-                    for i, p in enumerate(rowid_to_pmid):
+                    for i, p in enumerate(rowid_to_docno):
                         f.write(f"{i}\t{p}\n")
 
         if args.max_docs is not None and next_id >= args.max_docs:
@@ -313,13 +317,13 @@ def main():
 
     n_indexed = next_id
     print(f"[done] Indexed docs (assigned ids): {n_indexed:,}")
-    print(f"[done] rowid_to_pmid: {len(rowid_to_pmid):,}  hnsw_count: {index.get_current_count():,}")
+    print(f"[done] rowid_to_docno: {len(rowid_to_docno):,}  hnsw_count: {index.get_current_count():,}")
 
     # 5) Save index + mapping + metadata
     index.save_index(index_path)
 
     with open(map_path, "w", encoding="utf-8") as f:
-        for i, p in enumerate(rowid_to_pmid):
+        for i, p in enumerate(rowid_to_docno):
             f.write(f"{i}\t{p}\n")
 
     meta = IndexMeta(

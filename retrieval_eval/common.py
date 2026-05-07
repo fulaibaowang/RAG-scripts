@@ -10,6 +10,8 @@ from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence, Tupl
 import numpy as np
 import pandas as pd
 
+from .aggregate import docno_to_pmid
+
 
 # ---------------------------
 # Query record parsing
@@ -367,10 +369,38 @@ def evaluate_run(
     return summary, pd.DataFrame(perq_rows)
 
 
-def run_df_to_run_map(res_df: pd.DataFrame, qid_col: str = "qid", docno_col: str = "docno") -> Dict[str, List[str]]:
+def run_df_to_run_map(
+    res_df: pd.DataFrame,
+    qid_col: str = "qid",
+    docno_col: str = "docno",
+    aggregate_to_pmid: bool = True,
+) -> Dict[str, List[str]]:
+    """Convert a retrieval result dataframe to a {qid: [docnos]} map for eval.
+
+    With ``aggregate_to_pmid=True`` (default), chunk-level docnos like
+    ``"12345#body_007"`` are collapsed to PMID level by keeping the first
+    occurrence of each PMID per qid. Combined with the universal convention
+    that ``res_df`` is sorted by score descending, this is equivalent to
+    max-pool aggregation. Bare-PMID docnos (legacy abstracts-only corpus)
+    pass through unchanged because they contain no ``#``.
+
+    Pass ``aggregate_to_pmid=False`` if a downstream consumer needs the raw
+    chunk-level ranking (e.g. snippet-window analysis).
+    """
     run: Dict[str, List[str]] = {}
     for qid, g in res_df.groupby(qid_col, sort=False):
-        run[str(qid)] = [str(x) for x in g[docno_col].tolist()]
+        ranked = [str(x) for x in g[docno_col].tolist()]
+        if aggregate_to_pmid:
+            seen: set[str] = set()
+            unique: list[str] = []
+            for d in ranked:
+                p = docno_to_pmid(d)
+                if p not in seen:
+                    seen.add(p)
+                    unique.append(p)
+            run[str(qid)] = unique
+        else:
+            run[str(qid)] = ranked
     return run
 
 
