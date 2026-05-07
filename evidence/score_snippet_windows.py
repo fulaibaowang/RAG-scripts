@@ -309,6 +309,39 @@ def select_windows_max_pool_from_path(
     return select_windows_from_by_pair(by_pair, window_size, top_windows)
 
 
+def aggregate_top_windows_per_pmid(
+    qid: str,
+    chunk_ids: List[str],
+    selected_by_pair: Dict[Tuple[str, str], List[dict]],
+    top_n: int,
+) -> List[dict]:
+    """Pool already-selected windows across chunks of a single pmid; return
+    the top *top_n* by ce_score.
+
+    Each selected window in ``selected_by_pair`` is a per-chunk record from
+    :func:`select_windows_from_by_pair` (which has already enforced disjoint-
+    overlap within a chunk). Across chunks, sentence indices live in different
+    spaces, so cross-chunk overlap dedup is meaningless — we just keep the
+    highest-scoring windows globally.
+
+    Each returned window dict carries a ``chunk_id`` field so downstream
+    rendering can locate its source chunk's sentences.
+    """
+    pooled: List[dict] = []
+    for cid in chunk_ids:
+        for w in selected_by_pair.get((qid, cid), []):
+            w_copy = dict(w)
+            w_copy["chunk_id"] = cid
+            pooled.append(w_copy)
+    pooled.sort(
+        key=lambda w: (
+            -float(w.get("ce_score", 0.0)),
+            int(w.get("window_idx", 0)),
+        )
+    )
+    return pooled[:top_n]
+
+
 def merge_window_selection_from_embedded_questions(
     questions: List[dict],
     window_size: int,

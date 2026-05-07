@@ -43,11 +43,13 @@ for _p in (_SHARED_SCRIPTS, _EVIDENCE_DIR):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 from retrieval_eval.common import iter_jsonl_dicts, question_qid, write_questions_jsonl
+from retrieval_eval.aggregate import docno_to_pmid
 from retrieval_eval.doc_id_util import ranked_doc_ids_for_evidence
 
 from score_snippet_windows import (
     CONTEXT_MODE_SNIPPET,
     DOC_SNIPPET_WINDOWS_KEY,
+    aggregate_top_windows_per_pmid,
     is_compact_doc_snippet_windows,
     merge_window_selection_from_embedded_questions,
     questions_use_embedded_windows,
@@ -273,6 +275,31 @@ def build_context_from_sentences(
     for i in indices:
         if 0 <= i < len(sentences):
             parts.append(sentences[i])
+    text = ". ".join(parts) if parts else ""
+    return _normalize_unicode_whitespace(text)
+
+
+def build_context_from_pmid_windows(
+    title: str,
+    kept_windows: List[dict],
+    docno_to_sentences: Dict[str, Tuple[str, List[str]]],
+) -> str:
+    """Render context text from selected windows that may span multiple chunks
+    of the same paper. Each window's ``sent_ids`` index into its own chunk's
+    sentence list (looked up by ``chunk_id``). Title appears once at the head.
+    """
+    parts = [title.strip()] if title and title.strip() else []
+    for w in kept_windows:
+        cid = w.get("chunk_id")
+        if not cid:
+            continue
+        cdata = docno_to_sentences.get(cid)
+        if cdata is None:
+            continue
+        _, sentences = cdata
+        for i in w.get("sent_ids", []):
+            if 0 <= i < len(sentences):
+                parts.append(sentences[i])
     text = ". ".join(parts) if parts else ""
     return _normalize_unicode_whitespace(text)
 
@@ -523,35 +550,85 @@ def main() -> int:
         qid = question_qid(q)
         if qid is None:
             continue
-        contexts: List[dict] = []
+        # Group the question's chunk-level doc_ids by pmid so each paper
+        # contributes exactly one context, with snippets pooled across its
+        # chunks.
+        pmid_order: List[str] = []
+        chunks_by_pmid: Dict[str, List[str]] = {}
         for doc_id in ranked_doc_ids_for_evidence(q, etk):
-            pair = docno_to_title_sents.get(doc_id)
-            if pair is None:
-                missing_total += 1
+            pmid = docno_to_pmid(doc_id)
+            if pmid not in chunks_by_pmid:
+                pmid_order.append(pmid)
+                chunks_by_pmid[pmid] = []
+            chunks_by_pmid[pmid].append(doc_id)
+
+        contexts: List[dict] = []
+        qid_s = str(qid)
+        for pmid in pmid_order:
+            chunk_ids = chunks_by_pmid[pmid]
+            # Title is shared across chunks of a paper; pick from the first
+            # chunk that has it. If none of the chunks resolved, count all as
+            # missing.
+            title = ""
+            kept_chunk_ids: List[str] = []
+            for cid in chunk_ids:
+                pair = docno_to_title_sents.get(cid)
+                if pair is None:
+                    missing_total += 1
+                    continue
+                t, _ = pair
+                if not title and t:
+                    title = t
+                kept_chunk_ids.append(cid)
+            if not kept_chunk_ids:
                 continue
-            title, sentences = pair
-            key = (str(qid), str(doc_id))
-            indices = merged_by_pair.get(key)
-            sw = selected_by_pair.get(key, [])
-            rw = rejected_by_pair.get(key, [])
-            if indices is not None and sentences and len(sw) > 0:
-                text = build_context_from_sentences(title, sentences, indices)
+
+            # Pool windows across this pmid's chunks; keep top --top-windows
+            # globally. Each kept window is annotated with its chunk_id.
+            kept_windows = aggregate_top_windows_per_pmid(
+                qid_s, kept_chunk_ids, selected_by_pair, args.top_windows,
+            )
+            # Collect rejected windows from all of this pmid's chunks for
+            # transparency (per-chunk overlap rejections; not deduped).
+            rejected: List[dict] = []
+            for cid in kept_chunk_ids:
+                for rw in rejected_by_pair.get((qid_s, cid), []):
+                    rw_copy = dict(rw)
+                    rw_copy["chunk_id"] = cid
+                    rejected.append(rw_copy)
+
+            if kept_windows:
+                text = build_context_from_pmid_windows(
+                    title, kept_windows, docno_to_title_sents,
+                )
                 ctx: dict = {
-                    "id": f"{doc_id}-1",
-                    "doc_id": doc_id,
+                    "id": f"{pmid}-1",
+                    "doc_id": pmid,
+                    "chunk_ids": kept_chunk_ids,
                     "text": text,
-                    "selected_windows": sw,
-                    "rejected_windows": rw,
+                    "selected_windows": kept_windows,
+                    "rejected_windows": rejected,
                 }
             else:
-                abstract = " ".join(sentences) if sentences else ""
+                # Fallback: no windows survived selection. Concatenate the
+                # chunks' bodies as the doc-route would.
+                abstract_parts: List[str] = []
+                for cid in kept_chunk_ids:
+                    pair = docno_to_title_sents.get(cid)
+                    if pair is None:
+                        continue
+                    _, sentences = pair
+                    if sentences:
+                        abstract_parts.append(" ".join(sentences))
+                abstract = " ".join(abstract_parts)
                 text = build_context_title_abstract(title, abstract)
                 ctx = {
-                    "id": f"{doc_id}-1",
-                    "doc_id": doc_id,
+                    "id": f"{pmid}-1",
+                    "doc_id": pmid,
+                    "chunk_ids": kept_chunk_ids,
                     "text": text,
                     "selected_windows": [],
-                    "rejected_windows": [],
+                    "rejected_windows": rejected,
                 }
             contexts.append(ctx)
         out_q = dict(q)
