@@ -10,7 +10,7 @@ from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence, Tupl
 import numpy as np
 import pandas as pd
 
-from .aggregate import docno_to_pmid
+from .aggregate import dedupe_run_map_by_pmid, docno_to_pmid
 
 
 # ---------------------------
@@ -327,6 +327,10 @@ def evaluate_run(
 ) -> Tuple[Dict[str, float], pd.DataFrame]:
     if ks_recall is None:
         ks_recall = RECALL_KS
+    # Gold is pmid-level; the run may be chunk-level (e.g. "<pmid>#body_007").
+    # Collapse to pmid-level here so pipeline-stage callers can keep chunk
+    # identity in their run_maps for downstream lookups.
+    run_map = dedupe_run_map_by_pmid(run_map)
     qids = list(gold_map.keys())
 
     ap10s, rr10s, succ10s, r10s = [], [], [], []
@@ -373,34 +377,21 @@ def run_df_to_run_map(
     res_df: pd.DataFrame,
     qid_col: str = "qid",
     docno_col: str = "docno",
-    aggregate_to_pmid: bool = True,
 ) -> Dict[str, List[str]]:
-    """Convert a retrieval result dataframe to a {qid: [docnos]} map for eval.
+    """Convert a retrieval result dataframe to a {qid: [docnos]} map.
 
-    With ``aggregate_to_pmid=True`` (default), chunk-level docnos like
-    ``"12345#body_007"`` are collapsed to PMID level by keeping the first
-    occurrence of each PMID per qid. Combined with the universal convention
-    that ``res_df`` is sorted by score descending, this is equivalent to
-    max-pool aggregation. Bare-PMID docnos (legacy abstracts-only corpus)
-    pass through unchanged because they contain no ``#``.
+    Returns docnos exactly as they appear in the dataframe — chunk-level
+    (e.g. ``"12345#body_007"``) for chunked corpora, bare PMIDs for legacy
+    corpora. No aggregation: pipeline callers (rerankers, fusion, snippet
+    builders) need chunk identity preserved here.
 
-    Pass ``aggregate_to_pmid=False`` if a downstream consumer needs the raw
-    chunk-level ranking (e.g. snippet-window analysis).
+    Eval callers should pass the result to :func:`evaluate_run`, which
+    transparently collapses chunk docnos to PMID level before comparing
+    against the gold map.
     """
     run: Dict[str, List[str]] = {}
     for qid, g in res_df.groupby(qid_col, sort=False):
-        ranked = [str(x) for x in g[docno_col].tolist()]
-        if aggregate_to_pmid:
-            seen: set[str] = set()
-            unique: list[str] = []
-            for d in ranked:
-                p = docno_to_pmid(d)
-                if p not in seen:
-                    seen.add(p)
-                    unique.append(p)
-            run[str(qid)] = unique
-        else:
-            run[str(qid)] = ranked
+        run[str(qid)] = [str(x) for x in g[docno_col].tolist()]
     return run
 
 
