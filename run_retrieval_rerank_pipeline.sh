@@ -1190,9 +1190,10 @@ _DOCS_JSONL_OK=0
         _EVIDENCE_TOP_K="${EVIDENCE_TOP_K_SNIPPET:-${EVIDENCE_TOP_K:-10}}"
       fi
       _POST_RERANK_POOL="${POST_RERANK_DOC_POOL:-30}"
+      _MAX_CHUNKS_PER_PMID="${MAX_CHUNKS_PER_PMID:-2}"
       [ ! -d "$_EVIDENCE_RUNS_DIR" ] && continue
       mkdir -p "$WORKFLOW_OUTPUT_DIR/$_EVIDENCE_SUBDIR"
-      echo "[Evidence] Route: $_route -> $_EVIDENCE_SUBDIR, $_GEN_SUBDIR (post_rerank doc_pool=$_POST_RERANK_POOL evidence_top_k=$_EVIDENCE_TOP_K)"
+      echo "[Evidence] Route: $_route -> $_EVIDENCE_SUBDIR, $_GEN_SUBDIR (post_rerank doc_pool=$_POST_RERANK_POOL max_chunks_per_pmid=$_MAX_CHUNKS_PER_PMID evidence_top_k=$_EVIDENCE_TOP_K)"
     for _tsv in "$_EVIDENCE_RUNS_DIR/"*.tsv; do
       [ -f "$_tsv" ] || continue
       _stem=$(basename "$_tsv" .tsv)
@@ -1228,6 +1229,7 @@ _DOCS_JSONL_OK=0
             --query-jsonl "$_query_jsonl" \
             --output-path "$_post_json" \
             --top-k "$_POST_RERANK_POOL" \
+            --max-chunks-per-pmid "$_MAX_CHUNKS_PER_PMID" \
             --windows-jsonl "$SNIPPET_RERANK_OUT/windows/${_split}.jsonl" \
             --window-size "${SNIPPET_WINDOW_SIZE:-3}" \
             --top-windows "${SNIPPET_CONTEXT_TOP_WINDOWS:-2}"
@@ -1239,7 +1241,8 @@ _DOCS_JSONL_OK=0
             --run-path "$_tsv" \
             --query-jsonl "$_query_jsonl" \
             --output-path "$_post_json" \
-            --top-k "$_POST_RERANK_POOL"
+            --top-k "$_POST_RERANK_POOL" \
+            --max-chunks-per-pmid "$_MAX_CHUNKS_PER_PMID"
         fi
       else
         echo "[Evidence] Post-rerank JSONL ($_split)... (skip: output exists)"
