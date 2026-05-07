@@ -124,17 +124,14 @@ def build_docno_to_text(corpus_path: str, needed_docnos: Set[str]) -> Dict[str, 
                     obj = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                # Prefer the explicit chunk-level docno; fall back to bare pmid
-                # for legacy abstracts-only corpora where docno was the pmid.
-                docno_raw = obj.get("docno") or obj.get("pmid")
+                docno_raw = obj.get("docno")
                 if docno_raw is None:
                     continue
                 docno = str(docno_raw).strip()
                 if docno not in needed_docnos:
                     continue
                 title = obj.get("title") or ""
-                # New corpus uses the unified 'text' field; legacy used 'abstract'.
-                body = obj.get("text") or obj.get("abstract") or ""
+                body = obj.get("text") or ""
                 if isinstance(title, list):
                     title = " ".join(str(t) for t in title)
                 if isinstance(body, list):
@@ -163,10 +160,6 @@ def build_docno_to_text(corpus_path: str, needed_docnos: Set[str]) -> Dict[str, 
             logger.warning("  missing docnos (first 20): %s", sorted(missing)[:20])
 
     return docno_to_text
-
-
-# Backward-compat alias for any external caller.
-build_pmid_to_text = build_docno_to_text
 
 
 def _normalize_unicode_whitespace(text: str) -> str:

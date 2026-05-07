@@ -49,8 +49,7 @@ def parse_mesh_terms(mesh_terms: str) -> List[str]:
 
 def build_doc_text(d: Dict, include_mesh: bool = False) -> str:
     title = (d.get("title") or "").strip()
-    # New corpus uses 'text' (unified body); legacy used 'abstract'.
-    body = (d.get("text") or d.get("abstract") or "").strip()
+    body = (d.get("text") or "").strip()
 
     if title and body:
         text = f"{title}\n\n{body}"
@@ -66,14 +65,8 @@ def build_doc_text(d: Dict, include_mesh: bool = False) -> str:
 
 
 def get_docno(d: Dict) -> Optional[str]:
-    """Extract the document identifier.
-
-    Prefers the chunk-level ``docno`` from the new corpus; falls back to the
-    bare ``pmid`` for legacy abstracts-only corpora where docno=pmid.
-    """
+    """Extract the document identifier from the corpus row's ``docno`` field."""
     docno = d.get("docno")
-    if docno is None or str(docno).strip() == "":
-        docno = d.get("pmid")
     if docno is None:
         return None
     docno = str(docno).strip()

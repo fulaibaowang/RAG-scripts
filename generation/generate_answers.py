@@ -1,12 +1,26 @@
 #!/usr/bin/env python3
 """
-Generate BioASQ answers from contexts JSON using an LLM.
+Generate BioASQ-style answers from contexts JSON using an LLM.
 
-Reads contexts JSONL from build_doc_contexts.py / build_snippet_contexts.py
-(``query_id``, ``query_text``, ``query_type``, contexts with ``doc_id`` per row; optional ``doc_ids`` on the question),
-calls an LLM per question, parses ideal_answer and
-evidence_ids (and exact_answer for yesno/factoid/list), and writes a single
-JSONL file to output_dir (e.g. output_dir/<stem>_answers.jsonl).
+Reads contexts JSONL from build_doc_contexts.py / build_snippet_contexts.py.
+Each question carries ``query_id``, ``query_text``, ``query_type`` and a
+``contexts`` list. Each context entry has:
+
+  - ``id`` (e.g. ``"<pmid>-1"``) — what the LLM cites in ``evidence_ids``
+  - ``doc_id`` — the paper PMID
+  - ``chunk_ids`` (when chunked corpus is used) — the chunks of that paper
+    that contributed text to the context (traceability only)
+  - ``text`` — the context body shown to the LLM
+  - ``selected_windows`` (snippet route) — kept windows; each has its own
+    ``chunk_id`` and ``ce_score`` for transparency
+
+The optional ``doc_ids`` field on the question is the chunk-level retrieval
+trail (passed through unchanged); BioASQ/PubMed adapters that need bare
+PMIDs should split on ``#`` to recover them.
+
+Calls an LLM per question, parses ideal_answer and evidence_ids (and
+exact_answer for yesno/factoid/list), and writes a single JSONL file to
+output_dir (e.g. output_dir/<stem>_answers.jsonl).
 
 Backend and model come **only** from the process environment and CLI (sourced run
 ``config.env``, ``export``, scheduler, etc.). Repo-root ``.env`` is read **only**

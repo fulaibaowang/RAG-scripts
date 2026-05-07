@@ -129,7 +129,7 @@ def load_doc_title_sentences(
                 if docno not in wanted or docno in out:
                     continue
                 title = str(rec.get("title", "")).strip()
-                body = str(rec.get("text", "") or rec.get("abstract", "") or rec.get("abstractText", "")).strip()
+                body = str(rec.get("text", "")).strip()
                 sentences = [s.strip() for s in nltk.sent_tokenize(body) if s.strip()] if body else []
                 out[docno] = (title, sentences)
                 if len(out) == len(wanted):

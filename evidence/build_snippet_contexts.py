@@ -226,14 +226,14 @@ def build_docno_to_title_sentences(
                     obj = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                docno_raw = obj.get("docno") or obj.get("pmid")
+                docno_raw = obj.get("docno")
                 if docno_raw is None:
                     continue
                 docno = str(docno_raw).strip()
                 if docno not in needed_docnos or docno in docno_to_data:
                     continue
                 title = obj.get("title") or ""
-                body = obj.get("text") or obj.get("abstract") or obj.get("abstractText") or ""
+                body = obj.get("text") or ""
                 if isinstance(title, list):
                     title = " ".join(str(t) for t in title)
                 if isinstance(body, list):
@@ -247,10 +247,6 @@ def build_docno_to_title_sentences(
         if len(docno_to_data) == len(needed_docnos):
             break
     return docno_to_data
-
-
-# Backward-compat alias for any external caller.
-build_pmid_to_title_sentences = build_docno_to_title_sentences
 
 
 def _normalize_unicode_whitespace(text: str) -> str:

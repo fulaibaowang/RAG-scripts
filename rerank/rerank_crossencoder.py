@@ -254,23 +254,15 @@ def load_run_tsv(path: Path) -> pd.DataFrame:
 
 
 def extract_docno(rec: dict) -> str:
-    for key in ("docno", "pmid"):
-        if key in rec:
-            return normalize_pmid(rec[key])
+    """Read the corpus row's docno (chunk-level identifier)."""
+    if "docno" in rec:
+        return normalize_pmid(rec["docno"])
     return ""
 
 
 def extract_text(rec: dict) -> str:
-    if "text" in rec and rec["text"]:
-        return str(rec["text"]).strip()
-    parts = []
-    if rec.get("title"):
-        parts.append(str(rec["title"]).strip())
-    if rec.get("abstract"):
-        parts.append(str(rec["abstract"]).strip())
-    if rec.get("abstractText"):
-        parts.append(str(rec["abstractText"]).strip())
-    return " ".join([p for p in parts if p])
+    """Return the corpus row's body text. Empty when missing."""
+    return str(rec.get("text") or "").strip()
 
 
 def _resolve_jsonl_paths(path_or_glob: Path) -> List[Path]:

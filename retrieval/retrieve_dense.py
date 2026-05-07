@@ -90,10 +90,6 @@ def _load_rowid_to_docno_tsv(path: Path) -> list[str]:
     return rowid_to_docno
 
 
-# Backward-compat alias for any external caller still importing the old name.
-_load_rowid_to_pmid_tsv = _load_rowid_to_docno_tsv
-
-
 def load_dense_runtime(
     index_dir: Path,
     device: str,
@@ -103,20 +99,14 @@ def load_dense_runtime(
     """Load SentenceTransformer + HNSW index + rowid->docno mapping from a build_dense_hnsw_index output dir."""
     meta_path = index_dir / "meta.json"
     idx_path = index_dir / "hnsw_index.bin"
-    # New indexes use rowid_to_docno.tsv; older ones used rowid_to_pmid.tsv.
-    map_path_new = index_dir / "rowid_to_docno.tsv"
-    map_path_legacy = index_dir / "rowid_to_pmid.tsv"
-    map_path = map_path_new if map_path_new.exists() else map_path_legacy
+    map_path = index_dir / "rowid_to_docno.tsv"
 
     if not meta_path.exists():
         raise FileNotFoundError(f"Missing meta.json in index_dir: {meta_path}")
     if not idx_path.exists():
         raise FileNotFoundError(f"Missing hnsw_index.bin in index_dir: {idx_path}")
     if not map_path.exists():
-        raise FileNotFoundError(
-            f"Missing rowid mapping in index_dir (looked for rowid_to_docno.tsv "
-            f"and rowid_to_pmid.tsv): {index_dir}"
-        )
+        raise FileNotFoundError(f"Missing rowid_to_docno.tsv in index_dir: {map_path}")
 
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
 
@@ -126,7 +116,7 @@ def load_dense_runtime(
     dim = int(meta.get("dim") or 0)
     space = str(meta.get("hnsw_space") or ("cosine" if normalize_embeddings else "l2"))
 
-    rowid_to_pmid = _load_rowid_to_pmid_tsv(map_path)
+    rowid_to_docno = _load_rowid_to_docno_tsv(map_path)
 
     model = SentenceTransformer(str(model_name), device=device)
     model.max_seq_length = max_seq_length
@@ -134,7 +124,7 @@ def load_dense_runtime(
         dim = int(model.get_sentence_embedding_dimension())
 
     index = hnswlib.Index(space=space, dim=dim)
-    index.load_index(str(idx_path), max_elements=len(rowid_to_pmid))
+    index.load_index(str(idx_path), max_elements=len(rowid_to_docno))
 
     ef_search = ef_search_override if ef_search_override is not None else int(meta.get("hnsw_ef_search") or 100)
     index.set_ef(int(ef_search))
@@ -161,12 +151,12 @@ def load_dense_runtime(
             "dim": dim,
             "space": space,
             "normalize": bool(normalize_embeddings),
-            "mapping": len(rowid_to_pmid),
+            "mapping": len(rowid_to_docno),
             "ef_search": int(ef_search),
         },
     )
 
-    return model, index, rowid_to_pmid, runtime_meta
+    return model, index, rowid_to_docno, runtime_meta
 
 
 def load_dense_index_only(
@@ -178,36 +168,31 @@ def load_dense_index_only(
     """Load HNSW index + rowid->docno mapping only (no model). For additional shards when using --index-glob."""
     meta_path = index_dir / "meta.json"
     idx_path = index_dir / "hnsw_index.bin"
-    map_path_new = index_dir / "rowid_to_docno.tsv"
-    map_path_legacy = index_dir / "rowid_to_pmid.tsv"
-    map_path = map_path_new if map_path_new.exists() else map_path_legacy
+    map_path = index_dir / "rowid_to_docno.tsv"
 
     if not meta_path.exists():
         raise FileNotFoundError(f"Missing meta.json in index_dir: {meta_path}")
     if not idx_path.exists():
         raise FileNotFoundError(f"Missing hnsw_index.bin in index_dir: {idx_path}")
     if not map_path.exists():
-        raise FileNotFoundError(
-            f"Missing rowid mapping in index_dir (looked for rowid_to_docno.tsv "
-            f"and rowid_to_pmid.tsv): {index_dir}"
-        )
+        raise FileNotFoundError(f"Missing rowid_to_docno.tsv in index_dir: {map_path}")
 
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
-    rowid_to_pmid = _load_rowid_to_pmid_tsv(map_path)
+    rowid_to_docno = _load_rowid_to_docno_tsv(map_path)
 
     index = hnswlib.Index(space=space, dim=dim)
-    index.load_index(str(idx_path), max_elements=len(rowid_to_pmid))
+    index.load_index(str(idx_path), max_elements=len(rowid_to_docno))
     index.set_ef(int(ef_search))
 
     shard_meta = dict(meta)
     shard_meta["index_dir"] = str(index_dir)
-    return index, rowid_to_pmid, shard_meta
+    return index, rowid_to_docno, shard_meta
 
 
 def dense_retrieve_topics(
     model: SentenceTransformer,
     index: hnswlib.Index,
-    rowid_to_pmid: list[str],
+    rowid_to_docno: list[str],
     topics_df: pd.DataFrame,
     topk: int,
     batch_size: int,
@@ -250,7 +235,7 @@ def dense_retrieve_topics(
             for rank in range(topk):
                 rid = int(labels[local_j, rank])
                 dist = float(distances[local_j, rank])
-                pmid = rowid_to_pmid[rid] if 0 <= rid < len(rowid_to_pmid) else ""
+                pmid = rowid_to_docno[rid] if 0 <= rid < len(rowid_to_docno) else ""
                 pmid = normalize_pmid(pmid)
                 if not pmid:
                     continue
@@ -305,14 +290,14 @@ def dense_retrieve_topics_sharded(
             show_progress_bar=False,
         ).astype(np.float32)
 
-        for index_s, rowid_to_pmid_s in zip(indices, rowid_maps):
+        for index_s, rowid_to_docno_s in zip(indices, rowid_maps):
             labels, distances = index_s.knn_query(q_emb, k=topk_per_shard)
 
             for local_j, qid in enumerate(batch_qids):
                 for rank in range(labels.shape[1]):
                     rid = int(labels[local_j, rank])
                     dist = float(distances[local_j, rank])
-                    pmid = rowid_to_pmid_s[rid] if 0 <= rid < len(rowid_to_pmid_s) else ""
+                    pmid = rowid_to_docno_s[rid] if 0 <= rid < len(rowid_to_docno_s) else ""
                     pmid = normalize_pmid(pmid)
                     if not pmid:
                         continue
@@ -398,7 +383,7 @@ def evaluate_and_save_dense_on_questions(
     out_dir: Path,
     model: SentenceTransformer,
     index: hnswlib.Index,
-    rowid_to_pmid: list[str],
+    rowid_to_docno: list[str],
     normalize_embeddings: bool,
     space: str,
     topk: int,
@@ -416,7 +401,7 @@ def evaluate_and_save_dense_on_questions(
     res_df = dense_retrieve_topics(
         model=model,
         index=index,
-        rowid_to_pmid=rowid_to_pmid,
+        rowid_to_docno=rowid_to_docno,
         topics_df=topics_df,
         topk=topk,
         batch_size=batch_size,
@@ -793,7 +778,7 @@ def main():
         return
 
     # ----- Single-index mode -----
-    model, index, rowid_to_pmid, runtime_meta = load_dense_runtime(
+    model, index, rowid_to_docno, runtime_meta = load_dense_runtime(
         index_dir=Path(args.index_dir),
         device=args.device,
         model_name_override=(args.model_name or None),
@@ -856,7 +841,7 @@ def main():
             res_df = dense_retrieve_topics(
                 model=model,
                 index=index,
-                rowid_to_pmid=rowid_to_pmid,
+                rowid_to_docno=rowid_to_docno,
                 topics_df=topics_df,
                 topk=args.topk,
                 batch_size=args.batch_size,
@@ -873,7 +858,7 @@ def main():
             res_df = dense_retrieve_topics(
                 model=model,
                 index=index,
-                rowid_to_pmid=rowid_to_pmid,
+                rowid_to_docno=rowid_to_docno,
                 topics_df=topics_df,
                 topk=args.topk,
                 batch_size=args.batch_size,
@@ -900,7 +885,7 @@ def main():
                 out_dir=out_dir,
                 model=model,
                 index=index,
-                rowid_to_pmid=rowid_to_pmid,
+                rowid_to_docno=rowid_to_docno,
                 normalize_embeddings=normalize_embeddings,
                 space=space,
                 topk=args.topk,
@@ -924,7 +909,7 @@ def main():
                 out_dir=out_dir,
                 model=model,
                 index=index,
-                rowid_to_pmid=rowid_to_pmid,
+                rowid_to_docno=rowid_to_docno,
                 normalize_embeddings=normalize_embeddings,
                 space=space,
                 topk=args.topk,

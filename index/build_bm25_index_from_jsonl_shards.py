@@ -71,16 +71,13 @@ def iter_docs(jsonl_glob: str, include_keywords: bool) -> Iterable[Dict]:
                     continue
                 d = json.loads(line)
 
-                # Prefer docno (chunk-level identifier in the new corpus); fall
-                # back to pmid for legacy abstract-only corpora where docno=pmid.
-                docno = (d.get("docno") or d.get("pmid") or "").strip()
+                docno = (d.get("docno") or "").strip()
                 if not docno:
                     skipped += 1
                     continue
 
                 title = (d.get("title") or "").strip()
-                # New corpus uses 'text' (unified body). Legacy corpus used 'abstract'.
-                body = (d.get("text") or d.get("abstract") or "").strip()
+                body = (d.get("text") or "").strip()
                 text = (title + "\n\n" + body).strip()
 
                 if not text:
