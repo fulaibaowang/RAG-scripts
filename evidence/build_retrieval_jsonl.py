@@ -66,8 +66,18 @@ def parse_args() -> argparse.Namespace:
         "--top-k",
         type=int,
         default=30,
-        help="Max docs per query from the run TSV (rank <= top-k). Evidence cap is applied later in "
-        "build_contexts_from_*.py (--evidence-top-k). Fewer if the run has fewer rows; no error.",
+        help="Max distinct PMIDs per query from the run TSV. With chunk-level "
+        "rerank output, this is enforced after grouping by pmid (chunks of "
+        "the same paper count as one). Evidence cap is applied later in "
+        "build_contexts_from_*.py (--evidence-top-k). "
+        "Fewer if the run has fewer rows; no error.",
+    )
+    parser.add_argument(
+        "--max-chunks-per-pmid",
+        type=int,
+        default=2,
+        help="Max chunks kept per PMID in the doc_ids list (default: 2). "
+        "Set to 1 for single-best-chunk-per-paper.",
     )
     parser.add_argument(
         "--windows-jsonl",
@@ -93,8 +103,22 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_rerank_topk_doc_ids(run_path: Path, top_k: int) -> Dict[str, List[str]]:
-    """Read rerank TSV and return qid -> list of top-k docno strings (ordered by rank)."""
+def load_rerank_topk_doc_ids(
+    run_path: Path,
+    top_k: int,
+    max_chunks_per_pmid: int = 2,
+) -> Dict[str, List[str]]:
+    """Read rerank TSV and return qid -> list of doc_ids (chunk-level docnos).
+
+    The list is trimmed to the top *top_k* distinct PMIDs per query, with at
+    most *max_chunks_per_pmid* chunks kept per PMID. Chunks remain in rank
+    order (interleaved across PMIDs).
+    """
+    _shared = Path(__file__).resolve().parents[1]
+    if str(_shared) not in sys.path:
+        sys.path.insert(0, str(_shared))
+    from retrieval_eval.aggregate import take_top_k_distinct_pmids
+
     qid_to_docs: Dict[str, List[Tuple[int, str]]] = {}
 
     with open(run_path, "r") as f:
@@ -115,20 +139,20 @@ def load_rerank_topk_doc_ids(run_path: Path, top_k: int) -> Dict[str, List[str]]
                 rank = int(rank_str)
             except ValueError:
                 continue
-            if rank > top_k:
-                continue
             doc_id = str(docno).strip()
             if not doc_id:
                 continue
-            if qid not in qid_to_docs:
-                qid_to_docs[qid] = []
-            if len(qid_to_docs[qid]) < top_k:
-                qid_to_docs[qid].append((rank, doc_id))
+            qid_to_docs.setdefault(qid, []).append((rank, doc_id))
 
     result: Dict[str, List[str]] = {}
     for qid, pairs in qid_to_docs.items():
-        pairs_sorted = sorted(pairs, key=lambda x: x[0])[:top_k]
-        result[qid] = [doc_id for _, doc_id in pairs_sorted]
+        pairs_sorted = sorted(pairs, key=lambda x: x[0])
+        ranked_docnos = [d for _, d in pairs_sorted]
+        result[qid] = take_top_k_distinct_pmids(
+            ranked_docnos,
+            k=top_k,
+            max_chunks_per_pmid=max_chunks_per_pmid,
+        )
     return result
 
 
@@ -175,8 +199,13 @@ def main() -> int:
         by_pair_global = load_by_pair_from_windows_jsonl(args.windows_jsonl)
         logger.info("(qid, docno) pairs with windows after max-pool: %d", len(by_pair_global))
 
-    logger.info("Reading rerank run: %s (top-k=%d)", args.run_path, args.top_k)
-    qid_to_doc_ids = load_rerank_topk_doc_ids(args.run_path, args.top_k)
+    logger.info(
+        "Reading rerank run: %s (top-k=%d distinct PMIDs, max %d chunks/pmid)",
+        args.run_path, args.top_k, args.max_chunks_per_pmid,
+    )
+    qid_to_doc_ids = load_rerank_topk_doc_ids(
+        args.run_path, args.top_k, max_chunks_per_pmid=args.max_chunks_per_pmid,
+    )
     logger.info("Queries in rerank: %d", len(qid_to_doc_ids))
 
     out_questions = []

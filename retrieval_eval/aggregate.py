@@ -86,3 +86,40 @@ def dedupe_run_map_by_pmid(run_map: Dict[str, List[str]]) -> Dict[str, List[str]
                 unique.append(p)
         out[qid] = unique
     return out
+
+
+def take_top_k_distinct_pmids(
+    ranked_docnos: List[str],
+    k: int,
+    max_chunks_per_pmid: int = 2,
+) -> List[str]:
+    """Trim a chunk-level ranked list to the top *k* distinct PMIDs, with at
+    most *max_chunks_per_pmid* chunks kept per PMID.
+
+    Iterates ranked_docnos in their input order (assumed: best score first)
+    and keeps the highest-scoring chunks for each PMID. Stops when *k*
+    distinct PMIDs have been seen.
+
+    Returns chunks in their original rank order (interleaved across PMIDs).
+    The result has at most ``k * max_chunks_per_pmid`` entries.
+
+    Used by the evidence stage to enforce "top K papers, up to M chunks each"
+    semantics on top of chunk-level rerank output.
+    """
+    if max_chunks_per_pmid < 1:
+        raise ValueError(f"max_chunks_per_pmid must be >= 1, got {max_chunks_per_pmid}")
+    seen_count: Dict[str, int] = {}
+    distinct_pmids: List[str] = []
+    out: List[str] = []
+    for d in ranked_docnos:
+        p = docno_to_pmid(d)
+        if p not in seen_count:
+            if len(distinct_pmids) >= k:
+                # k distinct PMIDs already found; drop further new PMIDs.
+                continue
+            distinct_pmids.append(p)
+            seen_count[p] = 0
+        if seen_count[p] < max_chunks_per_pmid:
+            out.append(d)
+            seen_count[p] += 1
+    return out

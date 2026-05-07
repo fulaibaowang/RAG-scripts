@@ -28,6 +28,7 @@ for _p in (_SHARED_SCRIPTS, _EVIDENCE_DIR):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 from retrieval_eval.common import iter_jsonl_dicts, question_qid, write_questions_jsonl
+from retrieval_eval.aggregate import docno_to_pmid
 from score_snippet_windows import CONTEXT_MODE_DOCUMENT
 from retrieval_eval.doc_id_util import ranked_doc_ids_for_evidence
 
@@ -70,7 +71,9 @@ def load_post_rerank_questions(
     post_rerank_path: Path,
     evidence_top_k: Optional[int],
 ) -> Tuple[List[dict], Set[str]]:
-    """Load post-rerank JSONL; ``needed`` is PMIDs for capped doc lists."""
+    """Load post-rerank JSONL; ``needed`` is the set of doc_ids (chunk-level
+    docnos for chunked corpora; bare PMIDs for legacy abstracts-only corpora)
+    referenced by the capped doc lists."""
     questions = list(iter_jsonl_dicts(post_rerank_path, label="post-rerank JSONL"))
     needed: Set[str] = set()
     for q in questions:
@@ -92,9 +95,15 @@ def _resolve_corpus_paths(path_or_glob: str) -> List[Path]:
     return [p]
 
 
-def build_pmid_to_text(corpus_path: str, needed_pmids: Set[str]) -> Dict[str, Tuple[str, str]]:
-    """
-    Stream JSONL file(s) and build pmid -> (title, abstract) only for needed PMIDs.
+def build_docno_to_text(corpus_path: str, needed_docnos: Set[str]) -> Dict[str, Tuple[str, str]]:
+    """Stream JSONL file(s) and build docno -> (title, body) for needed docnos.
+
+    "docno" is the corpus row key. For the chunked corpus, each row has
+    ``docno`` (chunk-level, e.g. ``"<pmid>#abstract"`` or ``"<pmid>#body_001"``)
+    and a unified ``text`` field. For the legacy abstracts-only corpus, the
+    row has ``pmid`` and ``abstract`` fields; we honor the docno via
+    ``docno -> pmid`` fallback.
+
     Accepts a single path or a glob pattern.
     """
     paths = _resolve_corpus_paths(corpus_path)
@@ -102,7 +111,7 @@ def build_pmid_to_text(corpus_path: str, needed_pmids: Set[str]) -> Dict[str, Tu
     if n_files > 1:
         logger.info("Scanning %d JSONL files from glob: %s", n_files, corpus_path)
 
-    pmid_to_text: Dict[str, Tuple[str, str]] = {}
+    docno_to_text: Dict[str, Tuple[str, str]] = {}
     found = 0
 
     for fi, fp in enumerate(paths):
@@ -115,41 +124,49 @@ def build_pmid_to_text(corpus_path: str, needed_pmids: Set[str]) -> Dict[str, Tu
                     obj = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                pmid_raw = obj.get("pmid")
-                if pmid_raw is None:
+                # Prefer the explicit chunk-level docno; fall back to bare pmid
+                # for legacy abstracts-only corpora where docno was the pmid.
+                docno_raw = obj.get("docno") or obj.get("pmid")
+                if docno_raw is None:
                     continue
-                pmid = str(pmid_raw).strip()
-                if pmid not in needed_pmids:
+                docno = str(docno_raw).strip()
+                if docno not in needed_docnos:
                     continue
                 title = obj.get("title") or ""
-                abstract = obj.get("abstract") or ""
+                # New corpus uses the unified 'text' field; legacy used 'abstract'.
+                body = obj.get("text") or obj.get("abstract") or ""
                 if isinstance(title, list):
                     title = " ".join(str(t) for t in title)
-                if isinstance(abstract, list):
-                    abstract = " ".join(str(a) for a in abstract)
-                pmid_to_text[pmid] = (str(title), str(abstract))
+                if isinstance(body, list):
+                    body = " ".join(str(b) for b in body)
+                docno_to_text[docno] = (str(title), str(body))
                 found += 1
-                if found == len(needed_pmids):
+                if found == len(needed_docnos):
                     break
-        if found == len(needed_pmids):
+        if found == len(needed_docnos):
             break
         if n_files > 1:
             step = 50
             if (fi + 1) % step == 0 or (fi + 1) == n_files:
-                logger.info("Scanned %d/%d files, found %d/%d PMIDs so far", fi + 1, n_files, found, len(needed_pmids))
+                logger.info("Scanned %d/%d files, found %d/%d docnos so far",
+                            fi + 1, n_files, found, len(needed_docnos))
 
-    missing = needed_pmids - set(pmid_to_text.keys())
+    missing = needed_docnos - set(docno_to_text.keys())
     if missing:
         logger.warning(
-            "%d/%d PMIDs not found in corpus (%s). These documents will have no context.",
-            len(missing), len(needed_pmids), corpus_path,
+            "%d/%d docnos not found in corpus (%s). These documents will have no context.",
+            len(missing), len(needed_docnos), corpus_path,
         )
         if len(missing) <= 20:
-            logger.warning("  missing PMIDs: %s", sorted(missing))
+            logger.warning("  missing docnos: %s", sorted(missing))
         else:
-            logger.warning("  missing PMIDs (first 20): %s", sorted(missing)[:20])
+            logger.warning("  missing docnos (first 20): %s", sorted(missing)[:20])
 
-    return pmid_to_text
+    return docno_to_text
+
+
+# Backward-compat alias for any external caller.
+build_pmid_to_text = build_docno_to_text
 
 
 def _normalize_unicode_whitespace(text: str) -> str:
@@ -206,12 +223,12 @@ def main() -> int:
 
     etk = args.evidence_top_k if args.evidence_top_k > 0 else None
     logger.info("Loading post-rerank JSONL: %s", args.post_rerank_jsonl)
-    questions, needed_pmids = load_post_rerank_questions(args.post_rerank_jsonl, etk)
-    logger.info("Questions: %d, unique PMIDs (evidence cap): %d", len(questions), len(needed_pmids))
+    questions, needed_docnos = load_post_rerank_questions(args.post_rerank_jsonl, etk)
+    logger.info("Questions: %d, unique docnos (evidence cap): %d", len(questions), len(needed_docnos))
 
     logger.info("Indexing corpus: %s", args.corpus_path)
-    pmid_to_text = build_pmid_to_text(args.corpus_path, needed_pmids)
-    logger.info("Found %d / %d PMIDs in corpus", len(pmid_to_text), len(needed_pmids))
+    docno_to_text = build_docno_to_text(args.corpus_path, needed_docnos)
+    logger.info("Found %d / %d docnos in corpus", len(docno_to_text), len(needed_docnos))
 
     args.output_path.parent.mkdir(parents=True, exist_ok=True)
     missing_total = 0
@@ -220,18 +237,44 @@ def main() -> int:
         qid = question_qid(q)
         if qid is None:
             continue
-        contexts = []
+        # Group the question's doc_ids by pmid in their original rank order so
+        # that one context per paper aggregates its top chunks.
+        pmid_order: List[str] = []
+        chunks_by_pmid: Dict[str, List[str]] = {}
         for doc_id in ranked_doc_ids_for_evidence(q, etk):
-            pair = pmid_to_text.get(doc_id)
-            if pair is None:
-                missing_total += 1
+            pmid = docno_to_pmid(doc_id)
+            if pmid not in chunks_by_pmid:
+                pmid_order.append(pmid)
+                chunks_by_pmid[pmid] = []
+            chunks_by_pmid[pmid].append(doc_id)
+
+        contexts = []
+        for pmid in pmid_order:
+            chunk_ids = chunks_by_pmid[pmid]
+            title = ""
+            body_parts: List[str] = []
+            kept_chunk_ids: List[str] = []
+            for cid in chunk_ids:
+                pair = docno_to_text.get(cid)
+                if pair is None:
+                    missing_total += 1
+                    continue
+                t, body = pair
+                if not title and t:
+                    title = t  # all chunks of a pmid share the same title
+                if body and body.strip():
+                    body_parts.append(body.strip())
+                kept_chunk_ids.append(cid)
+            if not kept_chunk_ids:
                 continue
-            title, abstract = pair
-            text = build_context_text(title, abstract)
+            # Concatenate chunks of the same paper into one context body.
+            body = "\n\n".join(body_parts)
+            text = build_context_text(title, body)
             contexts.append(
                 {
-                    "id": f"{doc_id}-1",
-                    "doc_id": doc_id,
+                    "id": f"{pmid}-1",
+                    "doc_id": pmid,
+                    "chunk_ids": kept_chunk_ids,
                     "text": text,
                 }
             )
