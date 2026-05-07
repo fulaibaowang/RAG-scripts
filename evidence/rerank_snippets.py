@@ -103,7 +103,13 @@ def load_doc_title_sentences(
     docnos: set[str],
     jsonl_path: Path,
 ) -> Dict[str, Tuple[str, List[str]]]:
-    """Load docno -> (title, [sentence, ...]) for requested docs."""
+    """Load docno -> (title, [sentence, ...]) for requested docs.
+
+    Docnos are chunk-level (e.g. ``<pmid>#abstract``, ``<pmid>#body_001``)
+    in the new corpus; for legacy abstracts-only corpora the docno is the
+    bare pmid. The body text is read from the unified ``text`` field with
+    a fallback to legacy ``abstract`` / ``abstractText`` fields.
+    """
     _ensure_nltk_punkt()
     import nltk
 
@@ -123,8 +129,8 @@ def load_doc_title_sentences(
                 if docno not in wanted or docno in out:
                     continue
                 title = str(rec.get("title", "")).strip()
-                abstract = str(rec.get("abstract", "") or rec.get("abstractText", "")).strip()
-                sentences = [s.strip() for s in nltk.sent_tokenize(abstract) if s.strip()] if abstract else []
+                body = str(rec.get("text", "") or rec.get("abstract", "") or rec.get("abstractText", "")).strip()
+                sentences = [s.strip() for s in nltk.sent_tokenize(body) if s.strip()] if body else []
                 out[docno] = (title, sentences)
                 if len(out) == len(wanted):
                     break

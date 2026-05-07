@@ -3,7 +3,8 @@
 Build contexts from post-rerank JSONL using top CE windows from snippet reranking.
 
 Reads post-rerank JSONL (from ``build_retrieval_jsonl.py``). Window CE may be embedded as
-compact ``doc_snippet_windows`` (``pmid`` → ``{"selected_windows": [...]}`` from post_rerank),
+compact ``doc_snippet_windows`` (``docno`` → ``{"selected_windows": [...]}`` from post_rerank;
+docno is the chunk-level docno for chunked corpora, or a bare PMID for legacy abstracts-only),
 or as the legacy flat list per PMID (unsupported for new post-rerank outputs; regenerate),
 or supplied via ``--snippet-windows-dir`` / ``{split}.jsonl`` when post-rerank has no windows.
 Each output question includes ``context_mode``: ``snippet``.
@@ -189,13 +190,17 @@ def _resolve_corpus_paths(path_or_glob: str) -> List[Path]:
     return [p]
 
 
-def build_pmid_to_title_sentences(
+def build_docno_to_title_sentences(
     corpus_path: str,
-    needed_pmids: Set[str],
+    needed_docnos: Set[str],
 ) -> Dict[str, Tuple[str, List[str]]]:
-    """
-    Stream JSONL and build pmid -> (title, list of sentences) for needed PMIDs.
-    Uses NLTK sent_tokenize on abstract.
+    """Stream JSONL and build docno -> (title, list of sentences) for needed docnos.
+
+    "docno" is the corpus row key. Chunked corpora use chunk-level docnos
+    (e.g. ``<pmid>#abstract``, ``<pmid>#body_001``); legacy abstracts-only
+    corpora use bare PMIDs. Body text is read from the unified ``text`` field
+    with fallback to ``abstract`` / ``abstractText`` for the legacy corpus.
+    Uses NLTK sent_tokenize on the resulting body text.
     """
     try:
         import nltk
@@ -208,7 +213,7 @@ def build_pmid_to_title_sentences(
                 pass
 
     paths = _resolve_corpus_paths(corpus_path)
-    pmid_to_data: Dict[str, Tuple[str, List[str]]] = {}
+    docno_to_data: Dict[str, Tuple[str, List[str]]] = {}
     for fp in paths:
         with open(fp, "r", encoding="utf-8") as f:
             for line in f:
@@ -219,27 +224,31 @@ def build_pmid_to_title_sentences(
                     obj = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                pmid_raw = obj.get("pmid")
-                if pmid_raw is None:
+                docno_raw = obj.get("docno") or obj.get("pmid")
+                if docno_raw is None:
                     continue
-                pmid = str(pmid_raw).strip()
-                if pmid not in needed_pmids or pmid in pmid_to_data:
+                docno = str(docno_raw).strip()
+                if docno not in needed_docnos or docno in docno_to_data:
                     continue
                 title = obj.get("title") or ""
-                abstract = obj.get("abstract") or obj.get("abstractText") or ""
+                body = obj.get("text") or obj.get("abstract") or obj.get("abstractText") or ""
                 if isinstance(title, list):
                     title = " ".join(str(t) for t in title)
-                if isinstance(abstract, list):
-                    abstract = " ".join(str(a) for a in abstract)
+                if isinstance(body, list):
+                    body = " ".join(str(b) for b in body)
                 title = str(title).strip()
-                abstract = str(abstract).strip()
-                sentences = [s.strip() for s in nltk.sent_tokenize(abstract) if s.strip()] if abstract else []
-                pmid_to_data[pmid] = (title, sentences)
-                if len(pmid_to_data) == len(needed_pmids):
+                body = str(body).strip()
+                sentences = [s.strip() for s in nltk.sent_tokenize(body) if s.strip()] if body else []
+                docno_to_data[docno] = (title, sentences)
+                if len(docno_to_data) == len(needed_docnos):
                     break
-        if len(pmid_to_data) == len(needed_pmids):
+        if len(docno_to_data) == len(needed_docnos):
             break
-    return pmid_to_data
+    return docno_to_data
+
+
+# Backward-compat alias for any external caller.
+build_pmid_to_title_sentences = build_docno_to_title_sentences
 
 
 def _normalize_unicode_whitespace(text: str) -> str:
@@ -461,11 +470,11 @@ def main() -> int:
     if stats_path is None and args.output_path is not None:
         stats_path = default_stats_output_path(args.output_path)
 
-    pmid_to_title_sents: Dict[str, Tuple[str, List[str]]] = {}
+    docno_to_title_sents: Dict[str, Tuple[str, List[str]]] = {}
     if not args.stats_only:
         logger.info("Indexing corpus: %s", args.corpus_path)
-        pmid_to_title_sents = build_pmid_to_title_sentences(args.corpus_path, needed_pmids)
-        logger.info("Found %d / %d PMIDs in corpus", len(pmid_to_title_sents), len(needed_pmids))
+        docno_to_title_sents = build_docno_to_title_sentences(args.corpus_path, needed_pmids)
+        logger.info("Found %d / %d docnos in corpus", len(docno_to_title_sents), len(needed_pmids))
 
     stats_payload = compute_snippet_window_stats(
         questions,
@@ -475,7 +484,7 @@ def main() -> int:
         args.top_windows,
         args.window_size,
         track_corpus_fallback=not args.stats_only,
-        pmid_to_title_sents=pmid_to_title_sents if not args.stats_only else None,
+        pmid_to_title_sents=docno_to_title_sents if not args.stats_only else None,
         evidence_top_k=etk,
     )
     stats_payload["window_source"] = (
@@ -516,7 +525,7 @@ def main() -> int:
             continue
         contexts: List[dict] = []
         for doc_id in ranked_doc_ids_for_evidence(q, etk):
-            pair = pmid_to_title_sents.get(doc_id)
+            pair = docno_to_title_sents.get(doc_id)
             if pair is None:
                 missing_total += 1
                 continue
