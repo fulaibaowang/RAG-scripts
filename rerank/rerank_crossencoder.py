@@ -261,8 +261,13 @@ def extract_docno(rec: dict) -> str:
 
 
 def extract_text(rec: dict) -> str:
-    """Return the corpus row's body text. Empty when missing."""
-    return str(rec.get("text") or "").strip()
+    """Return the row's scoring text: paper title joined to body with a single
+    space. Matches the title-prepending the BM25/dense indexers and snippet
+    reranker already do, so every scoring stage sees a consistent surface form.
+    For chunk rows this gives the parent paper's title plus the chunk body.
+    """
+    parts = [str(rec.get(k) or "").strip() for k in ("title", "text")]
+    return " ".join(p for p in parts if p)
 
 
 def _resolve_jsonl_paths(path_or_glob: Path) -> List[Path]:
