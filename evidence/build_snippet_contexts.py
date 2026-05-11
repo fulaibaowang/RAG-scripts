@@ -198,10 +198,8 @@ def build_docno_to_title_sentences(
 ) -> Dict[str, Tuple[str, List[str]]]:
     """Stream JSONL and build docno -> (title, list of sentences) for needed docnos.
 
-    "docno" is the corpus row key. Chunked corpora use chunk-level docnos
-    (e.g. ``<pmid>#abstract``, ``<pmid>#body_001``); legacy abstracts-only
-    corpora use bare PMIDs. Body text is read from the unified ``text`` field
-    with fallback to ``abstract`` / ``abstractText`` for the legacy corpus.
+    "docno" is the corpus row key (chunk-level, e.g. ``<pmid>#abstract``,
+    ``<pmid>#body_001``). Body text is read from the unified ``text`` field.
     Uses NLTK sent_tokenize on the resulting body text.
     """
     try:

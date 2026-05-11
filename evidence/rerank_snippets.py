@@ -93,9 +93,9 @@ def _resolve_jsonl_paths(path_or_glob: Path) -> List[Path]:
 
 
 def _extract_docno(rec: dict) -> str:
-    for key in ("docno", "pmid", "id"):
-        if key in rec:
-            return normalize_pmid(rec[key])
+    """Read the corpus row's docno (chunk-level identifier)."""
+    if "docno" in rec:
+        return normalize_pmid(rec["docno"])
     return ""
 
 
@@ -105,10 +105,9 @@ def load_doc_title_sentences(
 ) -> Dict[str, Tuple[str, List[str]]]:
     """Load docno -> (title, [sentence, ...]) for requested docs.
 
-    Docnos are chunk-level (e.g. ``<pmid>#abstract``, ``<pmid>#body_001``)
-    in the new corpus; for legacy abstracts-only corpora the docno is the
-    bare pmid. The body text is read from the unified ``text`` field with
-    a fallback to legacy ``abstract`` / ``abstractText`` fields.
+    Docnos are chunk-level identifiers (e.g. ``<pmid>#abstract``,
+    ``<pmid>#body_001``). The body text is read from the unified
+    ``text`` field.
     """
     _ensure_nltk_punkt()
     import nltk
