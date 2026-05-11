@@ -9,6 +9,16 @@ on:
 jobs:
   pipeline:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: baseline-pmid
+            config_file: demo/config.env
+            output_root: demo/output
+          - label: chunked-abstract
+            config_file: demo/config.chunked.env
+            output_root: demo/output_chunked
 
     steps:
       - uses: actions/checkout@v4
@@ -28,7 +38,7 @@ jobs:
       - name: Pull Docker image
         run: docker pull fulaibaowang/bioasq:08.03.26b200
 
-      - name: Run pipeline
+      - name: Run pipeline (${{ matrix.label }})
         run: |
           docker run --rm \
             -v "${{ github.workspace }}:/work" \
@@ -41,11 +51,19 @@ jobs:
             -e TQDM_DISABLE=1 \
             --workdir /work \
             fulaibaowang/bioasq:08.03.26b200 \
-            bash -c "./run_retrieval_rerank_pipeline.sh --config demo/config.env"
+            bash -c "./run_retrieval_rerank_pipeline.sh --config ${{ matrix.config_file }}"
 
-      - name: Assert outputs exist
+      - name: Assert outputs exist (${{ matrix.label }})
         run: |
-          find demo/output/retrieval/fusion/runs -name '*.tsv' 2>/dev/null | head -1 | grep -q . \
-            || { echo "Missing hybrid fusion run TSVs in demo/output/retrieval/fusion/runs/"; exit 1; }
-          find demo/output/rerank/cross_encoder/runs -name '*.tsv' 2>/dev/null | head -1 | grep -q . \
-            || { echo "Missing rerank run TSVs in demo/output/rerank/cross_encoder/runs/"; exit 1; }
+          find "${{ matrix.output_root }}/retrieval/fusion/runs" -maxdepth 1 -name '*.tsv' 2>/dev/null | head -1 | grep -q . \
+            || { echo "Missing hybrid fusion run TSVs in ${{ matrix.output_root }}/retrieval/fusion/runs/"; exit 1; }
+          find "${{ matrix.output_root }}/rerank/cross_encoder/runs" -maxdepth 1 -name '*.tsv' 2>/dev/null | head -1 | grep -q . \
+            || { echo "Missing rerank run TSVs in ${{ matrix.output_root }}/rerank/cross_encoder/runs/"; exit 1; }
+
+      - name: Assert chunk docnos in fusion runs (chunked only)
+        if: ${{ matrix.label == 'chunked-abstract' }}
+        run: |
+          _tsv=$(find "${{ matrix.output_root }}/retrieval/fusion/runs" -maxdepth 1 -name '*.tsv' | head -1)
+          test -n "$_tsv"
+          grep -q '#abstract' "$_tsv" \
+            || { echo "Expected chunk docnos (#abstract) in $_tsv"; exit 1; }

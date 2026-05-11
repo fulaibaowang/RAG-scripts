@@ -1,4 +1,5 @@
 demo/
+.venv-build-index/
 __pycache__/
 *.pyc
 .hf_cache/
