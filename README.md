@@ -4,8 +4,8 @@ This directory is the **[RAG-scripts](https://github.com/fulaibaowang/RAG-script
 
 ## What the pipeline does
 
-- **Baseline route:** BM25 → Dense → retrieval fusion → cross-encoder → post-rerank RRF → baseline evidence → baseline generation.
-- **Optional snippet-RRF route:** snippet window rerank → final doc/snippet fusion → snippet evidence → snippet generation.
+- **Document route:** BM25 → Dense → retrieval fusion → cross-encoder → post-rerank RRF → document evidence → document generation. (One context per PMID/abstract.)
+- **Optional snippet-RRF route:** snippet window rerank → final doc/snippet fusion → snippet evidence → snippet generation. (One context per abstract-derived passage window.)
 
 ```mermaid
 flowchart TD
@@ -14,8 +14,8 @@ flowchart TD
   Hybrid --> Rerank["Cross-encoder rerank"]
   Rerank --> RH["Post-rerank fusion"]
 
-  RH --> EB[Baseline evidence]
-  EB --> GB[Baseline generation]
+  RH --> EB[Document evidence]
+  EB --> GB[Document generation]
 
   RH --> SR["Snippet rerank"]
   SR --> RRF2["Evidence fusion"]
@@ -50,7 +50,7 @@ Outputs land in `demo/output/` (BM25 → dense → hybrid → rerank).
 ```bash
 git clone https://github.com/fulaibaowang/RAG-scripts.git
 cd RAG-scripts
-cp conf/workflow_config_baseline.env my_run.env
+cp conf/workflow_config_document.env my_run.env
 # edit my_run.env: set WORKFLOW_OUTPUT_DIR, TRAIN_JSON, TEST_BATCH_JSONS,
 #                  BM25_INDEX_PATH, DENSE_INDEX_DIR, DOCS_JSONL
 docker run --rm \
@@ -64,7 +64,7 @@ docker run --rm \
 
 ## Running the pipeline (high level)
 
-1. Copy an example env ([conf/workflow_config_baseline.env](conf/workflow_config_baseline.env), [conf/workflow_config_full.env](conf/workflow_config_full.env)) or create your own.
+1. Copy an example env ([conf/workflow_config_document.env](conf/workflow_config_document.env), [conf/workflow_config_full.env](conf/workflow_config_full.env)) or create your own.
 2. Set `WORKFLOW_OUTPUT_DIR`, query `.jsonl` paths (`INPUT_JSONL` / `INPUT_BATCH_JSONLS`), index paths, and `DOCS_JSONL` for reranking or building evidence.
 3. From **this directory**:
 

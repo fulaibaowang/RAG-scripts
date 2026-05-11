@@ -16,7 +16,7 @@ We refer to three fusion steps:
 
 - **Cross-encoder rerank + post-rerank fusion**
   - `rerank/cross_encoder/` – cross-encoder reranker outputs (TSVs, metrics, figures).
-  - `rerank/post_rerank_fusion/` – post-rerank RRF of `retrieval/fusion/` + cross-encoder (default pool 50 for baseline).
+  - `rerank/post_rerank_fusion/` – post-rerank RRF of `retrieval/fusion/` + cross-encoder (default pool 50 for the document route).
   - `rerank/post_rerank_fusion_snippet/` – same fusion with pool 200 when the snippet route (or run-both) needs a wider doc pool.
   - Optional t* filtered runs: `rerank/post_rerank_fusion_tstar/`, `rerank/post_rerank_fusion_snippet_tstar/` when `RERANK_TSTAR_ENABLE=1`.
 
@@ -25,7 +25,7 @@ We refer to three fusion steps:
   - `snippet/snippet_doc_fusion/` – final RRF of doc-side fused runs and snippet-level runs (evidence fusion for the snippet path).
 
 - **Evidence and generation** (when `DOCS_JSONL` is set)
-  - `evidence/evidence_baseline/`, `generation/generation_baseline/` – baseline document contexts and answers.
+  - `evidence/evidence_baseline/`, `generation/generation_baseline/` – **document route** contexts and answers (one record per PMID/abstract). The `_baseline` suffix is a legacy on-disk name retained for back-compat with existing run trees.
   - `evidence/evidence_snippet/`, `generation/generation_snippet/` – snippet-route contexts and answers.
 
 ## Migrating an existing workflow directory

@@ -59,17 +59,17 @@ Run all stages with one script and a config file. The script skips stages whose 
 ./run_retrieval_rerank_pipeline.sh --config /path/to/your.env
 ```
 
-Example templates in `conf/`: [workflow_config_baseline.env](../conf/workflow_config_baseline.env), [workflow_config_snippet.env](../conf/workflow_config_snippet.env), [workflow_config_full.env](../conf/workflow_config_full.env). Every variable is commented in [workflow_config_full.env](../conf/workflow_config_full.env); tuning notes: [PARAMETERS.md](PARAMETERS.md). BioASQ + Docker walkthrough: [BioASQ docs/USAGE.md](https://github.com/fulaibaowang/BioASQ/blob/main/docs/USAGE.md). Public script index (format, adapt-out): [BioASQ scripts/public/README.md](https://github.com/fulaibaowang/BioASQ/blob/main/scripts/public/README.md).
+Example templates in `conf/`: [workflow_config_document.env](../conf/workflow_config_document.env), [workflow_config_snippet.env](../conf/workflow_config_snippet.env), [workflow_config_full.env](../conf/workflow_config_full.env). Every variable is commented in [workflow_config_full.env](../conf/workflow_config_full.env); tuning notes: [PARAMETERS.md](PARAMETERS.md). BioASQ + Docker walkthrough: [BioASQ docs/USAGE.md](https://github.com/fulaibaowang/BioASQ/blob/main/docs/USAGE.md). Public script index (format, adapt-out): [BioASQ scripts/public/README.md](https://github.com/fulaibaowang/BioASQ/blob/main/scripts/public/README.md).
 
 ### Snippet-RRF route (optional)
 
 ```bash
 ./run_retrieval_rerank_pipeline.sh \
-  --config conf/workflow_config_baseline.env \
+  --config conf/workflow_config_document.env \
   --snippet-rrf
 ```
 
-Or set `RUN_SNIPPET_RRF=1` (and `RUN_BASELINE` / `RUN_SNIPPET_RRF` as needed) in your env file.
+Or set `RUN_SNIPPET_RRF=1` (and `RUN_DOCUMENT` / `RUN_SNIPPET_RRF` as needed) in your env file.
 
 ## Retrieval
 
@@ -163,7 +163,7 @@ python rerank/rerank_crossencoder.py \
 
 Use `--no-generation` (or `RUN_GENERATION_*=0`) to build evidence only. Env knobs (`POST_RERANK_DOC_POOL`, `EVIDENCE_TOP_K*`, `GENERATION_*`, backends): [PARAMETERS.md](PARAMETERS.md).
 
-### Manual CLI (baseline: document contexts)
+### Manual CLI (document route)
 
 Assume a rerank run TSV (e.g. `output/.../rerank/post_rerank_fusion/runs/best_rrf_<split>_top....tsv`) and the same query `.jsonl` you used for retrieval:
 

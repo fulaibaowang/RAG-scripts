@@ -13,8 +13,11 @@
 # RECALL_KS, BM25_INDEX_PATH, DENSE_INDEX_DIR, DOCS_JSONL (optional),
 # BM25_QUERY_FIELD / DENSE_QUERY_FIELD (comma-separated = multi-query RRF fusion per stage),
 # and stage overrides (BM25_*, DENSE_*, RETRIEVAL_FUSION_*, RERANK_*). Evidence: POST_RERANK_DOC_POOL (docs written
-# to post_rerank_*.jsonl), EVIDENCE_TOP_K and optional EVIDENCE_TOP_K_BASELINE / EVIDENCE_TOP_K_SNIPPET
+# to post_rerank_*.jsonl), EVIDENCE_TOP_K and optional EVIDENCE_TOP_K_DOCUMENT / EVIDENCE_TOP_K_SNIPPET
 # (caps in build_contexts_from_*). See conf/workflow_config_full.env.
+# Route names: "document" (one context per PMID/abstract) and "snippet" (one context per
+# abstract-derived passage window). On-disk output dirs keep the legacy "_baseline" suffix
+# for back-compat with existing run trees.
 #
 set -e
 
@@ -48,7 +51,7 @@ RUN_RERANK="${RUN_RERANK:-1}"
 RUN_RRF_FUSION="${RUN_RRF_FUSION:-1}"
 SNIPPET_RRF=0
 RUN_BOTH_ROUTES=0
-RUN_GENERATION_BASELINE="${RUN_GENERATION_BASELINE:-1}"
+RUN_GENERATION_DOCUMENT="${RUN_GENERATION_DOCUMENT:-1}"
 RUN_GENERATION_SNIPPET="${RUN_GENERATION_SNIPPET:-1}"
 BM25_QUERY_FIELD_ARG=""
 DENSE_QUERY_FIELD_ARG=""
@@ -93,12 +96,12 @@ while [ $# -gt 0 ]; do
       shift 2
       ;;
     --no-generation)
-      RUN_GENERATION_BASELINE=0
+      RUN_GENERATION_DOCUMENT=0
       RUN_GENERATION_SNIPPET=0
       shift
       ;;
-    --no-generation-baseline)
-      RUN_GENERATION_BASELINE=0
+    --no-generation-document)
+      RUN_GENERATION_DOCUMENT=0
       shift
       ;;
     --no-generation-snippet)
@@ -116,9 +119,9 @@ while [ $# -gt 0 ]; do
       echo "  --no-rerank             Run only BM25, Dense, retrieval fusion; skip reranker even if DOCS_JSONL is set."
       echo "  --no-rrf-fusion         Disable post-rerank RRF fusion (retrieval fusion + cross-encoder) after reranker."
       echo "  --snippet-rrf           Snippet route: pool=200, snippet CE, doc+snippet fusion (snippet/); evidence/evidence_snippet/, generation/generation_snippet/."
-      echo "  --run-both-routes        Run baseline and snippet routes; write evidence/evidence_baseline/, evidence/evidence_snippet/, generation/generation_baseline/, generation/generation_snippet/ (no overwrite)."
-      echo "  --no-generation          Skip LLM generation (and rescue) for both baseline and snippet routes."
-      echo "  --no-generation-baseline  Skip LLM generation for baseline route only (evidence still built)."
+      echo "  --run-both-routes        Run document and snippet routes; write evidence/evidence_baseline/, evidence/evidence_snippet/, generation/generation_baseline/, generation/generation_snippet/ (no overwrite; legacy '_baseline' dir names retained)."
+      echo "  --no-generation          Skip LLM generation (and rescue) for both document and snippet routes."
+      echo "  --no-generation-document  Skip LLM generation for document route only (evidence still built)."
       echo "  --no-generation-snippet   Skip LLM generation for snippet route only (evidence still built)."
       echo "  --generation-schemas-dir DIR  Schema *.txt directory for generate_answers.py (overrides GENERATION_SCHEMAS_DIR in config)."
       echo "  --bm25-query-field F    Use F as query text for BM25 (overrides env). Comma-separated = multi-query RRF fuse."
@@ -127,18 +130,18 @@ while [ $# -gt 0 ]; do
       echo "  -h, --help              Show this help."
       echo ""
       echo "Env toggles:"
-      echo "  RUN_BASELINE=0|1        Control baseline evidence/generation route (default 1)."
+      echo "  RUN_DOCUMENT=0|1        Control document-route evidence/generation (default 1)."
       echo "  RUN_SNIPPET_RRF=0|1     Control snippet-rrf route (steps 6–7, evidence/evidence_snippet/, generation/generation_snippet/)."
       echo "  RUN_RRF_FUSION=0|1      Control Retrieval+Rerank RRF fusion (default 1; 0 is same as --no-rrf-fusion)."
-      echo "  RUN_GENERATION_BASELINE=0|1   Run generation for baseline route (default 1)."
+      echo "  RUN_GENERATION_DOCUMENT=0|1   Run generation for document route (default 1)."
       echo "  RUN_GENERATION_SNIPPET=0|1    Run generation for snippet route (default 1)."
       echo "  GENERATION_SCHEMAS_DIR       Directory of schema *.txt for LLM prompts (default: scripts/public/shared_scripts/prompts/schemas under repo root)."
       echo "  POST_RERANK_DOC_POOL         Max docs per query written into post_rerank_*.jsonl (default: 30)."
-      echo "  EVIDENCE_TOP_K / EVIDENCE_TOP_K_BASELINE / EVIDENCE_TOP_K_SNIPPET   Max docs per question for contexts (build_contexts; default: EVIDENCE_TOP_K or 10)."
+      echo "  EVIDENCE_TOP_K / EVIDENCE_TOP_K_DOCUMENT / EVIDENCE_TOP_K_SNIPPET   Max docs per question for contexts (build_contexts; default: EVIDENCE_TOP_K or 10)."
       echo ""
       echo "Example: $0 --config scripts/private_scripts/config.env"
       echo "Example: $0 -c config.env --no-rerank --bm25-query-field query_text_synonym_products --dense-query-field query_text"
-      echo "Example: source conf/workflow_config_baseline.env && $0"
+      echo "Example: source conf/workflow_config_document.env && $0"
       exit 0
       ;;
     *)
@@ -160,12 +163,12 @@ if [ -n "$CONFIG_FILE" ]; then
   echo "Loaded config: $CONFIG_FILE"
 fi
 
-# Route toggles (can be set in env; defaults are baseline on, snippet off unless --snippet-rrf was passed)
-RUN_BASELINE="${RUN_BASELINE:-1}"
+# Route toggles (can be set in env; defaults are document on, snippet off unless --snippet-rrf was passed)
+RUN_DOCUMENT="${RUN_DOCUMENT:-1}"
 RUN_SNIPPET_RRF="${RUN_SNIPPET_RRF:-${SNIPPET_RRF:-0}}"
 DO_SNIPPET_RRF="${RUN_SNIPPET_RRF}"
-# When both routes are requested, enable both RRF outputs (step 5 -> post_rerank_fusion, step 5b -> post_rerank_fusion_snippet) so baseline and snippet evidence both have runs
-if [ "$RUN_BASELINE" = "1" ] && [ "$DO_SNIPPET_RRF" = "1" ]; then
+# When both routes are requested, enable both RRF outputs (step 5 -> post_rerank_fusion, step 5b -> post_rerank_fusion_snippet) so document and snippet evidence both have runs
+if [ "$RUN_DOCUMENT" = "1" ] && [ "$DO_SNIPPET_RRF" = "1" ]; then
   RUN_BOTH_ROUTES=1
 fi
 
@@ -762,7 +765,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
   # ----- Step 5: RRF fusion (retrieval fusion + cross-encoder -> post_rerank_fusion); only when RUN_RRF_FUSION=1 -----
   # Snippet-only (no run-both): write pool=200 to post_rerank_fusion_snippet so snippet always gets 200-pool runs.
   # Use DO_SNIPPET_RRF (from config RUN_SNIPPET_RRF or flag --snippet-rrf) so config-only snippet route works.
-  # Baseline or run-both: write pool=50 to post_rerank_fusion; step 5b (run-both only) writes pool=200 to post_rerank_fusion_snippet.
+  # Document route or run-both: write pool=50 to post_rerank_fusion; step 5b (run-both only) writes pool=200 to post_rerank_fusion_snippet.
   if [ "$RUN_RRF_FUSION" = "1" ] && { [ "$TOTAL_STEPS" = "5" ] || [ "$TOTAL_STEPS" = "7" ]; }; then
     STEP_RRF_START=$(date +%s)
     # Resolve where step 5 writes and with which pool
@@ -1136,7 +1139,8 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
 
 # ----- Evidence (post-rerank JSON + contexts): build all splits first -----
 # Always use separate dirs: evidence/evidence_baseline + generation/generation_baseline (from post_rerank_fusion), evidence/evidence_snippet + generation/generation_snippet (from snippet_doc_fusion).
-# Baseline first then snippet-rrf in same folder: both run without overwrite.
+# Legacy "_baseline" suffix retained on disk; the route is now called "document".
+# Document route first then snippet-rrf in same folder: both run without overwrite.
 _DOCS_JSONL_OK=0
   if [ -n "${DOCS_JSONL:-}" ]; then
     if [ -f "$DOCS_JSONL" ]; then
@@ -1147,20 +1151,20 @@ _DOCS_JSONL_OK=0
   fi
   if [ "$_DOCS_JSONL_OK" = "1" ]; then
     STEP_EVIDENCE_GEN_START=$(date +%s)
-    # Decide which routes to build evidence/generation for based on RUN_BASELINE / RUN_SNIPPET_RRF
-    if [ "$RUN_BASELINE" = "1" ] && [ "$DO_SNIPPET_RRF" = "1" ]; then
-      _ROUTES_LIST="baseline snippet"
-    elif [ "$RUN_BASELINE" = "1" ]; then
-      _ROUTES_LIST="baseline"
+    # Decide which routes ("document"/"snippet") to build evidence/generation for, based on RUN_DOCUMENT / RUN_SNIPPET_RRF
+    if [ "$RUN_DOCUMENT" = "1" ] && [ "$DO_SNIPPET_RRF" = "1" ]; then
+      _ROUTES_LIST="document snippet"
+    elif [ "$RUN_DOCUMENT" = "1" ]; then
+      _ROUTES_LIST="document"
     elif [ "$DO_SNIPPET_RRF" = "1" ]; then
       _ROUTES_LIST="snippet"
     else
-      # Fallback: if both disabled, keep baseline to avoid doing nothing silently
-      _ROUTES_LIST="baseline"
+      # Fallback: if both disabled, keep document to avoid doing nothing silently
+      _ROUTES_LIST="document"
     fi
     for _route in $_ROUTES_LIST; do
-      if [ "$_route" = "baseline" ]; then
-        # When RRF fusion is enabled, baseline evidence uses Retrieval+Rerank runs.
+      if [ "$_route" = "document" ]; then
+        # When RRF fusion is enabled, document-route evidence uses Retrieval+Rerank runs.
         # When RUN_RRF_FUSION=0, fall back to raw Rerank runs so downstream steps still work.
         if [ "$RUN_RRF_FUSION" = "1" ]; then
           if [ "${RERANK_TSTAR_ENABLE:-0}" = "1" ]; then
@@ -1174,6 +1178,7 @@ _DOCS_JSONL_OK=0
           _EVIDENCE_RUNS_DIR="$CROSS_ENCODER_OUT/runs"
           _EVIDENCE_POST_DIR="$CROSS_ENCODER_OUT"
         fi
+        # Legacy dir names retained for back-compat with existing run trees; route is "document".
         _EVIDENCE_SUBDIR="evidence/evidence_baseline"
         _GEN_SUBDIR="generation/generation_baseline"
         _USE_SNIPPET_CTX=0
@@ -1184,8 +1189,8 @@ _DOCS_JSONL_OK=0
         _GEN_SUBDIR="generation/generation_snippet"
         _USE_SNIPPET_CTX=1
       fi
-      if [ "$_route" = "baseline" ]; then
-        _EVIDENCE_TOP_K="${EVIDENCE_TOP_K_BASELINE:-${EVIDENCE_TOP_K:-10}}"
+      if [ "$_route" = "document" ]; then
+        _EVIDENCE_TOP_K="${EVIDENCE_TOP_K_DOCUMENT:-${EVIDENCE_TOP_K:-10}}"
       else
         _EVIDENCE_TOP_K="${EVIDENCE_TOP_K_SNIPPET:-${EVIDENCE_TOP_K:-10}}"
       fi
@@ -1276,7 +1281,7 @@ _DOCS_JSONL_OK=0
 
     # ----- Generation (LLM answers from contexts JSON): run after all evidence is built -----
     _RUN_GEN=0
-    [ "$_route" = "baseline" ] && [ "${RUN_GENERATION_BASELINE:-1}" = "1" ] && _RUN_GEN=1
+    [ "$_route" = "document" ] && [ "${RUN_GENERATION_DOCUMENT:-1}" = "1" ] && _RUN_GEN=1
     [ "$_route" = "snippet" ] && [ "${RUN_GENERATION_SNIPPET:-1}" = "1" ] && _RUN_GEN=1
     if [ "$_RUN_GEN" = "1" ]; then
       mkdir -p "$WORKFLOW_OUTPUT_DIR/$_GEN_SUBDIR"
@@ -1301,14 +1306,14 @@ _DOCS_JSONL_OK=0
             --schemas-dir "$GENERATION_SCHEMAS_DIR"
           )
           [ -n "${GENERATION_CONCURRENCY:-}" ] && GENERATION_ARGS+=(--concurrency "$GENERATION_CONCURRENCY")
-          if [ "$_route" = "baseline" ]; then
-            _max_ctx="${GENERATION_MAX_CONTEXTS_BASELINE:-${GENERATION_MAX_CONTEXTS:-8}}"
+          if [ "$_route" = "document" ]; then
+            _max_ctx="${GENERATION_MAX_CONTEXTS_DOCUMENT:-${GENERATION_MAX_CONTEXTS:-8}}"
           else
             _max_ctx="${GENERATION_MAX_CONTEXTS_SNIPPET:-${GENERATION_MAX_CONTEXTS:-10}}"
           fi
           [ -n "$_max_ctx" ] && GENERATION_ARGS+=(--max-contexts "$_max_ctx")
-          if [ "$_route" = "baseline" ]; then
-            _max_chars="${GENERATION_MAX_CHARS_PER_CONTEXT_BASELINE:-${GENERATION_MAX_CHARS_PER_CONTEXT:-1300}}"
+          if [ "$_route" = "document" ]; then
+            _max_chars="${GENERATION_MAX_CHARS_PER_CONTEXT_DOCUMENT:-${GENERATION_MAX_CHARS_PER_CONTEXT:-1300}}"
           else
             _max_chars="${GENERATION_MAX_CHARS_PER_CONTEXT_SNIPPET:-${GENERATION_MAX_CHARS_PER_CONTEXT:-960}}"
           fi
@@ -1340,7 +1345,7 @@ _DOCS_JSONL_OK=0
 
   echo "Done. Outputs: $WORKFLOW_OUTPUT_DIR (retrieval/{bm25,dense,fusion}/, rerank/{cross_encoder,post_rerank_fusion,...}/)"
   [ "${DO_SNIPPET_RRF:-0}" = "1" ] && echo "  Snippet route: snippet/{snippet_rerank,snippet_doc_fusion}/"
-  [ "$_DOCS_JSONL_OK" = "1" ] && echo "  Evidence/Generation: evidence/evidence_baseline/, generation/generation_baseline/ (baseline); evidence/evidence_snippet/, generation/generation_snippet/ (when --snippet-rrf)"
+  [ "$_DOCS_JSONL_OK" = "1" ] && echo "  Evidence/Generation: evidence/evidence_baseline/, generation/generation_baseline/ (document route; legacy '_baseline' dir names); evidence/evidence_snippet/, generation/generation_snippet/ (when --snippet-rrf)"
 else
   echo "Done. Outputs: $WORKFLOW_OUTPUT_DIR (retrieval/{bm25,dense,fusion}/)"
   if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "0" ]; then
