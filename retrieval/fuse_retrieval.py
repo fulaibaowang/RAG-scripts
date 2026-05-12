@@ -22,6 +22,7 @@ except Exception as e:  # pragma: no cover
 # Allow importing retrieval_eval from shared_scripts/ (parent of retrieval/)
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from retrieval_eval.aggregate import dedupe_run_map_by_pmid  # noqa: E402
 from retrieval_eval.common import (  # noqa: E402
     build_topics_and_gold,
     collect_qids_from_questions,
@@ -169,6 +170,10 @@ def evaluate_recall_points(
     run_map: Dict[str, List[str]],
     ks: Tuple[int, ...],
 ) -> Dict[str, float]:
+    # Gold is pmid-level; run may be chunk-level (e.g. "<pmid>#body_007").
+    # Collapse to pmid-level so MeanR/ShortfallRate/MeanKeff are paper-level
+    # and consistent with evaluate_run() in retrieval_eval.common.
+    run_map = dedupe_run_map_by_pmid(run_map)
     out: Dict[str, float] = {}
     qids = list(gold_map.keys())
 

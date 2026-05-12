@@ -137,6 +137,8 @@ while [ $# -gt 0 ]; do
       echo "  RUN_GENERATION_SNIPPET=0|1    Run generation for snippet route (default 1)."
       echo "  GENERATION_SCHEMAS_DIR       Directory of schema *.txt for LLM prompts (default: scripts/public/shared_scripts/prompts/schemas under repo root)."
       echo "  POST_RERANK_DOC_POOL         Max docs per query written into post_rerank_*.jsonl (default: 30)."
+      echo "  POST_RERANK_FUSION_MAX_CHUNKS_PER_PMID  If >0, cap each PMID to this many chunks in fused output TSVs (default: 0 = no cap; no-op for abstract-only corpora)."
+      echo "  MAX_CHUNKS_PER_PMID          Max chunks per PMID in evidence post_rerank_*.jsonl (default: 2)."
       echo "  EVIDENCE_TOP_K / EVIDENCE_TOP_K_DOCUMENT / EVIDENCE_TOP_K_SNIPPET   Max docs per question for contexts (build_contexts; default: EVIDENCE_TOP_K or 10)."
       echo ""
       echo "Example: $0 --config scripts/private_scripts/config.env"
@@ -808,6 +810,9 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
       [ -n "${INPUT_BATCH_JSONLS:-}" ] && RRF_ARGS+=(--input-batch-jsonls $INPUT_BATCH_JSONLS)
       [ -n "${RERANK_KS_RECALL:-}" ] && RRF_ARGS+=(--ks-recall "$RERANK_KS_RECALL")
       [ "${RERANK_DISABLE_METRICS:-0}" = "1" ] && RRF_ARGS+=(--disable-metrics)
+      # Per-PMID chunk cap on fused output. Default 0 (no cap) keeps existing behavior;
+      # no-op for abstract-only corpora since docnos are bare PMIDs.
+      [ "${POST_RERANK_FUSION_MAX_CHUNKS_PER_PMID:-0}" -gt 0 ] && RRF_ARGS+=(--max-chunks-per-pmid "$POST_RERANK_FUSION_MAX_CHUNKS_PER_PMID")
       python "$SCRIPT_DIR/rerank/fuse_rerank.py" "${RRF_ARGS[@]}"
     fi
     if [ "$_RRF_STEP5_OUT" = "$POST_RERANK_FUSION_OUT" ]; then
@@ -844,6 +849,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
         ${INPUT_JSONL:+--input-jsonl "$INPUT_JSONL"} \
         ${INPUT_BATCH_JSONLS:+--input-batch-jsonls $INPUT_BATCH_JSONLS} \
         ${RERANK_KS_RECALL:+--ks-recall "$RERANK_KS_RECALL"} \
+        $([ "${POST_RERANK_FUSION_MAX_CHUNKS_PER_PMID:-0}" -gt 0 ] && echo --max-chunks-per-pmid "$POST_RERANK_FUSION_MAX_CHUNKS_PER_PMID") \
         $([ "${RERANK_DISABLE_METRICS:-0}" = "1" ] && echo --disable-metrics)
     fi
     _apply_rerank_tstar_cutoff "$POST_RERANK_FUSION_SNIPPET_OUT/runs" "$POST_RERANK_FUSION_SNIPPET_TSTAR_OUT" "post_rerank_fusion_snippet_5b"
@@ -1087,6 +1093,7 @@ if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
         ${INPUT_JSONL:+--input-jsonl "$INPUT_JSONL"} \
         ${INPUT_BATCH_JSONLS:+--input-batch-jsonls $INPUT_BATCH_JSONLS} \
         ${RERANK_KS_RECALL:+--ks-recall "$RERANK_KS_RECALL"} \
+        $([ "${POST_RERANK_FUSION_MAX_CHUNKS_PER_PMID:-0}" -gt 0 ] && echo --max-chunks-per-pmid "$POST_RERANK_FUSION_MAX_CHUNKS_PER_PMID") \
         $([ "${RERANK_DISABLE_METRICS:-0}" = "1" ] && echo --disable-metrics)
     fi
     STEP_FINAL_RRF_END=$(date +%s)

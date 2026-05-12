@@ -190,6 +190,17 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Skip metrics computation (only write fused runs).",
     )
+    p.add_argument(
+        "--max-chunks-per-pmid",
+        type=int,
+        default=0,
+        help=(
+            "If >0, after RRF fusion cap each PMID to at most this many chunks in the fused output "
+            "(walk the fused list in rank order; drop chunks beyond the cap for any single PMID). "
+            "No-op for abstract-only corpora where docnos are bare PMIDs (one chunk per PMID by construction). "
+            "Default 0 = no cap."
+        ),
+    )
     return p.parse_args()
 
 
@@ -269,6 +280,19 @@ def main() -> None:
                 w_rerank=w_rerank,
                 w_retrieval=w_retrieval,
             )
+
+            # Optional per-PMID chunk cap (no-op for abstract-only docnos).
+            if args.max_chunks_per_pmid > 0:
+                cap = int(args.max_chunks_per_pmid)
+                seen_count: Dict[str, int] = {}
+                capped: List[str] = []
+                for d in fused_docs:
+                    pmid = str(d).split("#", 1)[0]
+                    n = seen_count.get(pmid, 0)
+                    if n < cap:
+                        capped.append(d)
+                        seen_count[pmid] = n + 1
+                fused_docs = capped
 
             for rank, docno in enumerate(fused_docs, start=1):
                 fused_rows.append({"qid": str(qid), "docno": str(docno), "rank": rank})

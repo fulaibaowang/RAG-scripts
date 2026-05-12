@@ -41,6 +41,7 @@ _SHARED_SCRIPTS = _THIS_FILE.parents[1]  # analysis/ -> shared_scripts/
 if str(_SHARED_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SHARED_SCRIPTS))
 
+from retrieval_eval.aggregate import dedupe_run_map_by_pmid
 from retrieval_eval.common import (
     ap_at_k,
     build_topics_and_gold,
@@ -86,6 +87,9 @@ def compute_map_at_ks(
     ks: List[int],
 ) -> Dict[int, float]:
     """Compute MAP@k for each k. Returns {k: MAP@k}."""
+    # Gold is pmid-level; run may be chunk-level (e.g. "<pmid>#body_007").
+    # Collapse to pmid-level so AP@K is paper-level.
+    run_map = dedupe_run_map_by_pmid(run_map)
     qids = [q for q in gold_map if q in run_map and gold_map[q]]
     if not qids:
         return {k: 0.0 for k in ks}
