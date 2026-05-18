@@ -575,7 +575,7 @@ RETRIEVAL_FUSION_ARGS=(
 [ "${RETRIEVAL_FUSION_NO_PLOTS:-0}" = "1" ] && RETRIEVAL_FUSION_ARGS+=(--no-plots)
 [ "${RETRIEVAL_FUSION_SAVE_PLOTS:-0}" = "1" ] && RETRIEVAL_FUSION_ARGS+=(--save-plots)
 
-if [ -f "$HYBRID_OUT/ranked_test_avg.csv" ] || [ -f "$HYBRID_OUT/metrics.csv" ] || [ -n "$(find "$HYBRID_OUT/runs" -maxdepth 1 -name '*.tsv' 2>/dev/null | head -1)" ]; then
+if [ -n "$(find "$HYBRID_OUT/runs" -maxdepth 1 -name '*.tsv' 2>/dev/null | head -1)" ]; then
   echo "[3/$TOTAL_STEPS] Retrieval fusion... (skip: output exists)"
   _log_run "step" "3" "RetrievalFusion" "skip"
 else
