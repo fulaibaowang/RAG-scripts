@@ -130,7 +130,7 @@ python retrieval/fuse_retrieval.py \
     /path/to/batch_b.jsonl \
   --out-dir "output/fuse_retrieval" \
   --mode "default" \
-  --k_rrf 150 \
+  --k_rrf 60 \
   --w_bm25 1.0 \
   --w_dense 1.0
 ```

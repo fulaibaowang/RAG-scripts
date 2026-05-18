@@ -536,11 +536,13 @@ def main() -> None:
 
     ap.add_argument("--out-dir", required=True, dest="out_dir")
 
-    ap.add_argument("--mode", choices=["sweep", "default"], default="sweep")
+    ap.add_argument("--mode", choices=["sweep", "default"], default="default",
+                    help="default: fix a single (k_rrf, w_bm25, w_dense) and write the run downstream uses. "
+                         "sweep: evaluate a grid for diagnostics only — no downstream run is written.")
     ap.add_argument("--k-rrf-list", default="60,100", dest="k_rrf_list")
     ap.add_argument("--weights", default="1.0,1.0;2.0,1.0;1.0,2.0")
 
-    ap.add_argument("--k-rrf", type=int, default=150, dest="k_rrf")
+    ap.add_argument("--k-rrf", type=int, default=60, dest="k_rrf")
     ap.add_argument("--w-bm25", type=float, default=1.0, dest="w_bm25")
     ap.add_argument("--w-dense", type=float, default=1.0, dest="w_dense")
 
@@ -727,26 +729,37 @@ def main() -> None:
     best_cfg = ranked.iloc[0].to_dict()
     (out_dir / "best_config.json").write_text(json.dumps(best_cfg, indent=2), encoding="utf-8")
 
-    for split in splits:
-        best_row = results_df[
-            (results_df["split"] == split)
-            & (results_df["k_rrf"] == int(best_cfg["k_rrf"]))
-            & (results_df["w_bm25"] == float(best_cfg["w_bm25"]))
-            & (results_df["w_dense"] == float(best_cfg["w_dense"]))
-        ].iloc[0]
+    # Sweep is diagnostic-only: metrics/plots reflect the grid, but no run TSV is
+    # written for downstream stages. Picking the sweep winner on test gold and
+    # feeding it to the reranker would leak labels — run --mode default with a
+    # fixed (k_rrf, w_bm25, w_dense) to produce the downstream input.
+    if args.mode == "default":
+        for split in splits:
+            best_row = results_df[
+                (results_df["split"] == split)
+                & (results_df["k_rrf"] == int(best_cfg["k_rrf"]))
+                & (results_df["w_bm25"] == float(best_cfg["w_bm25"]))
+                & (results_df["w_dense"] == float(best_cfg["w_dense"]))
+            ].iloc[0]
 
-        k_out = min(cap_eff, k_max_eval_eff)
-        best_run = fuse_rrf(
-            bm25_df=bm25_runs[split],
-            dense_df=dense_runs[split],
-            k_bm25=k_out,
-            k_dense=k_out,
-            k_rrf=int(best_row["k_rrf"]),
-            w_bm25=float(best_row["w_bm25"]),
-            w_dense=float(best_row["w_dense"]),
-            k_out=k_out,
+            k_out = min(cap_eff, k_max_eval_eff)
+            best_run = fuse_rrf(
+                bm25_df=bm25_runs[split],
+                dense_df=dense_runs[split],
+                k_bm25=k_out,
+                k_dense=k_out,
+                k_rrf=int(best_row["k_rrf"]),
+                w_bm25=float(best_row["w_bm25"]),
+                w_dense=float(best_row["w_dense"]),
+                k_out=k_out,
+            )
+            runmap_to_tsv(best_run, runs_dir / f"best_rrf_{split}_top{k_out}.tsv")
+    else:
+        print(
+            "[sweep] diagnostic-only: metrics.csv / ranked_test_avg.csv / plots written, "
+            "but no best_rrf_*.tsv. Rerun with --mode default (fixed k_rrf/w_bm25/w_dense) "
+            "to produce the run TSV consumed by the reranker."
         )
-        runmap_to_tsv(best_run, runs_dir / f"best_rrf_{split}_top{k_out}.tsv")
 
     save_plots = bool((not args.no_plots) or args.save_plots)
     if save_plots:
