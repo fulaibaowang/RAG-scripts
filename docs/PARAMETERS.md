@@ -161,7 +161,7 @@ Corresponds to `# ---------- BM25 + RM3 ----------` in [workflow_config_full.env
 
 **Decision:** Aggressive config (`fb_docs=20, fb_terms=30, fb_lambda=0.6`) achieved the highest recall while balanced configs had marginally higher MAP@10 but lower recall.
 
-See [notebooks/bm25_test.ipynb](https://github.com/fulaibaowang/BioASQ/blob/main/notebooks/bm25_test.ipynb) for the RM3 parameter sweep.
+See [notebooks/retrieval_bm25_baseline_and_subset.ipynb](https://github.com/fulaibaowang/BioASQ/blob/main/notebooks/retrieval_bm25_baseline_and_subset.ipynb) for the RM3 parameter sweep.
 
 ---
 
@@ -180,7 +180,7 @@ Corresponds to `# ---------- Dense ----------` in [workflow_config_full.env](../
 
 **Decision:** Only `ef_search` was swept (5000/10000/20000); differences in MeanR@5000 were marginal (0.845 → 0.850). The retrieval script auto-promotes `ef_search` to `max(meta_value, topk)` so a small meta default does not limit deep recall.
 
-See [notebooks/dense_test.ipynb](https://github.com/fulaibaowang/BioASQ/blob/main/notebooks/dense_test.ipynb) for details.
+See [notebooks/retrieval_dense_baseline_index.ipynb](https://github.com/fulaibaowang/BioASQ/blob/main/notebooks/retrieval_dense_baseline_index.ipynb) for details.
 
 ### Dense models tested
 
@@ -189,7 +189,7 @@ See [notebooks/dense_test.ipynb](https://github.com/fulaibaowang/BioASQ/blob/mai
 | [abhinand/MedEmbed-small-v0.1](https://huggingface.co/abhinand/MedEmbed-small-v0.1) | **Default** — used in production pipeline |
 | [NeuML/pubmedbert-base-embeddings](https://huggingface.co/NeuML/pubmedbert-base-embeddings) | Worse hybrid recall than MedEmbed |
 
-See [notebooks/hybrid_pubmedbert.ipynb](https://github.com/fulaibaowang/BioASQ/blob/main/notebooks/hybrid_pubmedbert.ipynb) for the model comparison.
+See [notebooks/retrieval_fusion_sweep_pubmedbert.ipynb](https://github.com/fulaibaowang/BioASQ/blob/main/notebooks/retrieval_fusion_sweep_pubmedbert.ipynb) for the model comparison.
 
 ---
 
@@ -205,7 +205,7 @@ Corresponds to `# ---------- Retrieval Fusion (BM25 + Dense RRF) ----------` in 
 
 **Decision:** Equal weights (`1.0 / 1.0`) with `K_RRF=150` selected via grid search (25 configs). Best MeanR@2000 = 0.9012.
 
-See [notebooks/hybrid.ipynb](https://github.com/fulaibaowang/BioASQ/blob/main/notebooks/hybrid.ipynb) for the RRF grid search.
+See [notebooks/retrieval_fusion_sweep_medembed.ipynb](https://github.com/fulaibaowang/BioASQ/blob/main/notebooks/retrieval_fusion_sweep_medembed.ipynb) for the RRF grid search.
 
 ---
 
@@ -232,7 +232,7 @@ Corresponds to `# ---------- Reranker + Evidence (global: PubMed/literature corp
 
 **Decision:** `candidate-limit=2000` from recall curves (95% of max hybrid recall). BGE v2 at `max_length=512` is the default reranker.
 
-See [notebooks/analyze_results.ipynb](https://github.com/fulaibaowang/BioASQ/blob/main/notebooks/analyze_results.ipynb) for recall curves and comparisons.
+See [notebooks/archive/analyze_results.ipynb](https://github.com/fulaibaowang/BioASQ/blob/main/notebooks/archive/analyze_results.ipynb) for recall curves and comparisons.
 
 ### Post-rerank fusion
 
@@ -291,7 +291,7 @@ The snippet-RRF route adds snippet window reranking and final doc/snippet fusion
 | `SNIPPET_RRF_W_DOCS` | 0.5 – 0.9 | **0.8** | Weight on doc-side post-rerank fusion |
 | `SNIPPET_RRF_W_SNIPPET` | 0.1 – 0.5 | **0.2** | Weight on `snippet/snippet_rerank` |
 
-See [notebooks/snippet_extraction.ipynb](https://github.com/fulaibaowang/BioASQ/blob/main/notebooks/snippet_extraction.ipynb) and [notebooks/snippet_extraction_MedCPT.ipynb](https://github.com/fulaibaowang/BioASQ/blob/main/notebooks/snippet_extraction_MedCPT.ipynb).
+See [notebooks/snippet_extraction_ce_bgem3.ipynb](https://github.com/fulaibaowang/BioASQ/blob/main/notebooks/snippet_extraction_ce_bgem3.ipynb) and [notebooks/snippet_extraction_medcpt.ipynb](https://github.com/fulaibaowang/BioASQ/blob/main/notebooks/snippet_extraction_medcpt.ipynb).
 
 ---
 
@@ -329,7 +329,7 @@ Corresponds to `# ---------- Generation (LLM answers from contexts JSONL) ------
 
 **Decision:** Temperature differences were marginal; default `temperature=0.0` for deterministic output.
 
-See [notebooks/generation_test.ipynb](https://github.com/fulaibaowang/BioASQ/blob/main/notebooks/generation_test.ipynb) for temperature and prompt tests.
+See [notebooks/generation_temperature_sweep.ipynb](https://github.com/fulaibaowang/BioASQ/blob/main/notebooks/generation_temperature_sweep.ipynb) for temperature and prompt tests.
 
 ---
 
