@@ -171,3 +171,4 @@ Python dependencies are pinned in [requirements-docker-pytorch.txt](requirements
 ## related repo
 
 - [BioASQ](https://github.com/fulaibaowang/BioASQ/blob/main/README.md).
+- [dictycite](https://github.com/fulaibaowang/dictycite).
