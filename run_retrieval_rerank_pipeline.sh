@@ -199,11 +199,30 @@ else
   export GENERATION_SCHEMAS_DIR="${GENERATION_SCHEMAS_DIR:-$_DEFAULT_GENERATION_SCHEMAS_DIR}"
 fi
 
+# ----- First-stage source selector (STAGE1_SOURCE) -----
+# rrf (default) = BM25 + Dense -> RRF fusion [unchanged]. external = use a pre-computed STAGE1_RUN
+# (e.g. hosted Pyserini API output), skipping BM25/Dense/Fusion. bm25/dense reserved. Reranker/
+# evidence text always comes from DOCS_JSONL. Default 'rrf' keeps existing behavior identical.
+STAGE1_SOURCE="${STAGE1_SOURCE:-rrf}"
+case "$STAGE1_SOURCE" in
+  rrf)      _need_bm25=1; _need_dense=1; _need_fusion=1 ;;
+  external) _need_bm25=0; _need_dense=0; _need_fusion=0 ;;
+  bm25|dense) echo "Error: STAGE1_SOURCE=$STAGE1_SOURCE not implemented yet (use 'rrf' or 'external')." >&2; exit 1 ;;
+  *) echo "Error: unknown STAGE1_SOURCE='$STAGE1_SOURCE' (expected rrf|external)." >&2; exit 1 ;;
+esac
+
 # Required env (set by config file or by sourcing before run)
 : "${WORKFLOW_OUTPUT_DIR:?Set WORKFLOW_OUTPUT_DIR (e.g. output/workflow_run)}"
-: "${BM25_INDEX_PATH:?Set BM25_INDEX_PATH (Terrier index directory)}"
-if [ -z "${DENSE_INDEX_GLOB:-}" ]; then
+if [ "$_need_bm25" = "1" ]; then
+  : "${BM25_INDEX_PATH:?Set BM25_INDEX_PATH (Terrier index directory)}"
+fi
+if [ "$_need_dense" = "1" ] && [ -z "${DENSE_INDEX_GLOB:-}" ]; then
   : "${DENSE_INDEX_DIR:?Set DENSE_INDEX_DIR or DENSE_INDEX_GLOB (Dense HNSW index directory or shard glob)}"
+fi
+if [ "$STAGE1_SOURCE" = "external" ]; then
+  : "${STAGE1_RUN:?Set STAGE1_RUN=<run.tsv> for STAGE1_SOURCE=external}"
+  : "${DOCS_JSONL:?Set DOCS_JSONL (candidate texts) for STAGE1_SOURCE=external}"
+  [ -f "$STAGE1_RUN" ] || { echo "Error: STAGE1_RUN not found: $STAGE1_RUN" >&2; exit 1; }
 fi
 
 TOP_K="${TOP_K:-5000}"
@@ -279,6 +298,22 @@ else
 fi
 
 mkdir -p "$BM25_OUT" "$DENSE_OUT" "$HYBRID_OUT"
+
+# ----- Stage the external first-stage run (STAGE1_SOURCE=external) -----
+# Stage the provided run as the hybrid-fusion output so rerank/evidence/generation consume it
+# unchanged. Named best_rrf_* (current internal convention; pending best_rrf_ -> stage1_ rename).
+if [ "$STAGE1_SOURCE" = "external" ]; then
+  [ -n "${INPUT_JSONL:-}" ] || { echo "Error: STAGE1_SOURCE=external requires INPUT_JSONL (single split)." >&2; exit 1; }
+  _s1_stem="$(basename "${INPUT_JSONL%.*}")"
+  _s1_dst="$HYBRID_OUT/runs/best_rrf_${_s1_stem}_top${STAGE1_RUN_TOPK:-1000}.tsv"
+  mkdir -p "$HYBRID_OUT/runs"
+  if [ -f "$_s1_dst" ]; then
+    echo "[stage1/external] run already staged: $_s1_dst"
+  else
+    cp "$STAGE1_RUN" "$_s1_dst"
+    echo "[stage1/external] staged external run -> $_s1_dst"
+  fi
+fi
 
 # Step count for progress (3 = retrieval only, 4 = + reranker, 5 = + RRF fusion; 7 = + snippet extraction + final RRF)
   if [ -n "${DOCS_JSONL:-}" ] && [ "$RUN_RERANK" = "1" ]; then
@@ -385,6 +420,7 @@ _run_multi_query_fuse() {
 }
 
 # ----- BM25 -----
+if [ "$_need_bm25" = "1" ]; then
 BM25_ARGS=(
   --index-path "$BM25_INDEX_PATH"
   --out-dir "$BM25_OUT"
@@ -464,10 +500,14 @@ else
   echo "[timing] BM25 step: $((STEP_BM25_END-STEP_BM25_START))s"
   _log_run "step" "1" "BM25" "$((STEP_BM25_END-STEP_BM25_START))s"
 fi
+else
+  echo "[1/$TOTAL_STEPS] BM25... (skip: STAGE1_SOURCE=$STAGE1_SOURCE)"
+fi
 
 # ----- Dense -----
 # Support either a single dense index dir (DENSE_INDEX_DIR) or a sharded glob (DENSE_INDEX_GLOB).
 # Exactly one of these should normally be set in the config; if both are set, DENSE_INDEX_GLOB wins.
+if [ "$_need_dense" = "1" ]; then
 if [ -n "${DENSE_INDEX_GLOB:-}" ]; then
   DENSE_ARGS=(
     --index-glob "$DENSE_INDEX_GLOB"
@@ -550,8 +590,12 @@ else
   echo "[timing] Dense step: $((STEP_DENSE_END-STEP_DENSE_START))s"
   _log_run "step" "2" "Dense" "$((STEP_DENSE_END-STEP_DENSE_START))s"
 fi
+else
+  echo "[2/$TOTAL_STEPS] Dense... (skip: STAGE1_SOURCE=$STAGE1_SOURCE)"
+fi
 
 # ----- Retrieval Fusion (BM25 + Dense RRF) -----
+if [ "$_need_fusion" = "1" ]; then
 RETRIEVAL_FUSION_ARGS=(
   --bm25-runs-dir "$BM25_OUT/runs"
   --bm25-method "$BM25_METHOD_FOR_HYBRID"
@@ -585,6 +629,9 @@ else
   STEP_RFUSION_END=$(date +%s)
   echo "[timing] Retrieval fusion step: $((STEP_RFUSION_END-STEP_RFUSION_START))s"
   _log_run "step" "3" "RetrievalFusion" "$((STEP_RFUSION_END-STEP_RFUSION_START))s"
+fi
+else
+  echo "[3/$TOTAL_STEPS] Retrieval fusion... (skip: STAGE1_SOURCE=$STAGE1_SOURCE; stage-1 run supplied)"
 fi
 
 # ----- Reranker (optional: only if DOCS_JSONL set and not --no-rerank) -----
