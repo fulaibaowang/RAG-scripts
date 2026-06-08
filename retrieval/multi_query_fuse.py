@@ -202,7 +202,7 @@ def _infer_role(run_id: str, train_stems: List[str], test_stems: List[str]) -> s
 
 def _short_label(run_id: str) -> str:
     s = run_id
-    for prefix in ("best_rrf_", "dense_"):
+    for prefix in ("stage1_", "dense_"):
         if s.startswith(prefix):
             s = s[len(prefix):]
             break

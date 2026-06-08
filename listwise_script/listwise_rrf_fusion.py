@@ -4,7 +4,7 @@ RRF fusion between listwise reranking output and snippet_doc_fusion output.
 
 Takes two sets of runs:
   - Listwise runs (simple names: ``{split}.tsv``)
-  - Snippet doc fusion runs (long names: ``best_rrf_{split}_top5000_...tsv``)
+  - Snippet doc fusion runs (long names: ``stage1_{split}_top5000_...tsv``)
 
 Matches them by parsed split name, applies weighted RRF fusion,
 and outputs fused TSVs with simple ``{split}.tsv`` names for
@@ -42,9 +42,9 @@ from retrieval_eval.common import (  # type: ignore
 # ---------------------------------------------------------------------------
 
 def _parse_split_from_long_stem(run_stem: str) -> Optional[str]:
-    """Extract split from a ``best_rrf_*`` run stem (snippet doc fusion naming)."""
+    """Extract split from a ``stage1_*`` run stem (snippet doc fusion naming)."""
     m = re.fullmatch(
-        r"best_rrf_(.+?)_top\d+(?:_rrf_pool[^\s]+)?",
+        r"stage1_(.+?)_top\d+(?:_rrf_pool[^\s]+)?",
         run_stem,
     )
     return m.group(1) if m else None
@@ -139,7 +139,7 @@ def parse_args() -> argparse.Namespace:
         dest="snippet_doc_fusion_runs_dir",
         required=True,
         metavar="PATH",
-        help="Snippet doc fusion runs directory (best_rrf_*.tsv). Alias: --snippet-rrf-runs-dir.",
+        help="Snippet doc fusion runs directory (stage1_*.tsv). Alias: --snippet-rrf-runs-dir.",
     )
     p.add_argument("--output-dir", type=Path, required=True,
                     help="Output directory for fused runs, metrics, and figures.")

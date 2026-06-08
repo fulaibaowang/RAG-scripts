@@ -300,12 +300,12 @@ fi
 mkdir -p "$BM25_OUT" "$DENSE_OUT" "$HYBRID_OUT"
 
 # ----- Stage the external first-stage run (STAGE1_SOURCE=external) -----
-# Stage the provided run as the hybrid-fusion output so rerank/evidence/generation consume it
-# unchanged. Named best_rrf_* (current internal convention; pending best_rrf_ -> stage1_ rename).
+# Stage the provided run as the stage-1 (hybrid) output so rerank/evidence/generation consume it
+# unchanged. Uses the canonical stage1_<split>_top<k> run name (same as fuse_retrieval produces).
 if [ "$STAGE1_SOURCE" = "external" ]; then
   [ -n "${INPUT_JSONL:-}" ] || { echo "Error: STAGE1_SOURCE=external requires INPUT_JSONL (single split)." >&2; exit 1; }
   _s1_stem="$(basename "${INPUT_JSONL%.*}")"
-  _s1_dst="$HYBRID_OUT/runs/best_rrf_${_s1_stem}_top${STAGE1_RUN_TOPK:-1000}.tsv"
+  _s1_dst="$HYBRID_OUT/runs/stage1_${_s1_stem}_top${STAGE1_RUN_TOPK:-1000}.tsv"
   mkdir -p "$HYBRID_OUT/runs"
   if [ -f "$_s1_dst" ]; then
     echo "[stage1/external] run already staged: $_s1_dst"
@@ -1256,7 +1256,7 @@ _DOCS_JSONL_OK=0
     for _tsv in "$_EVIDENCE_RUNS_DIR/"*.tsv; do
       [ -f "$_tsv" ] || continue
       _stem=$(basename "$_tsv" .tsv)
-      _split="${_stem#best_rrf_}"
+      _split="${_stem#stage1_}"
       _split="${_split%%_top*}"
       [ -n "$_split" ] || continue
 
@@ -1342,7 +1342,7 @@ _DOCS_JSONL_OK=0
       for _tsv in "$_EVIDENCE_RUNS_DIR/"*.tsv; do
         [ -f "$_tsv" ] || continue
         _stem=$(basename "$_tsv" .tsv)
-        _split="${_stem#best_rrf_}"
+        _split="${_stem#stage1_}"
         _split="${_split%%_top*}"
         [ -n "$_split" ] || continue
 

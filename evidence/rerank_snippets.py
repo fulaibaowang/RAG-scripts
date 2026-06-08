@@ -449,7 +449,7 @@ def _build_output_config(base_dir: Path) -> OutputConfig:
 def _parse_split_from_run_stem(run_stem: str) -> Optional[str]:
     """Extract split from run stem; supports legacy _rrf_pool50_k60 and _rrf_poolR*_poolH*_k* (align with fuse_rerank)."""
     m = re.fullmatch(
-        r"best_rrf_(.+)_top\d+(?:_rrf_pool(?:\d+_k\d+|R\d+_poolH\d+_k\d+))?",
+        r"stage1_(.+)_top\d+(?:_rrf_pool(?:\d+_k\d+|R\d+_poolH\d+_k\d+))?",
         run_stem,
     )
     return m.group(1) if m else None

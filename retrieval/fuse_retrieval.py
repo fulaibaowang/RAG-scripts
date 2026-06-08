@@ -662,7 +662,7 @@ def main() -> None:
                 w_dense=float(args.w_dense),
                 k_out=k_out,
             )
-            runmap_to_tsv(best_run, runs_dir / f"best_rrf_{split}_top{k_out}.tsv")
+            runmap_to_tsv(best_run, runs_dir / f"stage1_{split}_top{k_out}.tsv")
         config = vars(args)
         config.update({"ks_cap": list(fixed_ks), "ks_eval": list(ks_eval)})
         (out_dir / "config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
@@ -753,11 +753,11 @@ def main() -> None:
                 w_dense=float(best_row["w_dense"]),
                 k_out=k_out,
             )
-            runmap_to_tsv(best_run, runs_dir / f"best_rrf_{split}_top{k_out}.tsv")
+            runmap_to_tsv(best_run, runs_dir / f"stage1_{split}_top{k_out}.tsv")
     else:
         print(
             "[sweep] diagnostic-only: metrics.csv / ranked_test_avg.csv / plots written, "
-            "but no best_rrf_*.tsv. Rerun with --mode default (fixed k_rrf/w_bm25/w_dense) "
+            "but no stage1_*.tsv. Rerun with --mode default (fixed k_rrf/w_bm25/w_dense) "
             "to produce the run TSV consumed by the reranker."
         )
 

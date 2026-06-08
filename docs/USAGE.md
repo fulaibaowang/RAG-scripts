@@ -165,11 +165,11 @@ Use `--no-generation` (or `RUN_GENERATION_*=0`) to build evidence only. Env knob
 
 ### Manual CLI (document route)
 
-Assume a rerank run TSV (e.g. `output/.../rerank/post_rerank_fusion/runs/best_rrf_<split>_top....tsv`) and the same query `.jsonl` you used for retrieval:
+Assume a rerank run TSV (e.g. `output/.../rerank/post_rerank_fusion/runs/stage1_<split>_top....tsv`) and the same query `.jsonl` you used for retrieval:
 
 ```bash
 python evidence/build_retrieval_jsonl.py \
-  --run-path "output/.../rerank/post_rerank_fusion/runs/best_rrf_my_split_top50.tsv" \
+  --run-path "output/.../rerank/post_rerank_fusion/runs/stage1_my_split_top50.tsv" \
   --query-jsonl "/path/to/my_split.jsonl" \
   --output-path "output/.../rerank/post_rerank_fusion/post_rerank_my_split.jsonl" \
   --top-k 30
