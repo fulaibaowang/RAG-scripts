@@ -203,7 +203,7 @@ Corresponds to `# ---------- Retrieval Fusion (BM25 + Dense RRF) ----------` in 
 | BM25 weight | 1.0, 2.0, 3.0 | **1.0** | Weight multiplier for BM25 RRF scores |
 | Dense weight | 1.0, 2.0, 3.0 | **1.0** | Weight multiplier for Dense RRF scores |
 
-**Mode:** `default` (single fixed config, writes the run TSV consumed by the reranker). `sweep` is diagnostic-only — it produces `metrics.csv` / `ranked_test_avg.csv` / plots but **no** `best_rrf_*.tsv`, because picking the sweep winner on test gold would leak labels into the reranker input. Set `RETRIEVAL_FUSION_MODE=sweep` to inspect the grid; rerun in `default` afterward to produce a downstream run.
+**Mode:** `default` (single fixed config, writes the run TSV consumed by the reranker). `sweep` is diagnostic-only — it produces `metrics.csv` / `ranked_test_avg.csv` / plots but **no** `stage1_*.tsv`, because picking the sweep winner on test gold would leak labels into the reranker input. Set `RETRIEVAL_FUSION_MODE=sweep` to inspect the grid; rerun in `default` afterward to produce a downstream run.
 
 See [notebooks/retrieval_fusion_sweep_medembed.ipynb](https://github.com/fulaibaowang/BioASQ/blob/main/notebooks/retrieval_fusion_sweep_medembed.ipynb) for the RRF grid search.
 

@@ -65,9 +65,9 @@ def _resolve_repo_root() -> Path:
     return Path(__file__).resolve().parent
 
 
-# Hybrid stage writes best_rrf_{split}_top{k}.tsv; extract logical split for role/label mapping.
+# Hybrid stage writes stage1_{split}_top{k}.tsv; extract logical split for role/label mapping.
 def _parse_split_from_run_stem(run_stem: str) -> Optional[str]:
-    m = re.fullmatch(r"best_rrf_(.+)_top\d+", run_stem)
+    m = re.fullmatch(r"stage1_(.+)_top\d+", run_stem)
     return m.group(1) if m else None
 
 

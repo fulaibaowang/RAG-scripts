@@ -98,7 +98,7 @@ def build_and_save_hybrid_reranker_plots(
     split_to_label = (config or {}).get("split_to_label") or {}
 
     def _parse_split_from_run_stem(stem: str) -> Optional[str]:
-        m = re.fullmatch(r"best_rrf_(.+)_top\d+", str(stem))
+        m = re.fullmatch(r"stage1_(.+)_top\d+", str(stem))
         return m.group(1) if m else None
 
     # One row per run: run_id, label, role, then hybrid/reranker metrics

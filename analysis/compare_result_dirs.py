@@ -116,12 +116,12 @@ def _infer_role_from_run_id(
 
 
 def _short_run_label(run_id: str) -> str:
-    """Extract split name from run_id for compact legend (e.g. best_rrf_13B1_golden_top5000_... -> 13B1_golden)."""
+    """Extract split name from run_id for compact legend (e.g. stage1_13B1_golden_top5000_... -> 13B1_golden)."""
     if not run_id or len(run_id) <= 28:
         return run_id
     s = run_id
-    if s.startswith("best_rrf_"):
-        s = s[len("best_rrf_"):]
+    if s.startswith("stage1_"):
+        s = s[len("stage1_"):]
     for sep in ("_top", "_rrf_"):
         if sep in s:
             s = s.split(sep)[0]

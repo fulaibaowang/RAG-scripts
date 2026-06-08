@@ -38,7 +38,7 @@ from retrieval_eval.common import (  # type: ignore
 
 
 def _fused_stem_to_rerank_stem(fused_stem: str) -> Optional[str]:
-    m = re.match(r"^(best_rrf_.+_top\d+)(?:_rrf_.*)?$", fused_stem)
+    m = re.match(r"^(stage1_.+_top\d+)(?:_rrf_.*)?$", fused_stem)
     return m.group(1) if m else None
 
 

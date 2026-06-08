@@ -116,11 +116,11 @@ def parse_split_from_run_stem(run_stem: str) -> Optional[str]:
     """Extract split name from a run filename stem.
 
     Handles patterns produced by the main pipeline, e.g.:
-      best_rrf_13B1_golden_top5000_rrf_poolR200_poolH200_k60_rrf_poolR100_poolH100_k60
+      stage1_13B1_golden_top5000_rrf_poolR200_poolH200_k60_rrf_poolR100_poolH100_k60
     Returns: ``13B1_golden`` (or ``None`` on no match).
     """
     m = re.fullmatch(
-        r"best_rrf_(.+?)_top\d+(?:_rrf_pool[^\s]+)?",
+        r"stage1_(.+?)_top\d+(?:_rrf_pool[^\s]+)?",
         run_stem,
     )
     return m.group(1) if m else None

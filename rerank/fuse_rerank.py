@@ -24,16 +24,16 @@ from retrieval_eval.common import (  # type: ignore
 
 def _parse_split_from_run_stem(run_stem: str) -> Optional[str]:
     """
-    Extract the split name from a best_rrf_* run stem.
+    Extract the split name from a stage1_* run stem.
 
     Supports:
-      - best_rrf_<split>_top5000
-      - best_rrf_<split>_top5000_rrf_pool50_k60
-      - best_rrf_<split>_top5000_rrf_poolR200_poolH200_k60  (post_rerank_fusion / snippet_rerank output)
+      - stage1_<split>_top5000
+      - stage1_<split>_top5000_rrf_pool50_k60
+      - stage1_<split>_top5000_rrf_poolR200_poolH200_k60  (post_rerank_fusion / snippet_rerank output)
     """
     # Optional suffix: _rrf_pool50_k60 (legacy) or _rrf_poolR\d+_poolH\d+_k\d+
     m = re.fullmatch(
-        r"best_rrf_(.+)_top\d+(?:_rrf_pool(?:\d+_k\d+|R\d+_poolH\d+_k\d+))?",
+        r"stage1_(.+)_top\d+(?:_rrf_pool(?:\d+_k\d+|R\d+_poolH\d+_k\d+))?",
         run_stem,
     )
     return m.group(1) if m else None
@@ -102,8 +102,8 @@ def parse_args() -> argparse.Namespace:
         description="RRF fusion of cross-encoder rerank runs and retrieval fusion runs (weighted RRF).",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    p.add_argument("--hybrid-runs-dir", type=Path, required=True, help="Retrieval fusion runs directory (best_rrf_*.tsv).")
-    p.add_argument("--rerank-runs-dir", type=Path, required=True, help="Cross-encoder rerank runs directory (best_rrf_*.tsv).")
+    p.add_argument("--hybrid-runs-dir", type=Path, required=True, help="Retrieval fusion runs directory (stage1_*.tsv).")
+    p.add_argument("--rerank-runs-dir", type=Path, required=True, help="Cross-encoder rerank runs directory (stage1_*.tsv).")
     p.add_argument(
         "--output-dir",
         type=Path,
@@ -239,7 +239,7 @@ def main() -> None:
     fused_runs: Dict[str, pd.DataFrame] = {}
 
     for rerank_path in sorted(rerank_runs_dir.glob("*.tsv")):
-        name = rerank_path.stem  # e.g. best_rrf_training14b_10pct_sample_top5000
+        name = rerank_path.stem  # e.g. stage1_training14b_10pct_sample_top5000
         split = _parse_split_from_run_stem(name)
         if split is None:
             print(f"skip {rerank_path} (could not parse split)")
