@@ -74,9 +74,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--max-chunks-per-pmid",
-        type=int,
+        type=lambda s: 0 if str(s).strip().lower() == "all" else int(s),
         default=2,
-        help="Max chunks kept per PMID in the doc_ids list (default: 2). "
+        help="Max chunks kept per PMID in the doc_ids list (default: 2; 'all' or <=0 = unlimited). "
         "Set to 1 for single-best-chunk-per-paper.",
     )
     parser.add_argument(
