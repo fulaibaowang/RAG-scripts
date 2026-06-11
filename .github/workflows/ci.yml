@@ -67,3 +67,26 @@ jobs:
           test -n "$_tsv"
           grep -q '#abstract' "$_tsv" \
             || { echo "Expected chunk docnos (#abstract) in $_tsv"; exit 1; }
+
+      - name: Assert evidence context ids are real corpus docnos (chunked only)
+        if: ${{ matrix.label == 'chunked-abstract' }}
+        run: |
+          python3 - "${{ matrix.output_root }}" demo/data/docs_chunked.jsonl <<'PY'
+          import json, glob, sys
+          out_root, corpus = sys.argv[1], sys.argv[2]
+          rows = {(json.loads(l).get("docno") or json.loads(l).get("docid")) for l in open(corpus)}
+          files = glob.glob(f"{out_root}/evidence/*/*_contexts.jsonl")
+          assert files, f"no evidence contexts under {out_root}/evidence/ (evidence path not exercised)"
+          total = bad = 0
+          for f in files:
+              for line in open(f):
+                  for c in json.loads(line).get("contexts", []):
+                      total += 1
+                      if c.get("doc_id") not in rows:
+                          bad += 1
+                          if bad <= 5:
+                              print("NOT IN CORPUS:", c.get("id"), c.get("doc_id"))
+          print(f"checked {len(files)} context file(s), {total} contexts, {bad} doc_ids not in corpus")
+          assert total > 0, "no contexts found in evidence files"
+          assert bad == 0, f"{bad}/{total} context doc_ids are not real corpus docnos"
+          PY
