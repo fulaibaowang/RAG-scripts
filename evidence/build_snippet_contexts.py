@@ -43,7 +43,6 @@ for _p in (_SHARED_SCRIPTS, _EVIDENCE_DIR):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 from retrieval_eval.common import iter_jsonl_dicts, question_qid, write_questions_jsonl
-from retrieval_eval.aggregate import docno_to_pmid
 from retrieval_eval.doc_id_util import ranked_doc_ids_for_evidence
 
 from score_snippet_windows import (
@@ -544,13 +543,15 @@ def main() -> int:
         qid = question_qid(q)
         if qid is None:
             continue
-        # Group the question's chunk-level doc_ids by pmid so each paper
-        # contributes exactly one context, with snippets pooled across its
-        # chunks.
+        # Key each context by the real corpus docno (never the stripped parent),
+        # so every emitted id exists in the corpus. For a bare-id corpus this is
+        # the document itself; for a chunked corpus each chunk is its own context.
+        # (`pmid` holds the real docno here; chunk-level grouping/merging is a
+        # property of the corpus, applied upstream via take_top_k_distinct_pmids.)
         pmid_order: List[str] = []
         chunks_by_pmid: Dict[str, List[str]] = {}
         for doc_id in ranked_doc_ids_for_evidence(q, etk):
-            pmid = docno_to_pmid(doc_id)
+            pmid = doc_id
             if pmid not in chunks_by_pmid:
                 pmid_order.append(pmid)
                 chunks_by_pmid[pmid] = []

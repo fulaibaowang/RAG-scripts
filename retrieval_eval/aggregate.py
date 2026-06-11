@@ -104,10 +104,10 @@ def take_top_k_distinct_pmids(
     The result has at most ``k * max_chunks_per_pmid`` entries.
 
     Used by the evidence stage to enforce "top K papers, up to M chunks each"
-    semantics on top of chunk-level rerank output.
+    semantics on top of chunk-level rerank output. ``max_chunks_per_pmid <= 0``
+    means unlimited (keep all chunks of each kept PMID).
     """
-    if max_chunks_per_pmid < 1:
-        raise ValueError(f"max_chunks_per_pmid must be >= 1, got {max_chunks_per_pmid}")
+    unlimited = max_chunks_per_pmid <= 0
     seen_count: Dict[str, int] = {}
     distinct_pmids: List[str] = []
     out: List[str] = []
@@ -119,7 +119,7 @@ def take_top_k_distinct_pmids(
                 continue
             distinct_pmids.append(p)
             seen_count[p] = 0
-        if seen_count[p] < max_chunks_per_pmid:
+        if unlimited or seen_count[p] < max_chunks_per_pmid:
             out.append(d)
             seen_count[p] += 1
     return out
