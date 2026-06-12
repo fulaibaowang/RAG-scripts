@@ -51,6 +51,7 @@ from retrieval_eval.common import (
     RECALL_KS,
     run_df_to_run_map,
 )
+from score_snippet_windows import filter_prose_sentences, prose_filter_enabled
 
 # FlagLLMReranker is imported lazily when --ce-reranker-type llm is used.
 FlagLLMReranker = None
@@ -129,7 +130,8 @@ def load_doc_title_sentences(
                     continue
                 title = str(rec.get("title", "")).strip()
                 body = str(rec.get("text", "")).strip()
-                sentences = [s.strip() for s in nltk.sent_tokenize(body) if s.strip()] if body else []
+                sentences = filter_prose_sentences(
+                    [s.strip() for s in nltk.sent_tokenize(body) if s.strip()]) if body else []
                 out[docno] = (title, sentences)
                 if len(out) == len(wanted):
                     break
@@ -558,6 +560,9 @@ def parse_args() -> argparse.Namespace:
 # ---------------------------------------------------------------------------
 def main() -> None:
     args = parse_args()
+    if prose_filter_enabled():
+        logging.getLogger(__name__).info(
+            "SNIPPET_PROSE_FILTER active: dropping TOC/short non-prose sentences before windowing")
 
     # --- resolve run files ---
     if args.run_files:

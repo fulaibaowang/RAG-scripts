@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -10,6 +11,41 @@ from retrieval_eval.common import question_qid
 
 # Post-rerank JSONL field: compact shape doc_id -> {"selected_windows": [...]}
 DOC_SNIPPET_WINDOWS_KEY = "doc_snippet_windows"
+
+# --- prose filter (web-corpus boilerplate; default OFF) -----------------------
+# On web corpora (e.g. MSMARCO segments), TOC/navigation blocks carry no sentence
+# punctuation, so sent_tokenize cannot split them: the whole block becomes one
+# multi-line "sentence" and windows built over it are boilerplate. Enabling
+# SNIPPET_PROSE_FILTER drops such items from the sentence list BEFORE windowing.
+PROSE_FILTER_ENV = "SNIPPET_PROSE_FILTER"
+
+
+def prose_filter_enabled() -> bool:
+    return (os.getenv(PROSE_FILTER_ENV) or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def is_prose_sentence(sentence: str) -> bool:
+    """False for (i) multi-line blocks whose lines are majority <4 words (TOC/nav)
+    and (ii) fragments of <5 words. Plain prose passes unchanged."""
+    lines = [l.strip() for l in sentence.split("\n") if l.strip()]
+    if len(lines) > 1 and sum(1 for l in lines if len(l.split()) < 4) / len(lines) > 0.5:
+        return False
+    if len(sentence.split()) < 5:
+        return False
+    return True
+
+
+def filter_prose_sentences(sentences: List[str]) -> List[str]:
+    """Apply the prose filter iff SNIPPET_PROSE_FILTER is set; identity otherwise.
+
+    MUST be applied at every site that turns a doc body into the sentence list
+    windows are built from (currently rerank_snippets + build_snippet_contexts):
+    stored window ``sent_ids`` are indices into that list, so window scoring and
+    context building desync if one site filters and the other does not.
+    """
+    if not prose_filter_enabled():
+        return sentences
+    return [s for s in sentences if is_prose_sentence(s)]
 
 # Provenance on contexts / answers JSONL (question-level)
 CONTEXT_MODE_DOCUMENT = "document"

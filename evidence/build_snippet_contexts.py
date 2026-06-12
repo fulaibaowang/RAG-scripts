@@ -53,6 +53,8 @@ from score_snippet_windows import (
     merge_window_selection_from_embedded_questions,
     questions_use_embedded_windows,
     select_windows_max_pool_from_path,
+    filter_prose_sentences,
+    prose_filter_enabled,
 )
 
 
@@ -237,7 +239,8 @@ def build_docno_to_title_sentences(
                     body = " ".join(str(b) for b in body)
                 title = str(title).strip()
                 body = str(body).strip()
-                sentences = [s.strip() for s in nltk.sent_tokenize(body) if s.strip()] if body else []
+                sentences = filter_prose_sentences(
+                    [s.strip() for s in nltk.sent_tokenize(body) if s.strip()]) if body else []
                 docno_to_data[docno] = (title, sentences)
                 if len(docno_to_data) == len(needed_docnos):
                     break
@@ -433,6 +436,8 @@ def main() -> int:
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(levelname)s: %(message)s",
     )
+    if prose_filter_enabled():
+        logger.info("SNIPPET_PROSE_FILTER active: dropping TOC/short non-prose sentences before windowing")
 
     if args.stats_only:
         if not args.stats_output_path:
