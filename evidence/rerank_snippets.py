@@ -561,8 +561,8 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     if prose_filter_enabled():
-        logging.getLogger(__name__).info(
-            "SNIPPET_PROSE_FILTER active: dropping TOC/short non-prose sentences before windowing")
+        print("SNIPPET_PROSE_FILTER active: dropping TOC/short non-prose sentences before windowing",
+              flush=True)
 
     # --- resolve run files ---
     if args.run_files:
