@@ -348,6 +348,11 @@ def call_llm_openai_compat(
     }
     if float(top_p) < 1.0:
         payload["top_p"] = float(top_p)
+    # Optional output cap: some providers (e.g. OpenRouter) apply a low default max_tokens
+    # that truncates long JSON answers mid-object. Set GENERATION_MAX_TOKENS to avoid this.
+    _max_tok = (os.getenv("GENERATION_MAX_TOKENS") or "").strip()
+    if _max_tok:
+        payload["max_tokens"] = int(_max_tok)
     r = requests.post(
         url,
         headers={
