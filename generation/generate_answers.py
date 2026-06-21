@@ -76,7 +76,10 @@ def _find_repo_root() -> Path:
 
 REPO_ROOT = _find_repo_root()
 
-OLLAMA_URL = "https://chat.fri.uni-lj.si/ollama/api/generate"
+# Endpoint is env-overridable so a self-hosted ollama (e.g. a local SLURM GPU job at
+# http://127.0.0.1:11434/api/generate) can be used in place of the institutional API.
+# Default is unchanged, so behaviour is byte-identical when OLLAMA_URL is unset (cross-repo safe).
+OLLAMA_URL = os.getenv("OLLAMA_URL", "https://chat.fri.uni-lj.si/ollama/api/generate")
 OLLAMA_MODEL = "llama3.3:latest"
 
 MAX_LLM_RETRIES = 3
