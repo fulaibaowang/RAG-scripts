@@ -310,6 +310,17 @@ def call_llm_ollama(
     top_p: float = 1.0,
 ) -> str:
     prompt = f"[SYSTEM]\n{system_prompt}\n\n[USER]\n{user_prompt}"
+    options: Dict[str, Any] = {
+        "temperature": float(temperature),
+        "top_p": float(top_p),
+    }
+    # Optional context-window override. Ollama's server default num_ctx (e.g. 4096) silently
+    # TRUNCATES prompts that exceed it; set GENERATION_NUM_CTX to raise it per-request (e.g. on a
+    # self-host where long raw-evidence prompts must fit). Default unset -> server default, so
+    # behaviour is byte-identical when the env var is absent (cross-repo safe).
+    _num_ctx = (os.getenv("GENERATION_NUM_CTX") or "").strip()
+    if _num_ctx:
+        options["num_ctx"] = int(_num_ctx)
     r = requests.post(
         OLLAMA_URL,
         headers={"Authorization": f"Bearer {api_key}"},
@@ -317,10 +328,7 @@ def call_llm_ollama(
             "model": model,
             "stream": False,
             "prompt": prompt,
-            "options": {
-                "temperature": float(temperature),
-                "top_p": float(top_p),
-            },
+            "options": options,
         },
         timeout=timeout,
     )
