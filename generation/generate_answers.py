@@ -321,15 +321,25 @@ def call_llm_ollama(
     _num_ctx = (os.getenv("GENERATION_NUM_CTX") or "").strip()
     if _num_ctx:
         options["num_ctx"] = int(_num_ctx)
+    payload: Dict[str, Any] = {
+        "model": model,
+        "stream": False,
+        "prompt": prompt,
+        "options": options,
+    }
+    # Optional reasoning toggle for thinking-capable models (e.g. Gemma 4). Default unset -> key
+    # absent -> server/model default (no thinking), so behaviour is byte-identical when the env var
+    # is absent (cross-repo safe). When enabled, Ollama returns the trace in a separate "thinking"
+    # field and keeps "response" as the final answer, so JSON parsing is unaffected.
+    _think = (os.getenv("GENERATION_THINK") or "").strip().lower()
+    if _think in ("1", "true", "yes", "on"):
+        payload["think"] = True
+    elif _think in ("0", "false", "no", "off"):
+        payload["think"] = False
     r = requests.post(
         OLLAMA_URL,
         headers={"Authorization": f"Bearer {api_key}"},
-        json={
-            "model": model,
-            "stream": False,
-            "prompt": prompt,
-            "options": options,
-        },
+        json=payload,
         timeout=timeout,
     )
     r.raise_for_status()
