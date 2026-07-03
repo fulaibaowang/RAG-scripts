@@ -90,3 +90,45 @@ jobs:
           assert total > 0, "no contexts found in evidence files"
           assert bad == 0, f"{bad}/{total} context doc_ids are not real corpus docnos"
           PY
+
+  generation-modes:
+    # Exercise the generation stage (direct | claims | facets distillation) end-to-end
+    # against a deterministic in-container mock LLM (ci/mock_ollama.py) — no real model,
+    # no network egress. Reuses the prebuilt chunked demo output tree so retrieval/rerank
+    # skip and only the evidence->generation rail runs.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout demo data
+        uses: actions/checkout@v4
+        with:
+          repository: fulaibaowang/RAG-scripts-demo-data
+          path: demo
+
+      - name: Unit tests (distillation cache contracts)
+        run: python3 generation/test_distill_common.py
+
+      - name: Cache HuggingFace models
+        uses: actions/cache@v4
+        with:
+          path: .hf_cache
+          key: hf-abhinand-MedEmbed-small-v0.1-BAAI-bge-reranker-v2-m3-all-MiniLM-L6-v2
+
+      - name: Pull Docker image
+        run: docker pull fulaibaowang/bioasq:08.03.26b200
+
+      - name: Run generation modes vs mock LLM
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}:/work" \
+            -v "${{ github.workspace }}/.hf_cache:/hf_cache" \
+            -e HF_HOME=/hf_cache \
+            -e HF_HUB_CACHE=/hf_cache/hub \
+            -e SENTENCE_TRANSFORMERS_HOME=/hf_cache/sentence_transformers \
+            -e OMP_NUM_THREADS=2 \
+            -e PYTHONUNBUFFERED=1 \
+            -e TQDM_DISABLE=1 \
+            --workdir /work \
+            fulaibaowang/bioasq:08.03.26b200 \
+            bash -c "DEMO_DIR=/work/demo OUT_ROOT=/tmp/genmodes bash ci/run_generation_modes.sh"

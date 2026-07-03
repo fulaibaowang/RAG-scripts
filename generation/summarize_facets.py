@@ -240,9 +240,10 @@ def main() -> None:
         print(f"  SUMMARY LENGTH (words): median {int(stx.median(summ_lens))} "
               f"mean {stx.mean(summ_lens):.1f} p10 {pct(summ_lens,10)} p90 {pct(summ_lens,90)} "
               f"max {max(summ_lens)}", flush=True)
-        print(f"    vs claim length: claim median {int(stx.median(claim_lens)) if claim_lens else 0}w "
+        claim_med = int(stx.median(claim_lens)) if claim_lens else 0
+        print(f"    vs claim length: claim median {claim_med}w "
               f"-> summary median {int(stx.median(summ_lens))}w "
-              f"(ratio {stx.median(summ_lens)/max(1,stx.median(claim_lens)):.2f}x)", flush=True)
+              f"(ratio {stx.median(summ_lens)/max(1,claim_med):.2f}x)", flush=True)
     if fidelity_rows:
         mean_covs = [r[2] for r in fidelity_rows]
         min_covs = [r[3] for r in fidelity_rows]
