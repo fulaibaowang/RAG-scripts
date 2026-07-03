@@ -361,6 +361,7 @@ Corresponds to `# ---------- Generation (LLM answers from contexts JSONL) ------
 | `--max-contexts` | — | **10** | Cap on evidence passages per question |
 | `--max-chars-per-context` | — | **1300** | Truncation length per context |
 | Model | — | **llama3.3:latest** | Ollama model (override via `GENERATION_MODEL` / provider) |
+| `GENERATION_CHECKPOINT` | 0/1 | **1** | Per-completion checkpoint sidecar (`*_answers.jsonl.partial`): an interrupted run resumes, reusing clean completions (fingerprinted on input/model/params; failed rows are regenerated). Final answers file unchanged; sidecar removed on success |
 
 **Decision:** Temperature differences were marginal; default `temperature=0.0` for deterministic output.
 

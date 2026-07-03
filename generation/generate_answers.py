@@ -903,14 +903,60 @@ def main() -> int:
     completed_count = 0
     use_tqdm = not args.no_progress and tqdm is not None and sys.stderr.isatty()
 
+    # Per-completion checkpoint so an interrupted run keeps its progress. The final answers
+    # file is written exactly as before (byte-identical), so this is cross-repo safe; the
+    # sidecar is removed on success. Disable with GENERATION_CHECKPOINT=0.
+    checkpoint_enabled = (os.getenv("GENERATION_CHECKPOINT", "1").strip().lower()
+                          not in ("0", "false", "no", "off"))
+    ckpt_path = json_path.parent / (json_path.name + ".partial")
+    ckpt_header = {
+        "input": str(args.input_path), "model": effective_model,
+        "backend": "openai_compat" if openai_compat else "ollama", "total": total,
+        "max_contexts": args.max_contexts, "max_chars_per_context": args.max_chars_per_context,
+    }
+    ckpt_fh = None
+    if checkpoint_enabled:
+        if ckpt_path.exists():
+            try:
+                with open(ckpt_path, "r", encoding="utf-8") as f:
+                    first = json.loads(f.readline() or "{}")
+                    if first.get("__checkpoint__") == ckpt_header:
+                        for line in f:
+                            line = line.strip()
+                            if not line:
+                                continue
+                            row = json.loads(line)
+                            rec = row.get("record")
+                            # reuse only clean completions; failed rows get regenerated
+                            if isinstance(rec, dict) and not rec.get("error"):
+                                results_by_idx[int(row["__idx__"])] = rec
+                        logger.info(
+                            "Resuming from checkpoint %s: %d completed record(s) reused",
+                            ckpt_path, len(results_by_idx),
+                        )
+                    else:
+                        logger.warning(
+                            "Checkpoint %s does not match this run (input/model/params changed); ignoring it",
+                            ckpt_path,
+                        )
+            except Exception as e:
+                logger.warning("Could not read checkpoint %s: %s; ignoring it", ckpt_path, e)
+        ckpt_fh = open(ckpt_path, "w", encoding="utf-8")
+        ckpt_fh.write(json.dumps({"__checkpoint__": ckpt_header}, ensure_ascii=False) + "\n")
+        for i, rec in sorted(results_by_idx.items()):
+            ckpt_fh.write(json.dumps({"__idx__": i, "record": rec}, ensure_ascii=False) + "\n")
+        ckpt_fh.flush()
+
     with ThreadPoolExecutor(max_workers=args.concurrency) as ex:
         futs = {
             ex.submit(process_one, idx, obj): (idx, obj)
             for idx, obj in enumerate(all_objs, start=1)
+            if idx not in results_by_idx
         }
+        completed_count = len(results_by_idx)
         completed = as_completed(futs)
         if use_tqdm:
-            completed = tqdm(completed, total=total, desc="Generation")
+            completed = tqdm(completed, total=total, initial=completed_count, desc="Generation")
         for fut in completed:
             idx, obj = futs[fut]
             try:
@@ -934,6 +980,10 @@ def main() -> int:
                     rec["exact_answer"] = None
                 sanitize_generation_record(rec)
                 results_by_idx[idx] = rec
+            if ckpt_fh is not None:
+                ckpt_fh.write(json.dumps({"__idx__": idx, "record": results_by_idx[idx]},
+                                         ensure_ascii=False) + "\n")
+                ckpt_fh.flush()
             completed_count += 1
             if progress_every and (completed_count == 1 or completed_count % progress_every == 0 or completed_count == total):
                 logger.info("Generation progress: %d/%d", completed_count, total)
@@ -963,6 +1013,13 @@ def main() -> int:
             logger.warning("No result for index %d (id=%s); added record with error", i, question_qid(obj))
 
     write_questions_jsonl(json_path, records_out)
+
+    if ckpt_fh is not None:
+        ckpt_fh.close()
+        try:
+            ckpt_path.unlink()
+        except OSError:
+            pass
 
     logger.info("Wrote %d records to %s", len(records_out), json_path)
     return 0
