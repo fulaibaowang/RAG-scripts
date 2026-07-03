@@ -1446,13 +1446,10 @@ DISTILL_PREFLIGHT
             [ -n "${GENERATION_RESCUE_TIMEOUT:-}" ] && RESCUE_ARGS+=(--timeout "$GENERATION_RESCUE_TIMEOUT")
             [ -n "${GENERATION_RESCUE_RETRY_SLEEP:-}" ] && RESCUE_ARGS+=(--retry-sleep "$GENERATION_RESCUE_RETRY_SLEEP")
             [ -n "$_max_ctx" ] && RESCUE_ARGS+=(--max-contexts "$_max_ctx")
-            if [ "$_GEN_MODE" != "direct" ]; then
-              # Input-preserving rescue: identical truncation caps to the main run, so a
-              # rescued answer is never generated from silently reduced evidence.
-              [ -n "$_max_chars" ] && RESCUE_ARGS+=(--max-chars-per-context "$_max_chars")
-            else
-              [ -n "${GENERATION_MAX_CHARS_PER_CONTEXT:-}" ] && RESCUE_ARGS+=(--max-chars-per-context "$GENERATION_MAX_CHARS_PER_CONTEXT")
-            fi
+            # Input-preserving rescue: identical truncation caps to the main run, so a
+            # rescued answer is never generated from silently reduced evidence. (The rescue
+            # script's own standalone default is a shorter 1100 chars — never rely on it here.)
+            [ -n "$_max_chars" ] && RESCUE_ARGS+=(--max-chars-per-context "$_max_chars")
             python "$SCRIPT_DIR/generation/rescue_failed_generation.py" "${RESCUE_ARGS[@]}"
           fi
         fi
