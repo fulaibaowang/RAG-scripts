@@ -883,7 +883,16 @@ def main() -> int:
                 logger.debug("Raw response (first 600 chars): %s", repr(raw[:600]))
             out["ideal_answer"] = None
             out["evidence_ids"] = []
-            out["error"] = str(last_error)
+            _err = str(last_error)
+            # Classify output truncation so the fix is actionable: an unterminated JSON object
+            # means the model ran out of output room — a config problem (context window /
+            # output cap), not a transient one. Retrying or shrinking the evidence hides it.
+            if "incomplete JSON object" in _err:
+                _err += (
+                    " [likely output truncation: raise GENERATION_NUM_CTX (ollama) or "
+                    "GENERATION_MAX_TOKENS (openai_compat); do not cut contexts]"
+                )
+            out["error"] = _err
             if qtype in ("yesno", "factoid", "list"):
                 out["exact_answer"] = None
         sanitize_generation_record(out)

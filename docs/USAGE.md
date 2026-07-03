@@ -163,6 +163,28 @@ python rerank/rerank_crossencoder.py \
 
 Use `--no-generation` (or `RUN_GENERATION_*=0`) to build evidence only. Env knobs (`POST_RERANK_DOC_POOL`, `EVIDENCE_TOP_K*`, `GENERATION_*`, backends): [PARAMETERS.md](PARAMETERS.md).
 
+### Context distillation (optional, `GENERATION_MODE=claims|facets`)
+
+Between steps 2 and 3 the orchestrator can distil the contexts so generation ingests far more evidence than fits a raw prompt (default `direct` is byte-identical to the plain pipeline; ollama backend only — see [PARAMETERS.md](PARAMETERS.md#context-distillation-optional)):
+
+```bash
+export GENERATION_MODE=facets              # or: claims
+export GENERATION_EXTRACT_MODEL=llama3.3:latest
+export GENERATION_EXTRACT_TOP_N=50
+export GENERATION_NUM_CTX=16384            # distilled prompts are dense
+./run_retrieval_rerank_pipeline.sh --config my.env
+```
+
+Intermediates land next to the contexts file (`<split>_claims_cache.jsonl`, `<split>_facets_full.jsonl`, `<split>_facet_summaries.jsonl`, `<split>_claim_emb.npz`, `<split>_distilled_contexts.jsonl`); answers become `<split>_distilled_answers.jsonl`. The stages also run standalone:
+
+```bash
+python generation/extract_claims.py   --evidence ..._contexts.jsonl --cache claims.jsonl --top-n 50
+python generation/distil_claims.py    --evidence ..._contexts.jsonl --cache claims.jsonl --out distilled.jsonl --slots 50   # claims mode
+python generation/summarize_facets.py --evidence ..._contexts.jsonl --cache claims.jsonl \
+  --out facets_full.jsonl --summary-cache summaries.jsonl --dist-thr 0.4 --min-cluster 2       # facets mode
+python generation/select_contexts.py  --full facets_full.jsonl --out distilled.jsonl --n 16
+```
+
 ### Manual CLI (document route)
 
 Assume a rerank run TSV (e.g. `output/.../rerank/post_rerank_fusion/runs/stage1_<split>_top....tsv`) and the same query `.jsonl` you used for retrieval:

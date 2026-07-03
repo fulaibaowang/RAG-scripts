@@ -1347,26 +1347,89 @@ _DOCS_JSONL_OK=0
         [ -n "$_split" ] || continue
 
         _ctx_json="$WORKFLOW_OUTPUT_DIR/$_EVIDENCE_SUBDIR/${_split}_contexts.jsonl"
+        # Optional context distillation before generation (GENERATION_MODE=claims|facets).
+        # Cross-repo safe: byte-identical behavior when GENERATION_MODE is unset or "direct".
+        _GEN_MODE="${GENERATION_MODE:-direct}"
+        _gen_input="$_ctx_json"
         _gen_json="$WORKFLOW_OUTPUT_DIR/$_GEN_SUBDIR/${_split}_answers.jsonl"
+        if [ "$_GEN_MODE" != "direct" ]; then
+          case "${GENERATION_BACKEND:-ollama}" in
+            ollama) ;;
+            *) echo "[Distill] ERROR: GENERATION_MODE=$_GEN_MODE supports only GENERATION_BACKEND=ollama (got '${GENERATION_BACKEND:-}')" >&2; exit 1 ;;
+          esac
+          _distilled="$WORKFLOW_OUTPUT_DIR/$_EVIDENCE_SUBDIR/${_split}_distilled_contexts.jsonl"
+          _gen_input="$_distilled"
+          # generate_answers strips only a trailing "_contexts" from the input stem
+          _gen_json="$WORKFLOW_OUTPUT_DIR/$_GEN_SUBDIR/${_split}_distilled_answers.jsonl"
+        fi
         if [ -f "$_gen_json" ]; then
           echo "[Generation] $_split... (skip: output exists)"
         elif [ ! -f "$_ctx_json" ]; then
           echo "[Generation] Skip $_split: evidence not found ($_ctx_json)"
         else
+          if [ "$_GEN_MODE" != "direct" ]; then
+            if [ ! -f "$_distilled" ]; then
+              # Stage knobs come from GENERATION_EXTRACT_* / GENERATION_DISTIL_* /
+              # GENERATION_FACET_* / GENERATION_SUMMARY_* / GENERATION_SELECT_* env
+              # (read by the stage scripts themselves; see docs/PARAMETERS.md).
+              _claims_cache="$WORKFLOW_OUTPUT_DIR/$_EVIDENCE_SUBDIR/${_split}_claims_cache.jsonl"
+              echo "[Distill] $_split: extract claims (mode=$_GEN_MODE)..."
+              python "$SCRIPT_DIR/generation/extract_claims.py" \
+                --evidence "$_ctx_json" --cache "$_claims_cache"
+              if [ "$_GEN_MODE" = "claims" ]; then
+                echo "[Distill] $_split: distil claims into slots..."
+                python "$SCRIPT_DIR/generation/distil_claims.py" \
+                  --evidence "$_ctx_json" --cache "$_claims_cache" --out "$_distilled"
+              else
+                echo "[Distill] $_split: cluster + summarize facets..."
+                python "$SCRIPT_DIR/generation/summarize_facets.py" \
+                  --evidence "$_ctx_json" --cache "$_claims_cache" \
+                  --out "$WORKFLOW_OUTPUT_DIR/$_EVIDENCE_SUBDIR/${_split}_facets_full.jsonl" \
+                  --summary-cache "$WORKFLOW_OUTPUT_DIR/$_EVIDENCE_SUBDIR/${_split}_facet_summaries.jsonl" \
+                  --emb-cache "$WORKFLOW_OUTPUT_DIR/$_EVIDENCE_SUBDIR/${_split}_claim_emb.npz"
+                echo "[Distill] $_split: select slots (slot-text hybrid RRF)..."
+                python "$SCRIPT_DIR/generation/select_contexts.py" \
+                  --full "$WORKFLOW_OUTPUT_DIR/$_EVIDENCE_SUBDIR/${_split}_facets_full.jsonl" \
+                  --out "$_distilled"
+              fi
+            else
+              echo "[Distill] $_split... (skip: output exists)"
+            fi
+            # Preflight: distilled slot files are prompt-heavy; warn before the model
+            # truncates silently (the fix is raising num_ctx, never cutting slots).
+            if [ -n "${GENERATION_NUM_CTX:-}" ]; then
+              python - "$_gen_input" "${GENERATION_NUM_CTX}" <<'DISTILL_PREFLIGHT'
+import json, sys
+path, num_ctx = sys.argv[1], int(sys.argv[2])
+worst = max((sum(len((c.get("text") or "").split()) for c in json.loads(l).get("contexts") or [])
+             for l in open(path) if l.strip()), default=0)
+est = int(worst * 1.4) + 800  # rough prompt tokens: words*1.4 + prompt scaffolding
+if est > num_ctx * 0.75:
+    print(f"[Distill] WARNING: largest slot set ~{est} prompt tokens vs GENERATION_NUM_CTX={num_ctx}; "
+          f"output may truncate -- raise GENERATION_NUM_CTX rather than cutting slots.")
+DISTILL_PREFLIGHT
+            fi
+          fi
           echo "[Generation] $_split..."
           GENERATION_ARGS=(
-            --input-path "$_ctx_json"
+            --input-path "$_gen_input"
             --output-dir "$WORKFLOW_OUTPUT_DIR/$_GEN_SUBDIR"
             --schemas-dir "$GENERATION_SCHEMAS_DIR"
           )
           [ -n "${GENERATION_CONCURRENCY:-}" ] && GENERATION_ARGS+=(--concurrency "$GENERATION_CONCURRENCY")
-          if [ "$_route" = "document" ]; then
+          if [ "$_GEN_MODE" != "direct" ]; then
+            # Distilled slot files carry the whole selected budget; the per-route defaults
+            # (8/10) would silently truncate them, so default high. Explicit env still wins.
+            _max_ctx="${GENERATION_MAX_CONTEXTS_DISTILLED:-${GENERATION_MAX_CONTEXTS:-100}}"
+          elif [ "$_route" = "document" ]; then
             _max_ctx="${GENERATION_MAX_CONTEXTS_DOCUMENT:-${GENERATION_MAX_CONTEXTS:-8}}"
           else
             _max_ctx="${GENERATION_MAX_CONTEXTS_SNIPPET:-${GENERATION_MAX_CONTEXTS:-10}}"
           fi
           [ -n "$_max_ctx" ] && GENERATION_ARGS+=(--max-contexts "$_max_ctx")
-          if [ "$_route" = "document" ]; then
+          if [ "$_GEN_MODE" != "direct" ]; then
+            _max_chars="${GENERATION_MAX_CHARS_PER_CONTEXT_DISTILLED:-${GENERATION_MAX_CHARS_PER_CONTEXT:-1800}}"
+          elif [ "$_route" = "document" ]; then
             _max_chars="${GENERATION_MAX_CHARS_PER_CONTEXT_DOCUMENT:-${GENERATION_MAX_CHARS_PER_CONTEXT:-1300}}"
           else
             _max_chars="${GENERATION_MAX_CHARS_PER_CONTEXT_SNIPPET:-${GENERATION_MAX_CHARS_PER_CONTEXT:-960}}"
@@ -1383,7 +1446,13 @@ _DOCS_JSONL_OK=0
             [ -n "${GENERATION_RESCUE_TIMEOUT:-}" ] && RESCUE_ARGS+=(--timeout "$GENERATION_RESCUE_TIMEOUT")
             [ -n "${GENERATION_RESCUE_RETRY_SLEEP:-}" ] && RESCUE_ARGS+=(--retry-sleep "$GENERATION_RESCUE_RETRY_SLEEP")
             [ -n "$_max_ctx" ] && RESCUE_ARGS+=(--max-contexts "$_max_ctx")
-            [ -n "${GENERATION_MAX_CHARS_PER_CONTEXT:-}" ] && RESCUE_ARGS+=(--max-chars-per-context "$GENERATION_MAX_CHARS_PER_CONTEXT")
+            if [ "$_GEN_MODE" != "direct" ]; then
+              # Input-preserving rescue: identical truncation caps to the main run, so a
+              # rescued answer is never generated from silently reduced evidence.
+              [ -n "$_max_chars" ] && RESCUE_ARGS+=(--max-chars-per-context "$_max_chars")
+            else
+              [ -n "${GENERATION_MAX_CHARS_PER_CONTEXT:-}" ] && RESCUE_ARGS+=(--max-chars-per-context "$GENERATION_MAX_CHARS_PER_CONTEXT")
+            fi
             python "$SCRIPT_DIR/generation/rescue_failed_generation.py" "${RESCUE_ARGS[@]}"
           fi
         fi

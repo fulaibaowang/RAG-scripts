@@ -65,7 +65,7 @@ def main() -> None:
     ap.add_argument("--summary-cache", type=Path, required=True,
                     help="jsonl cache of facet summaries (key = qid + member hash)")
     ap.add_argument("--top-n", type=int,
-                    default=int(env_first("GENERATION_EXTRACT_TOP_N", default="50")))
+                    default=int(env_first("GENERATION_EXTRACT_TOP_N", default="30")))
     ap.add_argument("--dist-thr", type=float,
                     default=float(env_first("GENERATION_FACET_DIST_THR", default="0.4")))
     ap.add_argument("--min-cluster", type=int,
