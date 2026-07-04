@@ -344,7 +344,7 @@ Generation then runs unchanged on `<split>_distilled_contexts.jsonl`, writing `<
 
 - **Truncation policy:** distilled prompts are dense. If answers truncate (`incomplete JSON object` errors), raise the generator's `GENERATION_NUM_CTX` (ollama) — never cut slots or contexts. The orchestrator warns pre-generation when the largest slot set approaches `GENERATION_NUM_CTX`.
 - **Document route:** claim ordering uses the cross-encoder scores carried on snippet windows (`selected_windows[].ce_score`); document-route contexts have none, so source order falls back to retrieval rank.
-- **Models:** thinking models (gemma) automatically get `think: false` on extraction/summarization; override per stage via `GENERATION_EXTRACT_THINK` / `GENERATION_SUMMARY_THINK`.
+- **Models:** the ollama `think` flag is **step-dependent** for thinking models (gemma): summarization auto-sends `think: false` (thinking burns the `num_predict` cap → empty summaries), while extraction and answer generation leave the key **absent** — an explicit `false` measurably degrades both. Override per stage via `GENERATION_EXTRACT_THINK` / `GENERATION_SUMMARY_THINK` / `GENERATION_THINK` only if you have evidence.
 - **Caches are stable contracts** (see [test_distill_common.py](../generation/test_distill_common.py)); claim extraction is the expensive step and is never recomputed for a (query, context text) pair.
 - Rescue in distilled mode passes the same `--max-contexts` / `--max-chars-per-context` as the main run (input-preserving).
 

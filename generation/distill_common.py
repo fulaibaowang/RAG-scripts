@@ -156,10 +156,11 @@ def call_ollama(url: str, model: str, prompt: str, *, options: Optional[dict] = 
                 api_key: Optional[str] = None) -> str:
     """POST to an ollama /api/generate endpoint, return the raw response text.
 
-    think: True/False forces the ollama ``think`` flag; None = auto — send ``think: false``
-    for known thinking models (currently gemma), which otherwise spend the whole num_predict
-    budget on reasoning and return an empty response; omitted entirely for other models so
-    their payloads are unchanged.
+    think: True/False sets the ollama ``think`` flag; None omits the key entirely (server
+    default). The right value is STEP-DEPENDENT for thinking models (gemma): summarization
+    MUST send False (thinking burns the num_predict cap -> empty summaries), but extraction
+    and answer generation must leave the key ABSENT — explicit False measurably degrades
+    both (fewer/emptier extractions; ~60w shorter answers). Callers decide; no auto-sniff.
     The Authorization bearer header is sent only when api_key is non-empty (hosted endpoints
     need it; self-hosted ollama ignores it).
     Pure stdlib (urllib) so every stage runs in a bare venv.
@@ -167,8 +168,6 @@ def call_ollama(url: str, model: str, prompt: str, *, options: Optional[dict] = 
     payload: Dict[str, Any] = {"model": model, "stream": False, "prompt": prompt}
     if options:
         payload["options"] = options
-    if think is None and "gemma" in model.lower():
-        think = False
     if think is not None:
         payload["think"] = think
     headers = {"Content-Type": "application/json"}

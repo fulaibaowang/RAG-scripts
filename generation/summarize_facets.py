@@ -90,6 +90,11 @@ def main() -> None:
 
     api_key = os.environ.get("LLAMA_API_KEY", "")
     think = _parse_think(os.environ.get("GENERATION_SUMMARY_THINK"))
+    # Thinking models MUST NOT think here: the num_predict cap means the reasoning trace
+    # eats the whole output budget and the summary comes back empty. (Step-dependent —
+    # extraction and generation leave the think key absent instead.)
+    if think is None and "gemma" in args.model.lower():
+        think = False
 
     qtext = load_qtext(args.evidence)
     claims_by_qid = deduped_claims(args.cache, args.top_n)
