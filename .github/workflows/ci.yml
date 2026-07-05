@@ -19,6 +19,14 @@ jobs:
           - label: chunked-abstract
             config_file: demo/config.chunked.env
             output_root: demo/output_chunked
+          # Single-retriever first stage (STAGE1_SOURCE=bm25): BM25 only, no Dense, no fusion.
+          - label: bm25-only
+            config_file: demo/config.bm25only.env
+            output_root: demo/output_bm25only
+          # Post-rerank fusion disabled (RUN_RRF_FUSION=0): evidence from raw cross-encoder runs.
+          - label: no-rrf
+            config_file: demo/config.norrf.env
+            output_root: demo/output_norrf
 
     steps:
       - uses: actions/checkout@v4
@@ -60,16 +68,37 @@ jobs:
           find "${{ matrix.output_root }}/rerank/cross_encoder/runs" -maxdepth 1 -name '*.tsv' 2>/dev/null | head -1 | grep -q . \
             || { echo "Missing rerank run TSVs in ${{ matrix.output_root }}/rerank/cross_encoder/runs/"; exit 1; }
 
-      - name: Assert chunk docnos in fusion runs (chunked only)
-        if: ${{ matrix.label == 'chunked-abstract' }}
+      - name: Assert BM25-only staged stage-1 (no Dense, no RRF fusion run)
+        if: ${{ matrix.label == 'bm25-only' }}
+        run: |
+          find "${{ matrix.output_root }}/retrieval/fusion/runs" -maxdepth 1 -name 'stage1_*.tsv' 2>/dev/null | head -1 | grep -q . \
+            || { echo "Missing staged stage1_*.tsv in fusion/runs/ (single-retriever staging did not run)"; exit 1; }
+          if find "${{ matrix.output_root }}/retrieval/fusion/runs" -maxdepth 1 -name 'best_rrf_*.tsv' 2>/dev/null | head -1 | grep -q .; then
+            echo "Unexpected best_rrf_*.tsv: retrieval fusion ran but STAGE1_SOURCE=bm25 should skip it"; exit 1
+          fi
+          if find "${{ matrix.output_root }}/retrieval/dense/runs" -maxdepth 1 -name '*.tsv' 2>/dev/null | head -1 | grep -q .; then
+            echo "Unexpected dense run TSVs: Dense should be skipped for STAGE1_SOURCE=bm25"; exit 1
+          fi
+
+      - name: Assert no-RRF fallback (post_rerank_fusion skipped, evidence from CE runs)
+        if: ${{ matrix.label == 'no-rrf' }}
+        run: |
+          if find "${{ matrix.output_root }}/rerank/post_rerank_fusion/runs" -maxdepth 1 -name '*.tsv' 2>/dev/null | head -1 | grep -q .; then
+            echo "Unexpected post_rerank_fusion run TSVs: RUN_RRF_FUSION=0 should skip post-rerank fusion"; exit 1
+          fi
+          find "${{ matrix.output_root }}/evidence" -name '*_contexts.jsonl' 2>/dev/null | head -1 | grep -q . \
+            || { echo "Missing evidence contexts: no-RRF fallback did not build evidence from cross-encoder runs"; exit 1; }
+
+      - name: Assert chunk docnos in fusion runs (chunked corpus)
+        if: ${{ matrix.label == 'chunked-abstract' || matrix.label == 'bm25-only' || matrix.label == 'no-rrf' }}
         run: |
           _tsv=$(find "${{ matrix.output_root }}/retrieval/fusion/runs" -maxdepth 1 -name '*.tsv' | head -1)
           test -n "$_tsv"
           grep -q '#abstract' "$_tsv" \
             || { echo "Expected chunk docnos (#abstract) in $_tsv"; exit 1; }
 
-      - name: Assert evidence context ids are real corpus docnos (chunked only)
-        if: ${{ matrix.label == 'chunked-abstract' }}
+      - name: Assert evidence context ids are real corpus docnos (chunked corpus)
+        if: ${{ matrix.label == 'chunked-abstract' || matrix.label == 'bm25-only' || matrix.label == 'no-rrf' }}
         run: |
           python3 - "${{ matrix.output_root }}" demo/data/docs_chunked.jsonl <<'PY'
           import json, glob, sys
