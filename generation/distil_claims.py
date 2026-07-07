@@ -43,11 +43,13 @@ def main() -> None:
                     help="word budget (used only when --slots is unset)")
     args = ap.parse_args()
 
-    # query text from the evidence file (cache has no qtext)
+    # query text + type from the evidence file (cache has neither)
     qtext: Dict[str, str] = {}
+    qtype: Dict[str, str] = {}
     for line in args.evidence.open():
         rec = json.loads(line)
         qtext[str(rec["query_id"])] = rec.get("query_text", "")
+        qtype[str(rec["query_id"])] = rec.get("query_type", "")
 
     by_qid: Dict[str, List[dict]] = {}
     for line in args.cache.open():
@@ -104,6 +106,7 @@ def main() -> None:
                 active = nxt
             fh.write(json.dumps({
                 "query_id": qid, "query_text": qtext.get(qid, ""),
+                "query_type": qtype.get(qid, ""),
                 "context_mode": "claim",
                 "doc_ids": sorted({p["doc_id"] for p in picked}),
                 "contexts": picked,
