@@ -344,6 +344,16 @@ def call_llm_ollama(
     _num_ctx = (os.getenv("GENERATION_NUM_CTX") or "").strip()
     if _num_ctx:
         options["num_ctx"] = int(_num_ctx)
+    # Optional output cap (ollama num_predict; default -1 = generate to EOS/num_ctx).
+    # Bounds output length. Default unset -> server default (cross-repo safe).
+    _num_pred = (os.getenv("GENERATION_NUM_PREDICT") or "").strip()
+    if _num_pred:
+        options["num_predict"] = int(_num_pred)
+    # Optional repetition penalty (ollama repeat_penalty). Default unset -> server
+    # default (cross-repo safe).
+    _rep = (os.getenv("GENERATION_REPEAT_PENALTY") or "").strip()
+    if _rep:
+        options["repeat_penalty"] = float(_rep)
     payload: Dict[str, Any] = {
         "model": model,
         "stream": False,
