@@ -97,6 +97,10 @@ def main() -> None:
         think = False
 
     qtext = load_qtext(args.evidence)
+    qtype = {}
+    for _line in args.evidence.open():
+        _r = json.loads(_line)
+        qtype[str(_r["query_id"])] = _r.get("query_type", "")
     claims_by_qid = deduped_claims(args.cache, args.top_n)
     qids = sorted(claims_by_qid)
 
@@ -223,6 +227,7 @@ def main() -> None:
                     fidelity_rows.append((qid, len(fac), float(cov.mean()), float(cov.min())))
             fh.write(json.dumps({
                 "query_id": qid, "query_text": qtext.get(qid, ""),
+                "query_type": qtype.get(qid, ""),
                 "context_mode": "claim_facet_summary",
                 "doc_ids": sorted({s["doc_id"] for s in slots}),
                 "contexts": slots,
