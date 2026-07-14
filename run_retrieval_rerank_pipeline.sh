@@ -140,6 +140,10 @@ while [ $# -gt 0 ]; do
       echo "  RUN_GENERATION_DOCUMENT=0|1   Run generation for document route (default 1)."
       echo "  RUN_GENERATION_SNIPPET=0|1    Run generation for snippet route (default 1)."
       echo "  GENERATION_SCHEMAS_DIR       Directory of schema *.txt for LLM prompts (default: scripts/public/shared_scripts/prompts/schemas under repo root)."
+      echo "  CITATION_GRANULARITY=answer|sentence   answer (default) = generation output unchanged; sentence = append the"
+      echo "                          post-hoc attribution stage (generation/attribute_sentences.py) after generation."
+      echo "                          Requires GENERATION_MODE=claims|facets (refused with direct). Knobs: CITATION_ATTRIBUTION,"
+      echo "                          CITATION_RERANK (rrf|blend|lex), CITATION_ALPHA, CITATION_MAX_CITES, CITATION_MOCK=1."
       echo "  POST_RERANK_DOC_POOL         Max docs per query written into post_rerank_*.jsonl (default: 30)."
       echo "  POST_RERANK_FUSION_MAX_CHUNKS_PER_PMID  If >0, cap each PMID to this many chunks in fused output TSVs (default: 0 = no cap; no-op for abstract-only corpora)."
       echo "  MAX_CHUNKS_PER_PMID          Max chunks per PMID in evidence post_rerank_*.jsonl (default: 2)."
@@ -168,6 +172,24 @@ if [ -n "$CONFIG_FILE" ]; then
   set +a
   echo "Loaded config: $CONFIG_FILE"
 fi
+
+# ----- Citation granularity (orchestrator flag; generate_answers.py never reads it) -----
+# unset or "answer" (default): the attribution stage is NOT appended and generation output
+# stays byte-identical to today. "sentence": generation/attribute_sentences.py is appended
+# after each generation+rescue. Config-time guard (the real fail-fast, before any job
+# runs): sentence attribution matches sentences against claim/facet slots, so
+# GENERATION_MODE=direct (raw snippet/document contexts) is refused, never degraded.
+CITATION_GRANULARITY="${CITATION_GRANULARITY:-answer}"
+case "$CITATION_GRANULARITY" in
+  answer) ;;
+  sentence)
+    if [ "${GENERATION_MODE:-direct}" = "direct" ]; then
+      echo "Error: CITATION_GRANULARITY=sentence requires GENERATION_MODE=claims|facets (direct contexts carry no claim/facet slots to attribute sentences to)." >&2
+      exit 1
+    fi
+    ;;
+  *) echo "Error: unknown CITATION_GRANULARITY='$CITATION_GRANULARITY' (expected answer|sentence)." >&2; exit 1 ;;
+esac
 
 # Route toggles (can be set in env; defaults are document on, snippet off unless --snippet-rrf was passed)
 RUN_DOCUMENT="${RUN_DOCUMENT:-1}"
@@ -1411,6 +1433,7 @@ _DOCS_JSONL_OK=0
             *) echo "[Distill] ERROR: GENERATION_MODE=$_GEN_MODE supports only GENERATION_BACKEND=ollama (got '${GENERATION_BACKEND:-}')" >&2; exit 1 ;;
           esac
           _distilled="$WORKFLOW_OUTPUT_DIR/$_EVIDENCE_SUBDIR/${_split}_distilled_contexts.jsonl"
+          _claims_cache="$WORKFLOW_OUTPUT_DIR/$_EVIDENCE_SUBDIR/${_split}_claims_cache.jsonl"
           _gen_input="$_distilled"
           # generate_answers strips only a trailing "_contexts" from the input stem
           _gen_json="$WORKFLOW_OUTPUT_DIR/$_GEN_SUBDIR/${_split}_distilled_answers.jsonl"
@@ -1425,7 +1448,6 @@ _DOCS_JSONL_OK=0
               # Stage knobs come from GENERATION_EXTRACT_* / GENERATION_DISTIL_* /
               # GENERATION_FACET_* / GENERATION_SUMMARY_* / GENERATION_SELECT_* env
               # (read by the stage scripts themselves; see docs/PARAMETERS.md).
-              _claims_cache="$WORKFLOW_OUTPUT_DIR/$_EVIDENCE_SUBDIR/${_split}_claims_cache.jsonl"
               echo "[Distill] $_split: extract claims (mode=$_GEN_MODE)..."
               python "$SCRIPT_DIR/generation/extract_claims.py" \
                 --evidence "$_ctx_json" --cache "$_claims_cache"
@@ -1504,6 +1526,26 @@ DISTILL_PREFLIGHT
             # script's own standalone default is a shorter 1100 chars — never rely on it here.)
             [ -n "$_max_chars" ] && RESCUE_ARGS+=(--max-chars-per-context "$_max_chars")
             python "$SCRIPT_DIR/generation/rescue_failed_generation.py" "${RESCUE_ARGS[@]}"
+          fi
+        fi
+
+        # ----- Sentence attribution (CITATION_GRANULARITY=sentence): separate post-hoc
+        # stage appended after generation+rescue; answers file itself stays untouched.
+        # Runs on resume too (answers exist, attributed output missing).
+        if [ "$CITATION_GRANULARITY" = "sentence" ] && [ -f "$_gen_json" ]; then
+          _attr_json="${_gen_json%.jsonl}_attributed.jsonl"
+          if [ -f "$_attr_json" ]; then
+            echo "[Attribution] $_split... (skip: output exists)"
+          else
+            echo "[Attribution] $_split: sentence citations..."
+            ATTRIBUTION_ARGS=(--answers "$_gen_json" --out "$_attr_json")
+            [ "$_GEN_MODE" = "facets" ] && ATTRIBUTION_ARGS+=(--member-claims "$_claims_cache")
+            [ -n "${CITATION_ATTRIBUTION:-}" ] && ATTRIBUTION_ARGS+=(--attribution "$CITATION_ATTRIBUTION")
+            [ -n "${CITATION_RERANK:-}" ] && ATTRIBUTION_ARGS+=(--rerank "$CITATION_RERANK")
+            [ -n "${CITATION_ALPHA:-}" ] && ATTRIBUTION_ARGS+=(--alpha "$CITATION_ALPHA")
+            [ -n "${CITATION_MAX_CITES:-}" ] && ATTRIBUTION_ARGS+=(--lineage-max-cites "$CITATION_MAX_CITES")
+            [ "${CITATION_MOCK:-0}" = "1" ] && ATTRIBUTION_ARGS+=(--mock)
+            python "$SCRIPT_DIR/generation/attribute_sentences.py" "${ATTRIBUTION_ARGS[@]}"
           fi
         fi
       done

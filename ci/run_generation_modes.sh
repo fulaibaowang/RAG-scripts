@@ -46,7 +46,12 @@ for MODE in direct claims facets; do
     echo "GENERATION_BACKEND=ollama"
     echo "GENERATION_MODEL=mockmodel"
     echo "GENERATION_CONCURRENCY=2"
-    [ "$MODE" != "direct" ] && echo "GENERATION_MODE=$MODE"
+    if [ "$MODE" != "direct" ]; then
+      echo "GENERATION_MODE=$MODE"
+      # exercise the post-hoc sentence-attribution stage, lexical-only (no torch)
+      echo "CITATION_GRANULARITY=sentence"
+      echo "CITATION_MOCK=1"
+    fi
   } >> "$CFG"
   echo "=== GENERATION_MODE=$MODE ==="
   OLLAMA_URL="http://127.0.0.1:$PORT/api/generate" LLAMA_API_KEY=ci-mock \
@@ -54,6 +59,16 @@ for MODE in direct claims facets; do
   # first (direct) run built everything from scratch: reuse its tree for the other modes
   [ -z "$BASE_TREE" ] && BASE_TREE="$OUT/output_chunked"
 done
+
+# Config-time guard: CITATION_GRANULARITY=sentence + direct mode must refuse before any work
+echo "=== guard: CITATION_GRANULARITY=sentence with GENERATION_MODE=direct must refuse ==="
+if CITATION_GRANULARITY=sentence OLLAMA_URL="http://127.0.0.1:$PORT/api/generate" LLAMA_API_KEY=ci-mock \
+    bash "$REPO_ROOT/run_retrieval_rerank_pipeline.sh" --config "$OUT_ROOT/direct/config.env" \
+    >/dev/null 2>&1; then
+  echo "FAIL: sentence+direct was not refused" >&2
+  exit 1
+fi
+echo "guard OK (refused)"
 
 python3 - "$OUT_ROOT" "$DEMO_DIR/data/docs_chunked.jsonl" <<'PY'
 import json, glob, sys
@@ -78,5 +93,27 @@ for f in slot_files:
     for line in open(f):
         for c in json.loads(line).get("contexts", []):
             assert c.get("doc_id") in rows, f"{f}: doc_id {c.get('doc_id')} not a corpus docno"
-print(f"generation-modes OK: {n} answer files error-free; all distilled slot doc_ids are corpus docnos")
+
+# sentence attribution (CITATION_GRANULARITY=sentence, mock/lexical): every attributed row
+# carries answer_sentences whose doc_ids are real corpus docnos. The deterministic mock LLM
+# emits empty evidence_ids, so 0 citations is expected here — this smoke-checks the stage
+# plumbing (segmentation, schema, real-docid resolution), not attribution quality (that is
+# the banked byte-identical descent check, offline).
+attr_files = glob.glob(f"{out_root}/*/output_chunked/generation/*/queries_distilled_answers_attributed.jsonl")
+assert len(attr_files) == 4, f"expected 4 attributed answer files (2 modes x 2 routes), got {len(attr_files)}"
+n_cites = 0
+for f in attr_files:
+    for line in open(f):
+        r = json.loads(line)
+        if not (r.get("ideal_answer") or "").strip():
+            continue
+        sents = r.get("answer_sentences")
+        assert sents, f"{f}: qid {r.get('query_id')} missing answer_sentences"
+        for s in sents:
+            assert s.get("text", "").strip(), f"{f}: empty sentence text"
+            for d in s.get("doc_ids", []):
+                assert d in rows, f"{f}: answer_sentences doc_id {d} not a corpus docno"
+                n_cites += 1
+print(f"generation-modes OK: {n} answer files error-free; all distilled slot doc_ids are corpus docnos; "
+      f"{len(attr_files)} attributed files carry answer_sentences ({n_cites} real-docid citations)")
 PY

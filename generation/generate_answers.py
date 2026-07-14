@@ -263,29 +263,6 @@ def openai_compat_enabled() -> bool:
     )
 
 
-def resolve_citation_granularity() -> str:
-    """Citation granularity for the emitted answers, from CITATION_GRANULARITY.
-
-    ``answer`` (default, and when unset/empty) — current behavior: one answer-level
-    ``evidence_ids`` list per question; output JSONL is byte-identical to the plain pipeline.
-    ``sentence`` — reserved for a future per-sentence citation route (segment ``ideal_answer``
-    and attribute each sentence to evidence ids); not implemented yet. Kept as a validated
-    config axis so downstream/submission serializers can branch and so setting it fails fast
-    rather than silently falling back to answer-level.
-    """
-    raw = (os.getenv("CITATION_GRANULARITY") or "").strip().lower()
-    if not raw or raw == "answer":
-        return "answer"
-    if raw == "sentence":
-        raise RuntimeError(
-            "CITATION_GRANULARITY=sentence is reserved but not implemented yet; "
-            "use answer (default). Per-sentence attribution is a planned post-hoc stage."
-        )
-    raise RuntimeError(
-        f"Unknown CITATION_GRANULARITY={raw!r}; use answer (default) or sentence (reserved)"
-    )
-
-
 def chat_completions_endpoint(gen_api_base: str) -> str:
     """Return full URL for POST .../chat/completions given GEN_API_BASE (e.g. https://openrouter.ai/api/v1)."""
     base = gen_api_base.strip().rstrip("/")
@@ -726,11 +703,9 @@ def main() -> int:
     )
     try:
         openai_compat = openai_compat_enabled()
-        citation_granularity = resolve_citation_granularity()
     except RuntimeError as e:
         logger.error("%s", e)
         return 1
-    logger.info("Citation granularity: %s", citation_granularity)
 
     if openai_compat:
         gen_base = (os.getenv("GEN_API_BASE") or "").strip()
