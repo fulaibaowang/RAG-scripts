@@ -48,9 +48,11 @@ for MODE in direct claims facets; do
     echo "GENERATION_CONCURRENCY=2"
     if [ "$MODE" != "direct" ]; then
       echo "GENERATION_MODE=$MODE"
-      # exercise the post-hoc sentence-attribution stage, lexical-only (no torch)
+      # exercise the post-hoc sentence-attribution stage, lexical-only (no torch),
+      # with the per-sentence cite cap (TREC RAG 2026 allows at most 3)
       echo "CITATION_GRANULARITY=sentence"
       echo "CITATION_MOCK=1"
+      echo "CITATION_MAX_CITES=3"
     fi
   } >> "$CFG"
   echo "=== GENERATION_MODE=$MODE ==="
@@ -111,6 +113,8 @@ for f in attr_files:
         assert sents, f"{f}: qid {r.get('query_id')} missing answer_sentences"
         for s in sents:
             assert s.get("text", "").strip(), f"{f}: empty sentence text"
+            assert len(s.get("doc_ids", [])) <= 3, \
+                f"{f}: {len(s['doc_ids'])} doc_ids on one sentence despite CITATION_MAX_CITES=3"
             for d in s.get("doc_ids", []):
                 assert d in rows, f"{f}: answer_sentences doc_id {d} not a corpus docno"
                 n_cites += 1
