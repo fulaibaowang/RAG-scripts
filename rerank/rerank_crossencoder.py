@@ -165,6 +165,21 @@ def parse_args() -> argparse.Namespace:
         help="Max token length for the cross-encoder (set to 0 to use model default).",
     )
     model.add_argument(
+        "--doc-chunking",
+        type=str,
+        choices=("none", "maxp"),
+        default="none",
+        help="Long-doc handling: none (truncate at --model-max-length, the historical behavior) or "
+        "maxp (score each doc in overlapping windows sized to fit the model budget, doc score = max "
+        "over windows; Dai & Callan-style BERT-MaxP).",
+    )
+    model.add_argument(
+        "--chunk-stride",
+        type=int,
+        default=0,
+        help="MaxP window advance step in tokens (0 = half the per-query window length).",
+    )
+    model.add_argument(
         "--llm-use-fp16",
         action="store_true",
         default=True,
@@ -345,6 +360,71 @@ def _chunk_items(items: List[Tuple[str, List[str]]], n: int) -> List[List[Tuple[
     ]
 
 
+# --- MaxP doc chunking (--doc-chunking maxp) ---
+# Window length adapts per query so query + window (+ LLM prompt template) fits the model
+# budget and every window is scored in-distribution (no truncation inside a window).
+_MAXP_MIN_CHUNK_TOKENS = 128
+_MAXP_SPECIALS_MARGIN = 4
+_MAXP_LLM_PROMPT_OVERHEAD = 32  # FlagLLMReranker Yes/No prompt template
+
+
+def _get_tokenizer(model: Any, model_name: str) -> Any:
+    tok = getattr(model, "tokenizer", None)
+    if tok is not None:
+        return tok
+    from transformers import AutoTokenizer
+
+    return AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+
+
+def _maxp_score_query_docs(
+    score_fn: Any,
+    tokenizer: Any,
+    query: str,
+    docs: List[str],
+    doc_texts: Dict[str, str],
+    max_length: int,
+    chunk_stride: int,
+    llm_overhead: int,
+    doc_ids_cache: Dict[str, Any],
+) -> List[Tuple[str, float]]:
+    """Score docs as max over overlapping token windows. score_fn takes a list of
+    (query, text) pairs and returns a list of floats (batching handled inside)."""
+    budget_total = max_length if max_length and max_length > 0 else 512
+    q_len = len(tokenizer.encode(query, add_special_tokens=False))
+    chunk_tokens = max(_MAXP_MIN_CHUNK_TOKENS, budget_total - q_len - _MAXP_SPECIALS_MARGIN - llm_overhead)
+    step = chunk_stride if chunk_stride and chunk_stride > 0 else max(1, chunk_tokens // 2)
+    step = min(step, chunk_tokens)
+
+    pairs: List[Tuple[str, str]] = []
+    spans: List[Tuple[int, int]] = []  # (first pair index, n windows) per doc
+    for doc in docs:
+        text = doc_texts.get(doc, "")
+        ids = doc_ids_cache.get(doc)
+        if ids is None:
+            ids = np.asarray(tokenizer.encode(text, add_special_tokens=False), dtype=np.int32)
+            doc_ids_cache[doc] = ids
+        if len(ids) <= chunk_tokens:
+            chunks = [text]
+        else:
+            chunks = []
+            for s in range(0, len(ids), step):
+                window = ids[s : s + chunk_tokens]
+                chunks.append(tokenizer.decode(window.tolist(), skip_special_tokens=True))
+                if s + chunk_tokens >= len(ids):
+                    break
+        spans.append((len(pairs), len(chunks)))
+        pairs.extend((query, c) for c in chunks)
+
+    scores = [float(s) for s in score_fn(pairs)]
+    scored = [
+        (doc, max(scores[start : start + n]))
+        for doc, (start, n) in zip(docs, spans)
+    ]
+    scored.sort(key=lambda x: x[1], reverse=True)
+    return scored
+
+
 def _rerank_worker(
     gpu_id: int,
     items: List[Tuple[str, List[str]]],
@@ -355,6 +435,8 @@ def _rerank_worker(
     max_length: int,
     progress_every: int,
     return_dict,
+    doc_chunking: str = "none",
+    chunk_stride: int = 0,
 ) -> None:
     device = f"cuda:{gpu_id}" if torch and torch.cuda.is_available() else "cpu"
     model = CrossEncoder(
@@ -364,6 +446,8 @@ def _rerank_worker(
         trust_remote_code=True,
     )
     print(f"[gpu {gpu_id}] model loaded on {device}, reranking {len(items)} queries", flush=True)
+    tokenizer = _get_tokenizer(model, model_name) if doc_chunking == "maxp" else None
+    doc_ids_cache: Dict[str, Any] = {}
     local_out: Dict[str, List[Tuple[str, float]]] = {}
     total = len(items)
     start = time()
@@ -372,16 +456,39 @@ def _rerank_worker(
         if not query:
             local_out[qid] = [(doc, float("nan")) for doc in docs]
             continue
-        pairs = [(query, doc_texts.get(doc, "")) for doc in docs]
-        scores = model.predict(pairs, batch_size=batch_size, show_progress_bar=False)
-        scored = [(doc, float(score)) for doc, score in zip(docs, scores)]
-        scored.sort(key=lambda x: x[1], reverse=True)
+        if doc_chunking == "maxp":
+            scored = _maxp_score_query_docs(
+                lambda p: model.predict(p, batch_size=batch_size, show_progress_bar=False),
+                tokenizer, query, docs, doc_texts, max_length, chunk_stride, 0, doc_ids_cache,
+            )
+        else:
+            pairs = [(query, doc_texts.get(doc, "")) for doc in docs]
+            scores = model.predict(pairs, batch_size=batch_size, show_progress_bar=False)
+            scored = [(doc, float(score)) for doc, score in zip(docs, scores)]
+            scored.sort(key=lambda x: x[1], reverse=True)
         local_out[qid] = scored
         if progress_every and (idx == 1 or idx % progress_every == 0 or idx == total):
             elapsed = max(1e-9, time() - start)
             rate = idx / elapsed
             print(f"[gpu {gpu_id}] {idx}/{total} queries | {rate:.2f} q/s", flush=True)
     return_dict[gpu_id] = local_out
+
+
+def _llm_score_pairs(model: Any, pairs: Sequence[Tuple[str, str]], batch_size: int, max_length: int) -> List[float]:
+    """Batch FlagLLMReranker.compute_score over (query, text) pairs. max_length > 0 is
+    passed through (query+passage token budget); 0 keeps the FlagEmbedding default."""
+    kwargs: Dict[str, Any] = {}
+    if max_length and max_length > 0:
+        kwargs["max_length"] = max_length
+    pair_list = [[q, p] for q, p in pairs]
+    scores_list: List[float] = []
+    for i in range(0, len(pair_list), batch_size):
+        batch_scores = model.compute_score(pair_list[i : i + batch_size], **kwargs)
+        if isinstance(batch_scores, (int, float)):
+            scores_list.append(float(batch_scores))
+        else:
+            scores_list.extend(float(s) for s in batch_scores)
+    return scores_list
 
 
 def rerank_run(
@@ -398,6 +505,8 @@ def rerank_run(
     llm_use_fp16: bool = True,
     llm_use_bf16: bool = False,
     progress_every: int = 10,
+    doc_chunking: str = "none",
+    chunk_stride: int = 0,
 ) -> Dict[str, List[Tuple[str, float]]]:
     items = list(run_map.items())
     if use_multi_gpu and reranker_type == "cross_encoder":
@@ -415,7 +524,7 @@ def rerank_run(
         for gpu_id, chunk in enumerate(chunks):
             p = ctx.Process(
                 target=_rerank_worker,
-                args=(gpu_id, chunk, topics, doc_texts, model_name, batch_size, max_length, progress_every, return_dict),
+                args=(gpu_id, chunk, topics, doc_texts, model_name, batch_size, max_length, progress_every, return_dict, doc_chunking, chunk_stride),
             )
             p.start()
             procs.append(p)
@@ -469,6 +578,9 @@ def rerank_run(
                     llm_use_bf16,
                     progress_every,
                     return_dict,
+                    max_length,
+                    doc_chunking,
+                    chunk_stride,
                 ),
             )
             p.start()
@@ -497,28 +609,27 @@ def rerank_run(
     total = len(items)
     start = time()
     use_llm = reranker_type == "llm"
+    if use_llm:
+        score_fn = lambda p: _llm_score_pairs(model, p, batch_size, max_length)
+    else:
+        score_fn = lambda p: model.predict(p, batch_size=batch_size, show_progress_bar=False)
+    tokenizer = _get_tokenizer(model, model_name) if doc_chunking == "maxp" else None
+    doc_ids_cache: Dict[str, Any] = {}
     for idx, (qid, docs) in enumerate(items, start=1):
         query = topics.get(qid, "").strip()
         if not query:
             out[qid] = [(doc, float("nan")) for doc in docs]
             continue
-        pairs = [(query, doc_texts.get(doc, "")) for doc in docs]
-        if use_llm:
-            # FlagLLMReranker.compute_score([['q','p1'],['q','p2'],...]) returns list of scores
-            pair_list = [[q, p] for q, p in pairs]
-            scores_list: List[float] = []
-            for i in range(0, len(pair_list), batch_size):
-                batch = pair_list[i : i + batch_size]
-                batch_scores = model.compute_score(batch)
-                if isinstance(batch_scores, (int, float)):
-                    scores_list.append(float(batch_scores))
-                else:
-                    scores_list.extend(float(s) for s in batch_scores)
-            scores = scores_list
+        if doc_chunking == "maxp":
+            scored = _maxp_score_query_docs(
+                score_fn, tokenizer, query, docs, doc_texts, max_length, chunk_stride,
+                _MAXP_LLM_PROMPT_OVERHEAD if use_llm else 0, doc_ids_cache,
+            )
         else:
-            scores = model.predict(pairs, batch_size=batch_size, show_progress_bar=False)
-        scored = [(doc, float(score)) for doc, score in zip(docs, scores)]
-        scored.sort(key=lambda x: x[1], reverse=True)
+            pairs = [(query, doc_texts.get(doc, "")) for doc in docs]
+            scores = score_fn(pairs)
+            scored = [(doc, float(score)) for doc, score in zip(docs, scores)]
+            scored.sort(key=lambda x: x[1], reverse=True)
         out[qid] = scored
         if progress_every and (idx == 1 or idx % progress_every == 0 or idx == total):
             elapsed = max(1e-9, time() - start)
@@ -554,6 +665,9 @@ def _llm_rerank_worker_pairs(
     llm_use_bf16: bool,
     progress_every: int,
     return_dict: Any,
+    max_length: int = 0,
+    doc_chunking: str = "none",
+    chunk_stride: int = 0,
 ) -> None:
     """CE-style: one process per GPU, score a chunk of (qid, docs) items with FlagLLMReranker.
     physical_id is the system GPU index (Slurm-safe: use when CUDA_VISIBLE_DEVICES is set)."""
@@ -566,6 +680,9 @@ def _llm_rerank_worker_pairs(
     )
     device = f"cuda:0"  # after CUDA_VISIBLE_DEVICES, cuda:0 is this process's GPU
     print(f"[gpu {gpu_id}] model loaded on {device}, reranking {len(items)} queries", flush=True)
+    score_fn = lambda p: _llm_score_pairs(model, p, batch_size, max_length)
+    tokenizer = _get_tokenizer(model, model_name) if doc_chunking == "maxp" else None
+    doc_ids_cache: Dict[str, Any] = {}
     local_out: Dict[str, List[Tuple[str, float]]] = {}
     total = len(items)
     start = time()
@@ -574,18 +691,16 @@ def _llm_rerank_worker_pairs(
         if not query:
             local_out[qid] = [(doc, float("nan")) for doc in docs]
             continue
-        pairs = [(query, doc_texts.get(doc, "")) for doc in docs]
-        pair_list = [[q, p] for q, p in pairs]
-        scores_list: List[float] = []
-        for i in range(0, len(pair_list), batch_size):
-            batch = pair_list[i : i + batch_size]
-            batch_scores = model.compute_score(batch)
-            if isinstance(batch_scores, (int, float)):
-                scores_list.append(float(batch_scores))
-            else:
-                scores_list.extend(float(s) for s in batch_scores)
-        scored = [(doc, float(score)) for doc, score in zip(docs, scores_list)]
-        scored.sort(key=lambda x: x[1], reverse=True)
+        if doc_chunking == "maxp":
+            scored = _maxp_score_query_docs(
+                score_fn, tokenizer, query, docs, doc_texts, max_length, chunk_stride,
+                _MAXP_LLM_PROMPT_OVERHEAD, doc_ids_cache,
+            )
+        else:
+            pairs = [(query, doc_texts.get(doc, "")) for doc in docs]
+            scores_list = score_fn(pairs)
+            scored = [(doc, float(score)) for doc, score in zip(docs, scores_list)]
+            scored.sort(key=lambda x: x[1], reverse=True)
         local_out[qid] = scored
         if progress_every and (idx == 1 or idx % progress_every == 0 or idx == total):
             elapsed = max(1e-9, time() - start)
@@ -825,6 +940,8 @@ def main() -> None:
             llm_use_fp16=args.llm_use_fp16,
             llm_use_bf16=args.llm_use_bf16,
             progress_every=args.progress_every,
+            doc_chunking=args.doc_chunking,
+            chunk_stride=args.chunk_stride,
         )
         if args.skip_empty_query_field:
             before = len(reranked)
@@ -907,6 +1024,8 @@ def main() -> None:
         "model_device": model_device,
         "model_batch": args.model_batch,
         "model_max_length": args.model_max_length,
+        "doc_chunking": args.doc_chunking,
+        "chunk_stride": args.chunk_stride,
         "llm_use_fp16": getattr(args, "llm_use_fp16", False),
         "llm_use_bf16": getattr(args, "llm_use_bf16", False),
         "use_multi_gpu": args.use_multi_gpu,
