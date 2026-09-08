@@ -27,6 +27,8 @@ We refer to three fusion steps:
 - **Evidence and generation** (when `DOCS_JSONL` is set)
   - `evidence/evidence_baseline/`, `generation/generation_baseline/` – **document route** contexts and answers (one record per PMID/abstract). The `_baseline` suffix is a legacy on-disk name retained for back-compat with existing run trees.
   - `evidence/evidence_snippet/`, `generation/generation_snippet/` – snippet-route contexts and answers.
+  - With `GENERATION_MODE=claims`, distillation intermediates (`<split>_claims_cache.jsonl`, `<split>_distilled_contexts.jsonl`) sit next to the contexts file, and answers are written as `<split>_distilled_answers.jsonl`.
+  - With `CITATION_GRANULARITY=sentence`, the attribution stage writes `<split>_[distilled_]answers_attributed.jsonl` alongside the answers it read.
 
 ## Migrating an existing workflow directory
 

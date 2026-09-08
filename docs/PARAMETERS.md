@@ -1,6 +1,6 @@
 # Tunable parameters
 
-Authoritative commented list of **every** workflow variable: [workflow_config_full.env](../conf/workflow_config_full.env) (section banners `# ---------- ... ----------` match the headings below). This document adds **tuning ranges**, **constraints**, **how caps chain across stages**, and links to notebooks. For BioASQ-oriented paths and Docker, see [BioASQ docs/USAGE.md](https://github.com/fulaibaowang/BioASQ/blob/main/docs/USAGE.md) and the script index [BioASQ scripts/public/README.md](https://github.com/fulaibaowang/BioASQ/blob/main/scripts/public/README.md).
+Commented list of the workflow variables: [workflow_config_full.env](../conf/workflow_config_full.env) (section banners `# ---------- ... ----------` match the headings below). This document adds **tuning ranges**, **constraints**, **how caps chain across stages**, and links to notebooks. For BioASQ-oriented paths and Docker, see [BioASQ docs/USAGE.md](https://github.com/fulaibaowang/BioASQ/blob/main/docs/USAGE.md) and the script index [BioASQ scripts/public/README.md](https://github.com/fulaibaowang/BioASQ/blob/main/scripts/public/README.md).
 
 ## Quick index
 
@@ -15,8 +15,9 @@ Authoritative commented list of **every** workflow variable: [workflow_config_fu
 | `RERANK_TSTAR_*` | [Post-fusion score cutoff](#post-fusion-score-cutoff-t-star) |
 | Snippet windows, CE, final fusion | [Snippet-RRF route](#snippet-rrf-route-optional) |
 | `POST_RERANK_DOC_POOL`, `EVIDENCE_TOP_K*` | [Evidence (contexts)](#evidence-contexts) |
-| `GENERATION_MODE`, `GENERATION_EXTRACT_*`, `GENERATION_FACET_*` | [Context distillation (optional)](#context-distillation-optional) |
+| `GENERATION_MODE`, `GENERATION_EXTRACT_*` | [Context distillation (optional)](#context-distillation-optional) |
 | `GENERATION_*`, backends | [Answer generation (LLM)](#answer-generation-llm) |
+| `CITATION_GRANULARITY`, `CITATION_*` | [Sentence citation attribution](#sentence-citation-attribution-optional) |
 
 ---
 
@@ -320,31 +321,28 @@ Corresponds to `# ---------- Evidence (post-rerank JSON + contexts JSONL) ------
 
 Corresponds to `# ---------- Generation: context distillation (optional) ----------` in [workflow_config_full.env](../conf/workflow_config_full.env).
 
-`GENERATION_MODE` rewrites the generation contexts before the answer prompt. Default `direct` (or unset) is **byte-identical** to the plain pipeline. In `claims` and `facets` modes an LLM first extracts atomic, query-relevant claims from the top `GENERATION_EXTRACT_TOP_N` contexts (resumable cache: `<split>_claims_cache.jsonl` next to the contexts file), then:
+`GENERATION_MODE` rewrites the generation contexts before the answer prompt. Two modes:
 
-- `claims` — [distil_claims.py](../generation/distil_claims.py) packs deduped claims into slots by CE-ordered round-robin across source contexts.
-- `facets` — [summarize_facets.py](../generation/summarize_facets.py) clusters claims into facets and summarizes each multi-claim facet into one dense slot; [select_contexts.py](../generation/select_contexts.py) keeps the top `GENERATION_SELECT_N` slots by **slot-text hybrid RRF** (bi-encoder cosine ⊕ BM25, both computed on the slot text itself).
+- **`direct`** (default, or unset) — no rewriting. **Byte-identical** to the plain pipeline.
+- **`claims`** — an LLM extracts atomic, query-relevant claims from the top `GENERATION_EXTRACT_TOP_N` contexts (resumable cache: `<split>_claims_cache.jsonl` next to the contexts file), then [distil_claims.py](../generation/distil_claims.py) packs deduped claims into slots by cross-encoder-ordered round-robin across source contexts.
+
+A third value, `facets`, is accepted but **not recommended and not documented here** — it adds a clustering stage and a second LLM pass for no measured quality gain on long-form synthesis. Use `claims`.
 
 Generation then runs unchanged on `<split>_distilled_contexts.jsonl`, writing `<split>_distilled_answers.jsonl`. Slot `id`s are always source context ids, so citations stay corpus-resolvable.
 
 | Parameter | Suggested range | Default | Notes |
 |-----------|-----------------|---------|-------|
-| `GENERATION_MODE` | — | **direct** | `direct` \| `claims` \| `facets`; ollama backend only (openai_compat fails fast) |
+| `GENERATION_MODE` | — | **direct** | `direct` \| `claims`; ollama backend only (openai_compat fails fast) |
 | `GENERATION_EXTRACT_MODEL` | — | `GENERATION_MODEL` | **Set explicitly.** Extract/summary quality was validated with `llama3.3:latest`, independent of the generator model |
 | `GENERATION_EXTRACT_TOP_N` | 30 – 50 | **30** | Contexts per query to extract from; larger was flat-to-worse in testing. Also the cache cut for distil/summarize |
 | `GENERATION_DISTIL_SLOTS` / `GENERATION_DISTIL_BUDGET_WORDS` | — | unset / **944** | claims mode: fixed slot count (wins over word budget) |
-| `GENERATION_FACET_DIST_THR` | 0.3 – 0.55 | **0.4** | facets mode: clustering distance threshold (0.4 ≈ max facet diversity) |
-| `GENERATION_FACET_MIN_CLUSTER` | — | **2** | Facets with fewer claims are emitted verbatim |
-| `GENERATION_SUMMARY_MODEL` / `GENERATION_SUMMARY_NUM_CTX` | — | extract chain / **8192** | Summarizer LLM + its own context window (independent of the generator's `GENERATION_NUM_CTX`) |
-| `GENERATION_SELECT_N` | 13 – 25 | **16** | facets mode: slots kept (flat in testing across this range) |
-| `GENERATION_SELECT_RRF_K` | — | **60** | RRF k for the semantic+lexical fusion |
 | `GENERATION_MAX_CONTEXTS_DISTILLED` / `GENERATION_MAX_CHARS_PER_CONTEXT_DISTILLED` | — | **100** / **1800** | Generation caps when mode ≠ direct — high by default so distilled slots are never silently truncated |
 
 **Constraints and caveats**
 
 - **Truncation policy:** distilled prompts are dense. If answers truncate (`incomplete JSON object` errors), raise the generator's `GENERATION_NUM_CTX` (ollama) — never cut slots or contexts. The orchestrator warns pre-generation when the largest slot set approaches `GENERATION_NUM_CTX`.
 - **Document route:** claim ordering uses the cross-encoder scores carried on snippet windows (`selected_windows[].ce_score`); document-route contexts have none, so source order falls back to retrieval rank.
-- **Models:** the ollama `think` flag is **step-dependent** for thinking models (gemma): summarization auto-sends `think: false` (thinking burns the `num_predict` cap → empty summaries), while extraction and answer generation leave the key **absent** — an explicit `false` measurably degrades both. Override per stage via `GENERATION_EXTRACT_THINK` / `GENERATION_SUMMARY_THINK` / `GENERATION_THINK` only if you have evidence.
+- **Models:** the ollama `think` flag is **step-dependent** for thinking models (gemma): extraction and answer generation leave the key **absent** — an explicit `false` measurably degrades both. Override per stage via `GENERATION_EXTRACT_THINK` / `GENERATION_THINK` only if you have evidence.
 - **Caches are stable contracts** (see [test_distill_common.py](../generation/test_distill_common.py)); claim extraction is the expensive step and is never recomputed for a (query, context text) pair.
 - Rescue in distilled mode passes the same `--max-contexts` / `--max-chars-per-context` as the main run (input-preserving).
 
@@ -366,6 +364,33 @@ Corresponds to `# ---------- Generation (LLM answers from contexts JSONL) ------
 **Decision:** Temperature differences were marginal; default `temperature=0.0` for deterministic output.
 
 See [notebooks/generation_temperature_sweep.ipynb](https://github.com/fulaibaowang/BioASQ/blob/main/notebooks/generation_temperature_sweep.ipynb) for temperature and prompt tests.
+
+---
+
+## Sentence citation attribution (optional)
+
+Corresponds to the `CITATION_*` knobs in [workflow_config_full.env](../conf/workflow_config_full.env). Default **off**: with `CITATION_GRANULARITY` unset (or `answer`) the stage is not appended and generation output is byte-identical to the plain pipeline.
+
+`CITATION_GRANULARITY=sentence` appends [attribute_sentences.py](../generation/attribute_sentences.py) after generation. It splits each answer into sentences, matches every sentence back to the claim text it restates, and appends `answer_sentences: [{text, doc_ids}]` with **real corpus docids**. Index remapping and cited-only reference lists are wire-format concerns and stay in each repo's adapt-out.
+
+**Requires `GENERATION_MODE=claims`.** `direct` is refused at config time — raw passages carry no claims to match against, and a silent degraded fallback would be worse than an error.
+
+### The method
+
+Candidates are ranked by **RRF fusion** of a lexical order (content-word claim recall) and a semantic order (bge-m3 cosine); the top-k are cited. Fusion measured better than either signal alone — it fixes spurious word-overlap top picks without admitting any extra candidate docs — and it is the default. There is no reason to change it.
+
+The embedding backend is imported lazily, so runs with nothing to match never load torch.
+
+### Knobs
+
+| Knob | Values | What it decides |
+|------|--------|-----------------|
+| `CITATION_GRANULARITY` | `answer` (default) \| `sentence` | Whether the stage runs at all. |
+| `CITATION_CLAIM_POOL` | **`declared`** \| `doc` | Which texts a sentence may be matched against: only the slots named in `evidence_ids`, or every claim of those same docs. The candidate **doc** set is identical either way, so cited docids stay a subset of the answer-level ones. `doc` matched substantially better on a judged web set. |
+| `CITATION_MAX_CITES` | **`0`** | Citations per sentence (exact top-k; 0 → 1). Set this when the consuming wire format caps cites per sentence. |
+| `CITATION_MOCK` | **`0`** \| `1` | `1` = dependency-free mode for CI; never imports the embedding backend. |
+
+`CITATION_ATTRIBUTION=trivial` skips matching and gives every sentence the whole answer-level reference list — the baseline floor, useful as a control, not a production setting. Default is `auto`.
 
 ---
 

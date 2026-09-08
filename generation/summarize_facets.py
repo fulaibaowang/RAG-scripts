@@ -86,6 +86,13 @@ def main() -> None:
                     default=int(env_first("GENERATION_SUMMARY_TIMEOUT", default="600")))
     ap.add_argument("--concurrency", type=int,
                     default=int(env_first("GENERATION_SUMMARY_CONCURRENCY", default="3")))
+    # 256 is the SELECTION-REGIME budget: it was chosen when facets had to fit ~50 slots at a 400w
+    # answer budget. It stays the default so every banked run reproduces, but in a facets-FULL
+    # regime there is no slot budget and the cap is an inherited constraint — measured binding on
+    # 83% of 40-claim facets (and 0.68% overall, because a low dist-thr keeps clusters small).
+    # -1 = unbounded (ollama's own convention).
+    ap.add_argument("--num-predict", type=int,
+                    default=int(env_first("GENERATION_SUMMARY_NUM_PREDICT", default="256")))
     args = ap.parse_args()
 
     api_key = os.environ.get("LLAMA_API_KEY", "")
@@ -156,7 +163,8 @@ def main() -> None:
             try:
                 s = call_ollama(
                     args.ollama_url, args.model, prompt,
-                    options={"temperature": 0, "num_ctx": args.num_ctx, "num_predict": 256},
+                    options={"temperature": 0, "num_ctx": args.num_ctx,
+                             "num_predict": args.num_predict},
                     timeout=args.timeout, think=think, api_key=api_key).strip()
                 if s:
                     with lock:

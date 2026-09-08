@@ -12,37 +12,37 @@ best-match-first order per sentence. Index remapping / cited-only reference list
 wire-format concern and belong in each repo's adapt-out, not here. Everything else in the
 row (ideal_answer, evidence_ids, contexts) is passed through untouched.
 
-Attribution requires slot-based contexts (a sentence is matched against the claim/facet
-slot text it restates — provenance propagation, not re-retrieval). The stage keys on each
-row's stamped ``context_mode``:
-    claim               -> lineage  (sentence -> claim slot -> its doc_id)
-    claim_facet_summary -> descent  (sentence -> facet summary -> member claims -> doc_ids;
-                                     needs --member-claims, the extract_claims cache)
-    anything else       -> HARD ERROR (direct/snippet/document contexts carry no slots;
-                                     refusing beats silently degraded attribution)
+Requires ``GENERATION_MODE=claims``: a sentence is matched against the claim text it
+restates (provenance propagation, not re-retrieval). Rows whose ``context_mode`` carries no
+claim slots are a HARD ERROR -- refusing beats silently degraded attribution.
 
-Matching (--rerank):
-    rrf (default) — candidates ranked by RRF fusion of the lexical-claim-recall order and
-        the bge-m3 cosine order, top-k cited (k = --lineage-max-cites, default 1). For
-        descent the fusion applies to the stage-1 FACET pick only (where it is a measured
-        significant win); member selection inside a matched facet stays lexical (cosine
-        cannot separate members inside a cluster — similarity is not entailment).
-    blend — same selection but ranked by (1-alpha)*lex + alpha*cos.
-    lex — pure lexical, byte-identical to the banked serializer behavior (threshold gate
-        with min-score/min-overlap, argmax floor, --descent-fallback policy). No embedding
-        import ever happens on this path; --mock forces it (CI stays dependency-free).
+THE METHOD
+----------
+Candidates are ranked by **RRF fusion** of two orders: lexical content-word claim-recall,
+and bge-m3 cosine. Top-k are cited (k = --match-max-cites, default 1). Fusion is the measured
+win over either signal alone -- it fixes spurious word-overlap top picks without admitting any
+extra candidate docs. It is the default and there is no reason to change it.
 
-The embedding backend (sentence_transformers, already a subtree dependency) is imported
-lazily and only when a rrf/blend run actually has sentences to match, so answer-level /
-mock-LLM / CI paths never load torch.
+The embedding backend (sentence_transformers, already a subtree dependency via
+retrieve_dense.py) is imported LAZILY and only when a run actually has sentences to match, so
+answer-level, mock-LLM and CI paths never load torch.
+
+TWO KNOBS
+---------
+  --claim-pool declared|doc   Which texts a sentence may be matched against. 'declared'
+        (default) scores only the slots the generator named in evidence_ids; 'doc' scores
+        every claim extracted from those same docs. The candidate DOC set is identical
+        either way, so cited docids stay a subset of the answer-level ones.
+
+  --match-max-cites N   Citations per sentence (exact top-k; 0 -> 1).
+
+``--attribution trivial`` skips matching altogether and gives every sentence the whole
+answer-level reference list -- the baseline floor, kept as a control, not a production choice.
 
 Usage:
   python3 generation/attribute_sentences.py \
       --answers .../queries_answers.jsonl --out .../queries_answers_attributed.jsonl \
-      [--attribution auto|trivial|lineage|descent] [--rerank rrf|blend|lex] [--mock] \
-      [--member-claims .../claims_cache.jsonl] [--alpha 0.6] \
-      [--lineage-min-score 0.5] [--lineage-min-overlap 2] [--lineage-max-cites 0] \
-      [--descent-fallback argmax|all|none]
+      [--claim-pool declared|doc] [--match-max-cites 3]
 """
 import argparse
 import json
@@ -211,6 +211,20 @@ def attribute_lineage(sentences, row, opts):
             doc_slots[doc_id] = []
             cand_docs.append(doc_id)
         doc_slots[doc_id].append(slot_txt.get(eid, ""))
+    if opts.claim_pool == "doc":
+        # Score against EVERY claim extracted from a candidate doc, not just the one slot the
+        # generator happened to name in evidence_ids. The candidate DOC set is unchanged (still
+        # declared-only, so cited docids stay a subset of the answer-level ones), but a doc
+        # carries a median of ~17 claims and matching against one of them is an accident of
+        # reusing evidence_ids for two different jobs. Measured on 735 judged web-corpus
+        # sentences: mean best claim-recall 0.120 -> 0.238, and re-ranking the same citations by
+        # it puts a supported citation above an unsupported one 85% of the time (top-1 support
+        # 24.4% -> 30.5%).
+        by_doc = {}
+        for c in row.get("contexts", []):
+            by_doc.setdefault(c["doc_id"], []).append(c.get("text", ""))
+        for d in cand_docs:
+            doc_slots[d] = by_doc.get(d) or doc_slots[d]
     doc_toks = {d: [_content_tokens(t) for t in txts] for d, txts in doc_slots.items()}
 
     if opts.emb is not None:
@@ -249,7 +263,17 @@ def attribute_lineage(sentences, row, opts):
                              key=lambda i: (1 - opts.alpha) * scored[i][0][0]
                              + opts.alpha * cos[i], reverse=True)
             order = [cand_docs[i] for i in idx]
+            if opts.gate_ratio > 0:
+                # The rrf/blend path otherwise emits exactly top-k with no support check. Most
+                # sentences in a synthesis answer are sequencing or design judgement that no
+                # single doc supports; citing them anyway costs precision for nothing. Whether
+                # the resulting uncited sentence is legal is the consuming adapt-out's call --
+                # see --match-allow-uncited, and the statistic caveat on --match-gate-ratio.
+                order = [d for d in order
+                         if max(_claim_recall(stoks, t) for t in doc_toks[d])[0] >= opts.gate_ratio]
             cap = opts.max_cites or 1  # re-rank cites exactly top-k (default 1)
+        if not order and not opts.allow_uncited and cand_docs:
+            order = [cand_docs[max(range(len(cand_docs)), key=lambda i: scored[i][0])]]
         docs = []
         for d in order:
             if d not in docs:
@@ -297,10 +321,26 @@ def attribute_descent(sentences, row, member_cache, opts):
         if c.get("kind") == "summary" or c.get("n_members", 1) > 1:
             member_ids = c.get("member_ids") or [c["id"]]
             member_docs = c.get("member_doc_ids") or [c["doc_id"]]
+            if opts.member_align == "cache":
+                # summarize_facets.py writes member_ids CE-sorted (with repeats when one doc
+                # contributes several claims) and member_doc_ids as sorted({doc_id}) -- the two
+                # lists are NOT parallel, so zip() below pairs one member's claims with another
+                # member's docid. This mismatches for the large majority of pairs in practice.
+                # Resolve each member's own doc from the claims cache instead (the id is itself
+                # the docid on corpora that key contexts by docid).
+                pairs, seen = [], set()
+                for mid in member_ids:
+                    if mid in seen:
+                        continue
+                    seen.add(mid)
+                    ent = member_cache.get((qid, mid))
+                    pairs.append((mid, ent["doc_id"] if ent else mid))
+            else:
+                pairs = list(zip(member_ids, member_docs))  # banked (mis)pairing
         else:  # singleton claim slot: it is its own single member
-            member_ids, member_docs = [c["id"]], [c["doc_id"]]
+            pairs = [(c["id"], c["doc_id"])]
         members = []
-        for mid, mdoc in zip(member_ids, member_docs):
+        for mid, mdoc in pairs:
             ent = member_cache.get((qid, mid))
             claim_toks = [_content_tokens(cl) for cl in ent["claims"]] if ent else []
             # fall back to the summary text if a member's claims are unavailable
@@ -374,6 +414,9 @@ def attribute_descent(sentences, row, member_cache, opts):
 
 # --- stage driver ---
 
+# context_mode -> internal matching path. NOT a user-facing choice: a claim slot already holds
+# the text to match, a facet-summary slot needs one more hop to its members. Every caller
+# passes --attribution auto and lets this decide.
 _MODE_TO_ATTRIBUTION = {"claim": "lineage", "claim_facet_summary": "descent"}
 
 
@@ -382,10 +425,15 @@ class Opts:
         self.rerank = args.rerank
         self.alpha = args.alpha
         self.k_rrf = args.k_rrf
-        self.min_score = args.lineage_min_score
-        self.min_overlap = args.lineage_min_overlap
-        self.max_cites = args.lineage_max_cites
+        self.min_score = args.match_min_score
+        self.min_overlap = args.match_min_overlap
+        self.max_cites = args.match_max_cites
         self.fallback = args.descent_fallback
+        # "evidence" is the pre-rename spelling of "declared"; both mean the same pool.
+        self.claim_pool = args.claim_pool
+        self.member_align = args.descent_member_align
+        self.gate_ratio = args.match_gate_ratio
+        self.allow_uncited = args.match_allow_uncited
         self.emb = emb
 
 
@@ -409,8 +457,9 @@ def attribute_row(row, args, member_cache, emb):
     else:  # descent
         if member_cache is None:
             raise SystemExit(
-                f"ERROR {row.get('query_id')}: descent attribution (context_mode="
-                f"claim_facet_summary) requires --member-claims (extract_claims cache)")
+                f"ERROR {row.get('query_id')}: facet-summary rows (context_mode="
+                f"claim_facet_summary) need one hop to their member claims, which requires "
+                f"--member-claims (the extract_claims cache)")
         per_sentence, unresolved = attribute_descent(sentences, row, member_cache, opts)
     answer_sentences = [{"text": s, "doc_ids": docs}
                         for s, docs in zip(sentences, per_sentence)]
@@ -426,33 +475,48 @@ def main():
                     help="output JSONL: same rows + answer_sentences")
     ap.add_argument("--attribution", default="auto",
                     choices=["auto", "trivial", "lineage", "descent"],
-                    help="auto (default) keys on each row's context_mode: "
-                         "claim->lineage, claim_facet_summary->descent")
+                    metavar="auto|trivial",
+                    help="auto (default) = match each sentence to the claim it restates. "
+                         "'trivial' skips matching and gives every sentence the whole "
+                         "answer-level reference list (the baseline floor, a control).")
     ap.add_argument("--rerank", default="rrf", choices=["rrf", "blend", "lex"],
-                    help="candidate matcher: rrf (default) / blend fuse bge-m3 cosine "
-                         "into the pick (top-k); lex = banked lexical threshold behavior")
+                    help=argparse.SUPPRESS)
     ap.add_argument("--mock", action="store_true",
-                    help="lexical-only (forces --rerank lex; never imports the "
-                         "embedding backend — for CI / dependency-free runs)")
+                    help=argparse.SUPPRESS)
     ap.add_argument("--alpha", type=float, default=0.6,
-                    help="blend weight: (1-alpha)*lex + alpha*cos (validated band .5-.7)")
-    ap.add_argument("--k-rrf", type=int, default=60, help="RRF constant")
+                    help=argparse.SUPPRESS)
+    ap.add_argument("--k-rrf", type=int, default=60, help=argparse.SUPPRESS)
     ap.add_argument("--emb-model", default="BAAI/bge-m3",
-                    help="embedding model for rrf/blend matching")
+                    help=argparse.SUPPRESS)
     ap.add_argument("--member-claims", type=Path, default=None,
-                    help="descent: extract_claims cache (qid+context_id -> claims) for "
-                         "the sentence->member matching hop")
+                    help=argparse.SUPPRESS)
+    ap.add_argument("--claim-pool", default="declared",
+                    choices=["declared", "doc", "evidence"], metavar="declared|doc",
+                    help="which of a candidate doc's claims a sentence is matched against. "
+                         "'declared' (default) = only the slots named in evidence_ids; "
+                         "'doc' = every claim extracted from that doc. The candidate DOC "
+                         "set is identical either way, so cited docids stay a subset of the "
+                         "answer-level ones.")
+    ap.add_argument("--match-gate-ratio", "--lineage-gate-ratio", type=float, default=0.0,
+                    dest="match_gate_ratio",
+                    help=argparse.SUPPRESS)
+    ap.add_argument("--match-allow-uncited", "--lineage-allow-uncited", action="store_true",
+                    dest="match_allow_uncited",
+                    help=argparse.SUPPRESS)
+    # --- facet (two-hop) path: retained, deliberately undocumented. See module docstring. ---
+    ap.add_argument("--descent-member-align", default="zip", choices=["zip", "cache"],
+                    help=argparse.SUPPRESS)
     ap.add_argument("--descent-fallback", default="argmax",
-                    choices=["argmax", "all", "none"],
-                    help="lex descent: within-facet policy when no member clears "
-                         "threshold (argmax=best member, all=whole cluster, none=uncited)")
-    ap.add_argument("--lineage-min-score", type=float, default=0.5,
-                    help="lexical gate: min claim-recall ratio")
-    ap.add_argument("--lineage-min-overlap", type=int, default=2,
-                    help="lexical gate: min shared content words")
-    ap.add_argument("--lineage-max-cites", type=int, default=0,
-                    help="citations per sentence: cap for lex (0 = unlimited), "
-                         "exact top-k for rrf/blend (0 -> 1)")
+                    choices=["argmax", "all", "none"], help=argparse.SUPPRESS)
+    ap.add_argument("--match-min-score", "--lineage-min-score", type=float, default=0.5,
+                    dest="match_min_score",
+                    help=argparse.SUPPRESS)
+    ap.add_argument("--match-min-overlap", "--lineage-min-overlap", type=int, default=2,
+                    dest="match_min_overlap",
+                    help=argparse.SUPPRESS)
+    ap.add_argument("--match-max-cites", "--lineage-max-cites", type=int, default=0,
+                    dest="match_max_cites",
+                    help="citations per sentence (exact top-k; 0 -> 1)")
     args = ap.parse_args()
     if args.mock:
         args.rerank = "lex"

@@ -142,8 +142,8 @@ while [ $# -gt 0 ]; do
       echo "  GENERATION_SCHEMAS_DIR       Directory of schema *.txt for LLM prompts (default: scripts/public/shared_scripts/prompts/schemas under repo root)."
       echo "  CITATION_GRANULARITY=answer|sentence   answer (default) = generation output unchanged; sentence = append the"
       echo "                          post-hoc attribution stage (generation/attribute_sentences.py) after generation."
-      echo "                          Requires GENERATION_MODE=claims|facets (refused with direct). Knobs: CITATION_ATTRIBUTION,"
-      echo "                          CITATION_RERANK (rrf|blend|lex), CITATION_ALPHA, CITATION_MAX_CITES, CITATION_MOCK=1."
+      echo "                          Requires GENERATION_MODE=claims (refused with direct). Knobs: CITATION_CLAIM_POOL"
+      echo "                          (declared|doc), CITATION_MAX_CITES, CITATION_MOCK=1."
       echo "  POST_RERANK_DOC_POOL         Max docs per query written into post_rerank_*.jsonl (default: 30)."
       echo "  POST_RERANK_FUSION_MAX_CHUNKS_PER_PMID  If >0, cap each PMID to this many chunks in fused output TSVs (default: 0 = no cap; no-op for abstract-only corpora)."
       echo "  MAX_CHUNKS_PER_PMID          Max chunks per PMID in evidence post_rerank_*.jsonl (default: 2)."
@@ -184,7 +184,7 @@ case "$CITATION_GRANULARITY" in
   answer) ;;
   sentence)
     if [ "${GENERATION_MODE:-direct}" = "direct" ]; then
-      echo "Error: CITATION_GRANULARITY=sentence requires GENERATION_MODE=claims|facets (direct contexts carry no claim/facet slots to attribute sentences to)." >&2
+      echo "Error: CITATION_GRANULARITY=sentence requires GENERATION_MODE=claims (direct contexts carry no claim slots to attribute sentences to)." >&2
       exit 1
     fi
     ;;
@@ -1542,8 +1542,9 @@ DISTILL_PREFLIGHT
             [ "$_GEN_MODE" = "facets" ] && ATTRIBUTION_ARGS+=(--member-claims "$_claims_cache")
             [ -n "${CITATION_ATTRIBUTION:-}" ] && ATTRIBUTION_ARGS+=(--attribution "$CITATION_ATTRIBUTION")
             [ -n "${CITATION_RERANK:-}" ] && ATTRIBUTION_ARGS+=(--rerank "$CITATION_RERANK")
+            [ -n "${CITATION_CLAIM_POOL:-}" ] && ATTRIBUTION_ARGS+=(--claim-pool "$CITATION_CLAIM_POOL")
             [ -n "${CITATION_ALPHA:-}" ] && ATTRIBUTION_ARGS+=(--alpha "$CITATION_ALPHA")
-            [ -n "${CITATION_MAX_CITES:-}" ] && ATTRIBUTION_ARGS+=(--lineage-max-cites "$CITATION_MAX_CITES")
+            [ -n "${CITATION_MAX_CITES:-}" ] && ATTRIBUTION_ARGS+=(--match-max-cites "$CITATION_MAX_CITES")
             [ "${CITATION_MOCK:-0}" = "1" ] && ATTRIBUTION_ARGS+=(--mock)
             python "$SCRIPT_DIR/generation/attribute_sentences.py" "${ATTRIBUTION_ARGS[@]}"
           fi

@@ -32,6 +32,11 @@ already-exported key). It does **not** load ``GENERATION_BACKEND``,
   ``OLLAMA_URL`` with ``LLAMA_API_KEY`` (export, scheduler, or ``LLAMA_API_KEY`` in repo-root ``.env``).
   ``openai_compat`` (aliases: ``openrouter``, ``openai``) — POST
   ``{GEN_API_BASE}/chat/completions`` with ``GEN_API_KEY``. Requires ``GEN_API_BASE``.
+  Optional on this path: ``GENERATION_MAX_TOKENS`` (output cap),
+  ``GENERATION_REASONING_EFFORT`` (``minimal|low|medium|high`` for thinking-capable
+  hosted models), and ``GENERATION_PROVIDER_JSON`` (verbatim OpenRouter ``provider``
+  routing block, e.g. ``{"only":["openai/flex"],"allow_fallbacks":false}``). All
+  default to absent -> provider default.
 
 - **Model id**: ``--model`` (pipeline may set ``GENERATION_MODEL`` for the same value).
   Default when ``--model`` is omitted: ``llama3.3:latest`` (Ollama tag).
@@ -82,7 +87,9 @@ REPO_ROOT = _find_repo_root()
 OLLAMA_URL = os.getenv("OLLAMA_URL", "https://chat.fri.uni-lj.si/ollama/api/generate")
 OLLAMA_MODEL = "llama3.3:latest"
 
-MAX_LLM_RETRIES = 3
+# Overridable so a run against a quota-limited hosted provider can wait it out rather than lose
+# topics. Default unchanged -> byte-identical behaviour when the env var is absent.
+MAX_LLM_RETRIES = int(os.getenv("GENERATION_MAX_RETRIES", "3"))
 
 logger = logging.getLogger(__name__)
 
@@ -101,13 +108,30 @@ def sanitize_generation_record(rec: Dict[str, Any]) -> None:
                     w.pop("window_idx", None)
 
 
+class TransientChatAPIError(RuntimeError):
+    """Provider signalled a transient condition INSIDE a 200 response body.
+
+    OpenRouter reports upstream rate limits as HTTP 200 with ``{"error": {"code": 429, ...}}``,
+    so the HTTPError branch below never sees them. Before this class existed, such a response
+    raised a plain RuntimeError, ``_is_retryable_request_error`` said False, and the call failed
+    with ZERO of its 3 retries used — measured 2026-07-30: 59 of 119 topics lost in one pass.
+    """
+
+
 def _is_retryable_request_error(exc: BaseException) -> bool:
-    """True if the exception is a transient error worth retrying (timeout, 5xx, connection)."""
+    """True if the exception is a transient error worth retrying (timeout, 5xx, connection, 429)."""
     if isinstance(exc, (requests.exceptions.Timeout, requests.exceptions.ConnectionError)):
+        return True
+    if isinstance(exc, TransientChatAPIError):
         return True
     if isinstance(exc, requests.exceptions.HTTPError) and exc.response is not None:
         return exc.response.status_code in (429, 502, 503, 504)
     return False
+
+
+_TRANSIENT_BODY_CODES = frozenset({429, 500, 502, 503, 504, 529})
+_TRANSIENT_BODY_MARKERS = ("rate-limit", "rate limit", "temporarily", "overloaded",
+                           "try again", "retry shortly", "capacity")
 
 
 # Only these keys are read from repo-root .env (never override existing exports).
@@ -206,8 +230,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--retry-sleep",
         type=int,
-        default=5,
-        help="Seconds to sleep between retries after a failed LLM call (default: 5).",
+        default=int(os.getenv("GENERATION_RETRY_SLEEP", "5")),
+        help="Base seconds between retries after a failed LLM call; backoff is linear "
+             "(1x, 2x, 3x...). Default 5, or GENERATION_RETRY_SLEEP so helper scripts that "
+             "re-invoke this module (rescue_preserve_input.py) inherit it.",
     )
     parser.add_argument(
         "--evidence-source",
@@ -384,6 +410,19 @@ def call_llm_openai_compat(
     _max_tok = (os.getenv("GENERATION_MAX_TOKENS") or "").strip()
     if _max_tok:
         payload["max_tokens"] = int(_max_tok)
+    # Optional reasoning-effort control for thinking-capable hosted models (OpenAI GPT-5.x via
+    # OpenRouter, etc.). Default unset -> key absent -> provider default, so behaviour is
+    # byte-identical when the env var is absent (cross-repo safe). Values: minimal|low|medium|high.
+    _effort = (os.getenv("GENERATION_REASONING_EFFORT") or "").strip().lower()
+    if _effort:
+        payload["reasoning"] = {"effort": _effort}
+    # Optional provider-routing block, passed through verbatim (OpenRouter's `provider` field:
+    # {"only": [...], "sort": ..., "allow_fallbacks": ...}). Needed to PIN one provider/tier for a
+    # whole run: the same model id otherwise resolves to different providers at different prices,
+    # and mixing backends inside one comparison is a banked trap. Default unset -> key absent.
+    _prov = (os.getenv("GENERATION_PROVIDER_JSON") or "").strip()
+    if _prov:
+        payload["provider"] = json.loads(_prov)
     r = requests.post(
         url,
         headers={
@@ -399,8 +438,13 @@ def call_llm_openai_compat(
         err = data["error"]
         if isinstance(err, dict):
             msg = str(err.get("message", err))
+            code = err.get("code")
         else:
             msg = str(err)
+            code = None
+        low = msg.lower()
+        if code in _TRANSIENT_BODY_CODES or any(m in low for m in _TRANSIENT_BODY_MARKERS):
+            raise TransientChatAPIError(f"Chat API transient error: {msg}")
         raise RuntimeError(f"Chat API error: {msg}")
     choices = data.get("choices") if isinstance(data, dict) else None
     if not choices or not isinstance(choices, list):
@@ -869,15 +913,18 @@ def main() -> int:
             except Exception as e:
                 last_error = e
                 if attempt < MAX_LLM_RETRIES - 1 and _is_retryable_request_error(e):
+                    # Linear backoff: a provider quota does not clear in a fixed 5s, and every
+                    # worker retrying on the same short interval is what sustains the throttle.
+                    wait = args.retry_sleep * (attempt + 1)
                     logger.warning(
                         "LLM call failed (attempt %s/%s) for id=%s: %s; retrying in %ss...",
                         attempt + 1,
                         MAX_LLM_RETRIES,
                         q_id,
                         e,
-                        args.retry_sleep,
+                        wait,
                     )
-                    time.sleep(args.retry_sleep)
+                    time.sleep(wait)
                 else:
                     break
 

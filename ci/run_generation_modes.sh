@@ -49,7 +49,7 @@ for MODE in direct claims facets; do
     if [ "$MODE" != "direct" ]; then
       echo "GENERATION_MODE=$MODE"
       # exercise the post-hoc sentence-attribution stage, lexical-only (no torch),
-      # with the per-sentence cite cap (TREC RAG 2026 allows at most 3)
+      # with a per-sentence cite cap set (some wire formats cap cites per sentence)
       echo "CITATION_GRANULARITY=sentence"
       echo "CITATION_MOCK=1"
       echo "CITATION_MAX_CITES=3"

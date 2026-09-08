@@ -91,6 +91,30 @@ def _parse_think(v: Optional[str]) -> Optional[bool]:
     return v.strip().lower() not in ("0", "false", "no", "off")
 
 
+def _sampling_options() -> dict:
+    """Sampling for the extractor call.
+
+    Defaults are 0.0/1.0 = GREEDY, exactly the values this function replaced, so every banked
+    gemma4/llama3.3 cache stays reproducible and no existing caller changes behaviour.
+
+    They are overridable because greedy is not safe on every model. Measured 2026-07-31 on
+    qwen3:235b-a22b-thinking-2507 at temperature 0.0: a call ran away to 123,156 decoded tokens —
+    past the serve's 65536 context, via ollama's context shifting — and never terminated. Qwen
+    publish 0.6/0.95 for their thinking checkpoints and warn about repetition loops at greedy.
+    Extraction is thousands of small calls, so a single looping call stalls a whole shard.
+
+    GENERATION_EXTRACT_NUM_PREDICT is a LOOP BOUND, not a length cap: leave it unset for
+    non-thinking models; set it generously (>= 8192) for a thinking one so a healthy hidden trace
+    is never truncated but a degenerate one cannot run until the job's wall clock kills it.
+    """
+    opts = {"temperature": float(os.environ.get("GENERATION_EXTRACT_TEMPERATURE", "0.0")),
+            "top_p": float(os.environ.get("GENERATION_EXTRACT_TOP_P", "1.0"))}
+    n = (os.environ.get("GENERATION_EXTRACT_NUM_PREDICT") or "").strip()
+    if n:
+        opts["num_predict"] = int(n)
+    return opts
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--evidence", type=Path, required=True,
@@ -161,7 +185,7 @@ def main() -> None:
             for attempt in range(args.retries):
                 try:
                     raw = call_ollama(args.ollama_url, args.model, prompt,
-                                      options={"temperature": 0.0, "top_p": 1.0},
+                                      options=_sampling_options(),
                                       timeout=args.timeout, think=think, api_key=api_key)
                     claims = parse_claims(raw)
                     if claims is not None:
