@@ -48,7 +48,7 @@ python index/build_dense_hnsw_index_from_jsonl_shards.py \
 - `--ef_construction`: HNSW construction parameter (default: 200)
 - `--ef_search`: HNSW query-time parameter (default: 100)
 - `--max_docs`: Limit index to N docs (for testing)
-- `--dedup_pmids`: De-duplicate documents by PMID
+- `--dedup_pmids`: De-duplicate documents by document
 
 
 ## Full pipeline (orchestrator)

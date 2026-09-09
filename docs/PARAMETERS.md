@@ -60,7 +60,7 @@ Legacy names `TRAIN_JSON` / `TEST_BATCH_JSONS` are accepted by the shell driver 
 | `BM25_INDEX_PATH` | Terrier index directory | Path to index |
 | `DENSE_INDEX_DIR` | Dense HNSW index directory | Path to index |
 | `DOCS_JSONL` | Corpus JSONL for reranker and evidence lookup | Path to docs |
-| `RUN_DOCUMENT` | Build document-route evidence / generation (one context per PMID/abstract) | `1` |
+| `RUN_DOCUMENT` | Build document-route evidence / generation (one context per document/abstract) | `1` |
 | `RUN_SNIPPET_RRF` | Enable snippet-RRF route | `0` |
 
 Exhaustive `BM25_*`, `DENSE_*`, `RETRIEVAL_FUSION_*`, … names are listed under each `# ----------` block in [workflow_config_full.env](../conf/workflow_config_full.env).

@@ -1,0 +1,835 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   width="1902.7128"
+   height="661.88953"
+   viewBox="-1012 28 1902.7127 661.88953"
+   version="1.1"
+   id="svg48"
+   sodipodi:docname="pipeline_poster_v4.svg"
+   inkscape:version="1.4.3 (0d15f75, 2025-12-25)"
+   inkscape:export-filename="pipeline_poster_aligned.png"
+   inkscape:export-xdpi="96"
+   inkscape:export-ydpi="96"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview48"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:zoom="1.3495678"
+     inkscape:cx="906.58657"
+     inkscape:cy="372.34144"
+     inkscape:window-width="3440"
+     inkscape:window-height="1382"
+     inkscape:window-x="0"
+     inkscape:window-y="30"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="svg48" />
+  <defs
+     id="defs1">
+    <style
+       id="style1">
+      .title { font: 700 22px Arial, Helvetica, sans-serif; fill: #111; }
+      .small { font: 400 16px Arial, Helvetica, sans-serif; fill: #111; }
+      .boxtext { font: 600 18px Arial, Helvetica, sans-serif; fill: #111; text-anchor: middle; dominant-baseline: middle; }
+      .method { fill: #eeeeee; stroke: #222; stroke-width: 2; }
+      .output { fill: #ffffff; stroke: #222; stroke-width: 2; }
+      .group { fill: none; stroke: #444; stroke-width: 2; stroke-dasharray: 8 7; }
+      .arrow { stroke: #111; stroke-width: 2.5; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #111; stroke-width: 2.5; fill: none; }
+    </style>
+    <marker
+       id="arrow"
+       markerWidth="9"
+       markerHeight="9"
+       refX="8"
+       refY="4.5"
+       orient="auto"
+       markerUnits="userSpaceOnUse">
+      <path
+         d="M 0,0 9,4.5 0,9 Z"
+         fill="#111111"
+         id="path1" />
+    </marker>
+    <marker
+       id="arrow-4"
+       markerWidth="9"
+       markerHeight="9"
+       refX="8"
+       refY="4.5"
+       orient="auto"
+       markerUnits="userSpaceOnUse">
+      <path
+         d="M 0,0 9,4.5 0,9 Z"
+         fill="#111111"
+         id="path1-9" />
+    </marker>
+    <marker
+       id="arrow-2"
+       markerWidth="9"
+       markerHeight="9"
+       refX="8"
+       refY="4.5"
+       orient="auto"
+       markerUnits="userSpaceOnUse">
+      <path
+         d="M 0,0 9,4.5 0,9 Z"
+         fill="#111111"
+         id="path1-98" />
+    </marker>
+    <marker
+       id="arrow-5"
+       markerWidth="9"
+       markerHeight="9"
+       refX="8"
+       refY="4.5"
+       orient="auto"
+       markerUnits="userSpaceOnUse">
+      <path
+         d="M 0,0 9,4.5 0,9 Z"
+         fill="#111111"
+         id="path1-7" />
+    </marker>
+    <marker
+       id="arrow-8"
+       markerWidth="9"
+       markerHeight="9"
+       refX="8"
+       refY="4.5"
+       orient="auto"
+       markerUnits="userSpaceOnUse">
+      <path
+         d="M 0,0 9,4.5 0,9 Z"
+         fill="#111111"
+         id="path1-5" />
+    </marker>
+    <marker
+       id="arrow-8-4"
+       markerWidth="9"
+       markerHeight="9"
+       refX="8"
+       refY="4.5"
+       orient="auto"
+       markerUnits="userSpaceOnUse">
+      <path
+         d="M 0,0 9,4.5 0,9 Z"
+         fill="#111111"
+         id="path1-5-8" />
+    </marker>
+    <marker
+       id="arrow-8-4-9"
+       markerWidth="9"
+       markerHeight="9"
+       refX="8"
+       refY="4.5"
+       orient="auto"
+       markerUnits="userSpaceOnUse">
+      <path
+         d="M 0,0 9,4.5 0,9 Z"
+         fill="#111111"
+         id="path1-5-8-0" />
+    </marker>
+    <marker
+       id="arrow-1"
+       markerWidth="9"
+       markerHeight="9"
+       refX="8"
+       refY="4.5"
+       orient="auto"
+       markerUnits="userSpaceOnUse">
+      <path
+         d="M 0,0 9,4.5 0,9 Z"
+         fill="#111111"
+         id="path1-3" />
+    </marker>
+    <marker
+       id="arrow-50"
+       markerWidth="9"
+       markerHeight="9"
+       refX="8"
+       refY="4.5"
+       orient="auto"
+       markerUnits="userSpaceOnUse">
+      <path
+         d="M 0,0 9,4.5 0,9 Z"
+         fill="#111111"
+         id="path1-52" />
+    </marker>
+    <marker
+       id="arrow-1-0"
+       markerWidth="9"
+       markerHeight="9"
+       refX="8"
+       refY="4.5"
+       orient="auto"
+       markerUnits="userSpaceOnUse">
+      <path
+         d="M 0,0 9,4.5 0,9 Z"
+         fill="#111111"
+         id="path1-3-3" />
+    </marker>
+    <marker
+       id="arrow-1-01"
+       markerWidth="9"
+       markerHeight="9"
+       refX="8"
+       refY="4.5"
+       orient="auto"
+       markerUnits="userSpaceOnUse">
+      <path
+         d="M 0,0 9,4.5 0,9 Z"
+         fill="#111111"
+         id="path1-3-8" />
+    </marker>
+    <marker
+       id="arrow-26"
+       markerWidth="9"
+       markerHeight="9"
+       refX="8"
+       refY="4.5"
+       orient="auto"
+       markerUnits="userSpaceOnUse">
+      <path
+         d="M 0,0 9,4.5 0,9 Z"
+         fill="#111111"
+         id="path1-6" />
+    </marker>
+    <marker
+       id="marker2"
+       markerWidth="9"
+       markerHeight="9"
+       refX="8"
+       refY="4.5"
+       orient="auto"
+       markerUnits="userSpaceOnUse">
+      <path
+         d="M 0,0 9,4.5 0,9 Z"
+         fill="#111111"
+         id="path2" />
+    </marker>
+    <marker
+       id="arrow-1-0-4"
+       markerWidth="9"
+       markerHeight="9"
+       refX="8"
+       refY="4.5"
+       orient="auto"
+       markerUnits="userSpaceOnUse">
+      <path
+         d="M 0,0 9,4.5 0,9 Z"
+         fill="#111111"
+         id="path1-3-3-7" />
+    </marker>
+  </defs>
+  <rect
+     x="-1012"
+     y="28"
+     width="1902.7128"
+     height="661.88953"
+     fill="#ffffff"
+     id="rect1"
+     style="stroke-width:1.03513" />
+  <rect
+     class="group"
+     x="-842.02844"
+     y="38.444782"
+     rx="17.103422"
+     ry="18.095367"
+     width="695.15002"
+     height="585"
+     id="rect2"
+     style="fill:#d7eef4;stroke-dasharray:0, 22;stroke-dashoffset:0" />
+  <rect
+     class="group"
+     x="-130.87842"
+     y="38.444977"
+     rx="17.103422"
+     ry="18.095367"
+     width="365.18341"
+     height="537.69238"
+     id="rect2-7"
+     style="fill:#f4e3d7;fill-opacity:1;stroke:#444444;stroke-width:2;stroke-dasharray:0, 22;stroke-dashoffset:0" />
+  <rect
+     class="group"
+     x="252.55157"
+     y="38.444782"
+     rx="17.103422"
+     ry="18.095369"
+     width="629.12"
+     height="639.63"
+     id="rect2-7-0"
+     style="fill:#dbe2e3;fill-opacity:1;stroke:#444444;stroke-width:2;stroke-dasharray:0, 22;stroke-dashoffset:0" />
+  <text
+     class="title"
+     x="-494.45343"
+     y="105.94478"
+     text-anchor="middle"
+     id="text4"
+     style="font-style:normal;font-variant:normal;font-weight:700;font-stretch:normal;font-size:22px;line-height:normal;font-family:Arial, Helvetica, sans-serif"><tspan
+       id="tspan62"
+       style="font-size:53.3333px">Retrieval</tspan></text>
+  <text
+     class="title"
+     x="52.836578"
+     y="105.94478"
+     text-anchor="middle"
+     id="text5"
+     style="font-style:normal;font-variant:normal;font-weight:700;font-stretch:normal;font-size:22px;line-height:normal;font-family:Arial, Helvetica, sans-serif"><tspan
+       style="font-size:53.3333px"
+       id="tspan63">Reranking</tspan></text>
+  <text
+     class="title"
+     x="567.11157"
+     y="105.94478"
+     text-anchor="middle"
+     id="text6"
+     style="font-style:normal;font-variant:normal;font-weight:700;font-stretch:normal;font-size:22px;line-height:normal;font-family:Arial, Helvetica, sans-serif"><tspan
+       style="font-size:53.3333px"
+       id="tspan70">Generation</tspan></text>
+  <rect
+     class="output"
+     x="-1003.8584"
+     y="346.83481"
+     width="140"
+     height="90"
+     id="rect6" />
+  <text
+     class="boxtext"
+     x="-933.8584"
+     y="391.83481"
+     id="text8"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:Arial, Helvetica, sans-serif"><tspan
+       sodipodi:role="line"
+       id="tspan54"
+       x="-933.8584"
+       y="391.83481"
+       style="font-size:32px">Query</tspan><tspan
+       sodipodi:role="line"
+       id="tspan55"
+       x="-933.8584"
+       y="419.22424" /></text>
+  <rect
+     class="method"
+     x="-742.5484"
+     y="149.36478"
+     width="118.89"
+     height="90"
+     rx="13.375154"
+     ry="18"
+     id="rect8"
+     style="fill:#cdcdcd;fill-opacity:1" />
+  <rect
+     class="method"
+     x="-757.84247"
+     y="329.52478"
+     width="153.11966"
+     height="90"
+     rx="13.375154"
+     ry="18"
+     id="rect8-6"
+     style="fill:#cdcdcd;fill-opacity:1;stroke:#222222;stroke-width:2.00001" />
+  <text
+     class="boxtext"
+     x="-683.10339"
+     y="194.36478"
+     id="text9"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:Arial, Helvetica, sans-serif"><tspan
+       id="tspan48"
+       style="font-size:32px">BM25</tspan></text>
+  <text
+     class="boxtext"
+     x="-683.10339"
+     y="355.58923"
+     id="text10"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:Arial, Helvetica, sans-serif"><tspan
+       id="tspan49"
+       style="font-size:32px">Dense</tspan></text>
+  <rect
+     class="method"
+     x="-542.61841"
+     y="237.83479"
+     width="159.23"
+     height="110"
+     rx="16.859169"
+     ry="18"
+     id="rect11"
+     style="fill:#cdcdcd;fill-opacity:1" />
+  <g
+     id="g48"
+     transform="translate(-1082.9784,-136.16522)">
+    <text
+       class="boxtext"
+       x="620"
+       y="410"
+       id="text12"
+       style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:Arial, Helvetica, sans-serif"><tspan
+         id="tspan50"
+         style="font-size:32px">Retrieval</tspan></text>
+    <text
+       class="boxtext"
+       x="401.04761"
+       y="531.23474"
+       id="text12-2"
+       style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:Arial, Helvetica, sans-serif;dominant-baseline:middle;text-anchor:middle;fill:#111111"><tspan
+         id="tspan50-3"
+         style="font-size:32px">retrieval</tspan></text>
+    <text
+       class="boxtext"
+       x="620"
+       y="448"
+       id="text13"
+       style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:Arial, Helvetica, sans-serif"><tspan
+         id="tspan51"
+         style="font-size:32px">fusion</tspan></text>
+  </g>
+  <rect
+     class="output"
+     x="-354.87842"
+     y="238.49977"
+     width="190"
+     height="108.67"
+     id="rect14" />
+  <text
+     class="boxtext"
+     x="-259.87842"
+     y="273.83481"
+     id="text15"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:Arial, Helvetica, sans-serif"><tspan
+       id="tspan52"
+       style="font-size:32px">Retrieved</tspan></text>
+  <text
+     class="boxtext"
+     x="-259.87842"
+     y="311.83481"
+     id="text16"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:Arial, Helvetica, sans-serif"><tspan
+       id="tspan53"
+       style="font-size:32px">documents</tspan></text>
+  <rect
+     class="method"
+     x="-111.74842"
+     y="242.86479"
+     width="143.74001"
+     height="99.940002"
+     rx="13.985655"
+     ry="17.988966"
+     id="rect17"
+     style="fill:#cdcdcd;fill-opacity:1" />
+  <text
+     class="boxtext"
+     x="-39.878418"
+     y="273.83481"
+     id="text18"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:Arial, Helvetica, sans-serif"><tspan
+       sodipodi:role="line"
+       id="tspan85"
+       x="-39.878418"
+       y="273.83481"
+       style="font-size:32px">Cross-</tspan><tspan
+       sodipodi:role="line"
+       id="tspan86"
+       x="-39.878418"
+       y="313.83481"
+       style="font-size:32px">encoder</tspan></text>
+  <rect
+     class="output"
+     x="325.55157"
+     y="163.01479"
+     width="190"
+     height="90.860001"
+     id="rect21" />
+  <text
+     class="boxtext"
+     x="420.55157"
+     y="189.44478"
+     id="text22"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:Arial, Helvetica, sans-serif"><tspan
+       id="tspan71"
+       style="font-size:32px">top K</tspan></text>
+  <text
+     class="boxtext"
+     x="420.55157"
+     y="227.44478"
+     id="text23"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:Arial, Helvetica, sans-serif"><tspan
+       id="tspan72"
+       style="font-size:32px">documents</tspan></text>
+  <rect
+     class="method"
+     x="608.41156"
+     y="158.44478"
+     width="224.25999"
+     height="100"
+     rx="17.999998"
+     ry="18"
+     id="rect23"
+     style="fill:#cdcdcd;fill-opacity:1" />
+  <text
+     class="boxtext"
+     x="720.54156"
+     y="227.44478"
+     id="text24"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:Arial, Helvetica, sans-serif"><tspan
+       style="font-size:26.6667px"
+       id="tspan73">raw documents</tspan></text>
+  <text
+     class="boxtext"
+     x="720.54156"
+     y="189.44478"
+     id="text25"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:Arial, Helvetica, sans-serif"><tspan
+       style="font-size:26.6667px"
+       id="tspan74">generation by</tspan></text>
+  <rect
+     class="method"
+     x="283.95157"
+     y="331.51981"
+     width="192"
+     height="115.85"
+     rx="18"
+     ry="19.860449"
+     id="rect25"
+     style="fill:#cdcdcd;fill-opacity:1" />
+  <text
+     class="boxtext"
+     x="379.95157"
+     y="389.44479"
+     id="text26"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:Arial, Helvetica, sans-serif"><tspan
+       id="tspan75"
+       style="font-size:32px">snippet</tspan></text>
+  <text
+     class="boxtext"
+     x="379.95157"
+     y="351.44479"
+     id="text26-14"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:Arial, Helvetica, sans-serif;dominant-baseline:middle;text-anchor:middle;fill:#111111"
+     inkscape:transform-center-x="-33.459721"
+     inkscape:transform-center-y="18.124016"><tspan
+       id="tspan75-0"
+       style="font-size:32px">Verbatim</tspan></text>
+  <text
+     class="boxtext"
+     x="379.95157"
+     y="427.44479"
+     id="text27"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:Arial, Helvetica, sans-serif"><tspan
+       id="tspan76"
+       style="font-size:32px">extraction</tspan></text>
+  <rect
+     class="method"
+     x="76.1297"
+     y="231.27478"
+     width="134.80188"
+     height="123.12"
+     rx="18"
+     ry="25.253973"
+     id="rect28-6"
+     style="fill:#cdcdcd;fill-opacity:1;stroke:#222222;stroke-width:2" />
+  <text
+     class="boxtext"
+     x="143.53069"
+     y="330.83481"
+     id="text30-4"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:Arial, Helvetica, sans-serif;dominant-baseline:middle;text-anchor:middle;fill:#111111"><tspan
+       id="tspan80-1"
+       style="font-size:32px">fusion</tspan></text>
+  <text
+     class="boxtext"
+     x="143.53069"
+     y="254.83479"
+     id="text30-4-9"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:Arial, Helvetica, sans-serif;dominant-baseline:middle;text-anchor:middle;fill:#111111"><tspan
+       id="tspan80-1-6"
+       style="font-size:32px">post</tspan></text>
+  <text
+     class="boxtext"
+     x="143.53069"
+     y="292.83481"
+     id="text30-4-9-7"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:Arial, Helvetica, sans-serif;dominant-baseline:middle;text-anchor:middle;fill:#111111"
+     inkscape:transform-center-x="-4.5330358"
+     inkscape:transform-center-y="-14.89426"><tspan
+       id="tspan80-1-6-9"
+       style="font-size:32px">rerank</tspan></text>
+  <rect
+     class="output"
+     x="510.4516"
+     y="334.68478"
+     width="152"
+     height="109.52"
+     id="rect30" />
+  <text
+     class="boxtext"
+     x="586.4516"
+     y="408.44479"
+     id="text31"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:Arial, Helvetica, sans-serif"><tspan
+       id="tspan83"
+       style="font-size:32px">snippets</tspan></text>
+  <rect
+     class="method"
+     x="702.9516"
+     y="334.68478"
+     width="159.72"
+     height="109.52"
+     rx="21.391443"
+     ry="18.775187"
+     id="rect32"
+     style="fill:#cdcdcd;fill-opacity:1" />
+  <text
+     class="boxtext"
+     x="782.81158"
+     y="408.44479"
+     id="text33"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:Arial, Helvetica, sans-serif"><tspan
+       style="font-size:26.6667px"
+       id="tspan81">by snippets</tspan></text>
+  <text
+     class="boxtext"
+     x="782.81158"
+     y="370.44479"
+     id="text34"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:Arial, Helvetica, sans-serif"><tspan
+       style="font-size:26.6667px"
+       id="tspan82">generation</tspan></text>
+  <path
+     class="arrow"
+     d="m -863.85842,391.83478 h 41.48 v -99 h 26 v -98.47 h 50.83"
+     id="path34"
+     style="stroke-width:3;stroke-dasharray:none" />
+  <path
+     class="arrow"
+     d="m -863.85842,391.83478 h 41.48 v -99 h 26 v 81.69 h 36.22359"
+     id="path35"
+     style="stroke-width:3;stroke-dasharray:none"
+     sodipodi:nodetypes="cccccc" />
+  <path
+     class="arrow"
+     d="m -623.65842,194.36478 h 43.58 v 98.47 h 34.46"
+     id="path36"
+     style="stroke-width:3;stroke-dasharray:none" />
+  <path
+     class="arrow"
+     d="m -605.06602,374.52478 h 24.9876 v -81.69 h 34.46"
+     id="path37"
+     style="stroke-width:3;stroke-dasharray:none"
+     sodipodi:nodetypes="cccc" />
+  <path
+     class="arrow"
+     d="m -383.38842,292.83478 h 25.51"
+     id="path38"
+     style="stroke-width:3;stroke-dasharray:none" />
+  <path
+     class="arrow"
+     d="m -164.87842,292.83478 h 50.13"
+     id="path39"
+     style="stroke-width:3;stroke-dasharray:none" />
+  <path
+     class="arrow"
+     d="m -259.87842,238.50478 v -75.16 h 405.81 v 64.93"
+     id="path39-8"
+     style="fill:none;stroke:#111111;stroke-width:3;stroke-dasharray:none;marker-end:url(#arrow-1)"
+     sodipodi:nodetypes="cccc" />
+  <path
+     class="arrow"
+     d="m -863.69138,391.83478 h 35.82234 v 119.6 h 172.93687"
+     id="path39-8-6"
+     style="fill:none;stroke:#111111;stroke-width:3;stroke-dasharray:3, 6;stroke-dashoffset:0;marker-end:url(#arrow-1-0)" />
+  <path
+     class="arrow"
+     d="m -459.89842,511.43478 h 200.02 v -161.26"
+     id="path-api-out"
+     style="fill:none;stroke:#111111;stroke-width:3;stroke-dasharray:3, 6;stroke-dashoffset:0;marker-end:url(#arrow-1-0)"
+     sodipodi:nodetypes="ccccc" />
+  <text
+     class="boxtext"
+     x="586.4516"
+     y="370.44479"
+     id="text22-3"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:Arial, Helvetica, sans-serif;dominant-baseline:middle;text-anchor:middle;fill:#111111"
+     inkscape:transform-center-x="224.28741"
+     inkscape:transform-center-y="-249.61018"><tspan
+       id="tspan71-1"
+       style="font-size:32px">top K</tspan></text>
+  <path
+     class="arrow"
+     d="m 31.991582,292.83478 h 41.1381"
+     id="path40"
+     style="stroke-width:3;stroke-dasharray:none" />
+  <path
+     class="arrow"
+     d="m 210.93158,292.83478 h 33.62 v -84.39 h 78"
+     id="path42"
+     style="stroke-width:3;stroke-dasharray:none" />
+  <path
+     class="arrow"
+     d="m 515.55158,208.44478 h 89.86"
+     id="path43"
+     style="stroke-width:3;stroke-dasharray:none" />
+  <path
+     class="arrow"
+     d="m 210.93158,292.83478 h 33.62 v 277.61 h 36.4"
+     id="path44"
+     style="stroke-width:3;stroke-dasharray:3, 6;stroke-dashoffset:0" />
+  <path
+     class="arrow"
+     d="m 475.95158,389.44478 h 31.5"
+     id="path45"
+     style="stroke-width:3;stroke-dasharray:3, 6;stroke-dashoffset:0" />
+  <path
+     class="arrow"
+     d="m 210.93158,292.83478 h 33.62 v 96.61 h 36.4"
+     id="path46"
+     style="stroke-width:3;stroke-dasharray:3, 6;stroke-dashoffset:0" />
+  <rect
+     class="method"
+     x="-652.32855"
+     y="456.43478"
+     width="225.6302"
+     height="110"
+     rx="16.859169"
+     ry="18"
+     id="rect11-9"
+     style="display:inline;fill:#cdcdcd;fill-opacity:1;stroke:#222222;stroke-width:2" />
+  <g
+     id="g48-2"
+     transform="translate(-1159.4784,82.434782)"
+     style="display:inline">
+    <text
+       class="boxtext"
+       x="620"
+       y="410"
+       id="text12-6"
+       style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:Arial, Helvetica, sans-serif;dominant-baseline:middle;text-anchor:middle;fill:#111111"><tspan
+         id="tspan50-6"
+         style="font-size:29.3333px">external API</tspan></text>
+    <text
+       class="boxtext"
+       x="620"
+       y="448"
+       id="text13-7"
+       style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:Arial, Helvetica, sans-serif;dominant-baseline:middle;text-anchor:middle;fill:#111111"><tspan
+         id="tspan51-8"
+         style="font-size:26.6667px">e.g. TREC-RAG</tspan></text>
+  </g>
+  <path
+     class="arrow"
+     d="m 662.45158,389.44478 h 37.5"
+     id="path47"
+     style="stroke-width:3;stroke-dasharray:3, 6;stroke-dashoffset:0" />
+  <rect
+     class="method"
+     x="283.95157"
+     y="512.51978"
+     width="192"
+     height="115.85"
+     rx="18"
+     ry="19.860449"
+     id="rect25-4"
+     style="fill:#cdcdcd;fill-opacity:1;stroke:#222222;stroke-width:2" />
+  <text
+     class="boxtext"
+     x="379.95157"
+     y="532.44476"
+     id="text26-1"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:Arial, Helvetica, sans-serif;dominant-baseline:middle;text-anchor:middle;fill:#111111"><tspan
+       id="tspan75-7"
+       style="font-size:32px">LLM-based</tspan></text>
+  <rect
+     class="output"
+     x="510.4516"
+     y="515.68475"
+     width="152"
+     height="109.52"
+     id="rect30-4"
+     style="fill:#ffffff;stroke:#222222;stroke-width:2" />
+  <text
+     class="boxtext"
+     x="586.4516"
+     y="589.44476"
+     id="text31-8"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:Arial, Helvetica, sans-serif;dominant-baseline:middle;text-anchor:middle;fill:#111111"><tspan
+       id="tspan83-6"
+       style="font-size:32px">claims</tspan></text>
+  <rect
+     class="method"
+     x="702.9516"
+     y="515.68475"
+     width="159.72"
+     height="109.52"
+     rx="21.391443"
+     ry="18.775187"
+     id="rect32-1"
+     style="fill:#cdcdcd;fill-opacity:1;stroke:#222222;stroke-width:2" />
+  <text
+     class="boxtext"
+     x="782.81158"
+     y="589.44476"
+     id="text33-5"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:Arial, Helvetica, sans-serif;dominant-baseline:middle;text-anchor:middle;fill:#111111"><tspan
+       style="font-size:26.6667px"
+       id="tspan81-0">by claims</tspan></text>
+  <text
+     class="boxtext"
+     x="782.81158"
+     y="551.44476"
+     id="text34-6"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:Arial, Helvetica, sans-serif;dominant-baseline:middle;text-anchor:middle;fill:#111111"><tspan
+       style="font-size:26.6667px"
+       id="tspan82-5">generation</tspan></text>
+  <text
+     class="boxtext"
+     x="586.4516"
+     y="551.44476"
+     id="text22-3-3"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:Arial, Helvetica, sans-serif;dominant-baseline:middle;text-anchor:middle;fill:#111111"
+     inkscape:transform-center-x="224.28741"
+     inkscape:transform-center-y="-249.61018"><tspan
+       id="tspan71-1-1"
+       style="font-size:32px">top K</tspan></text>
+  <path
+     class="arrow"
+     d="m 475.95158,570.44478 h 31.5"
+     id="path45-0"
+     style="fill:none;stroke:#111111;stroke-width:3;stroke-dasharray:3, 6;stroke-dashoffset:0;marker-end:url(#arrow-26)" />
+  <text
+     class="boxtext"
+     x="379.95157"
+     y="570.44476"
+     id="text28-1"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:Arial, Helvetica, sans-serif;dominant-baseline:middle;text-anchor:middle;fill:#111111"><tspan
+       id="tspan77-9"
+       style="font-size:32px">claim</tspan></text>
+  <text
+     class="boxtext"
+     x="379.95157"
+     y="608.44476"
+     id="text28-1-3"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:Arial, Helvetica, sans-serif;dominant-baseline:middle;text-anchor:middle;fill:#111111"><tspan
+       id="tspan77-9-8"
+       style="font-size:32px">extraction</tspan></text>
+  <path
+     class="arrow"
+     d="m 662.45158,570.44478 h 37.5"
+     id="path47-5"
+     style="fill:none;stroke:#111111;stroke-width:3;stroke-dasharray:3, 6;stroke-dashoffset:0;marker-end:url(#arrow-26)" />
+  <path
+     id="legend-dash"
+     d="m -839.12842,652.94478 h 56"
+     style="fill:none;stroke:#111111;stroke-width:3;stroke-dasharray:3, 6" />
+  <text
+     id="legend-text"
+     x="-767.12842"
+     y="652.94476"
+     style="font-weight:400;font-size:26.6667px;font-family:Arial, Helvetica, sans-serif;dominant-baseline:middle;text-anchor:start;fill:#111111"><tspan
+       style="font-style:normal;font-variant:normal;font-weight:bold;font-stretch:normal;font-family:Arial, Helvetica, sans-serif;-inkscape-font-specification:'Arial, Helvetica, sans-serif Bold'"
+       id="tspan2">alternative route</tspan></text>
+</svg>

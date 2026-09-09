@@ -1,37 +1,17 @@
-# Public scripts (retrieval pipeline)
+# RAG-scripts
 
-This directory is the **[RAG-scripts](https://github.com/fulaibaowang/RAG-scripts)** hybrid retrieval and reranking stack: BM25 + RM3, dense HNSW retrieval, retrieval fusion (RRF), cross-encoder reranking, optional post-rerank fusion, optional snippet-RRF, evidence construction, and LLM generation — plus two optional generation-side stages: **context distillation** (`GENERATION_MODE=claims`, so generation ingests more evidence than fits a raw prompt) and **sentence citation attribution** (`CITATION_GRANULARITY=sentence`).
+A hybrid retrieval, reranking and generation pipeline: BM25 + RM3, dense HNSW retrieval, retrieval fusion (RRF), cross-encoder reranking, optional post-rerank fusion, optional snippet-RRF, evidence construction, and LLM generation — plus an optional **context distillation** stage (`GENERATION_MODE=claims`) so generation can ingest more evidence than fits a raw prompt.
 
 ## What the pipeline does
 
 - **Document route:** BM25 → Dense → retrieval fusion → cross-encoder → post-rerank RRF → document evidence → document generation. (One context per document.)
 - **Optional snippet-RRF route:** snippet window rerank → final doc/snippet fusion → snippet evidence → snippet generation. (One context per document-derived passage window.)
-- **Optional generation-side stages:** `GENERATION_MODE=claims` distils contexts into claim slots before the answer prompt (default `direct` is byte-identical to the plain pipeline); `CITATION_GRANULARITY=sentence` then appends per-sentence citation attribution. Both default off. See [docs/PARAMETERS.md](docs/PARAMETERS.md).
+- **Optional context distillation:** `GENERATION_MODE=claims` distils contexts into claim slots before the answer prompt; the default `direct` is byte-identical to the plain pipeline. See [docs/PARAMETERS.md](docs/PARAMETERS.md) for this and the other generation-side options.
 
-```mermaid
-flowchart TD
-  BM25[BM25 + RM3] --> Dense[Dense]
-  Dense --> Hybrid["Retrieval fusion (BM25 + dense)"]
-  Hybrid --> Rerank["Cross-encoder rerank"]
-  Rerank --> RH["Post-rerank fusion"]
+![Pipeline overview](docs/img/pipeline.png)
 
-  RH --> EB[Document evidence]
-  EB --> GB[Document generation]
-
-  RH --> SR["Snippet rerank"]
-  SR --> RRF2["Evidence fusion"]
-  RRF2 --> ES[Snippet evidence]
-  ES --> GS[Snippet generation]
-
-  EB -.->|"GENERATION_MODE=claims"| CD["Claim distillation"]
-  ES -.-> CD
-  CD -.-> GB
-  CD -.-> GS
-  GB -.->|"CITATION_GRANULARITY=sentence"| AT["Sentence citations"]
-  GS -.-> AT
-```
-
-Dotted edges are the two optional generation-side stages; both default off.
+Dotted arrows are alternative routes; the solid path is what runs by default. Source for the
+figure: [docs/img/pipeline.svg](docs/img/pipeline.svg).
 
 Output layout (directories, fusion names, run format, logs): [docs/output.md](docs/output.md).
 
@@ -55,7 +35,7 @@ docker run --rm \
   bash -c "./run_retrieval_rerank_pipeline.sh --config demo/config.env"
 ```
 
-Outputs land in `demo/output/` (BM25 → dense → hybrid → rerank).
+Outputs land in `demo/output/` (BM25 → dense → retrieval fusion → rerank).
 
 ### Run on your own data
 
@@ -78,13 +58,13 @@ docker run --rm \
 
 1. Copy an example env ([conf/workflow_config_document.env](conf/workflow_config_document.env), [conf/workflow_config_full.env](conf/workflow_config_full.env)) or create your own.
 2. Set `WORKFLOW_OUTPUT_DIR`, query `.jsonl` paths (`INPUT_JSONL` / `INPUT_BATCH_JSONLS`), index paths, and `DOCS_JSONL` for reranking or building evidence.
-3. From **this directory**:
+3. From the repository root:
 
    ```bash
    ./run_retrieval_rerank_pipeline.sh --config /path/to/your.env
    ```
 
-   Use `--no-rerank` for retrieval only; `--no-generation` to skip LLM calls; `RUN_SNIPPET_RRF=1` for the snippet route; `GENERATION_MODE=claims` to distil contexts; `CITATION_GRANULARITY=sentence` to add per-sentence citations.
+   Use `--no-rerank` for retrieval only; `--no-generation` to skip LLM calls; `RUN_SNIPPET_RRF=1` for the snippet route; `GENERATION_MODE=claims` to distil contexts.
 
 Stages whose key outputs already exist are skipped. Per-stage **standalone** commands: [docs/USAGE.md](docs/USAGE.md).
 
@@ -98,7 +78,6 @@ have no reason to choose otherwise, start here and change one thing at a time:
 | `STAGE1_SOURCE` | `rrf` (default) | BM25 + dense fused beats either alone; use `external` when a hosted first stage already gives you a run |
 | Post-rerank fusion | on (default) | fuses the cross-encoder order with the stage-1 order rather than trusting either outright |
 | `GENERATION_MODE` | `claims` | lets generation ingest more evidence than fits a raw prompt; `direct` is the no-op default, `facets` is not recommended |
-| `CITATION_GRANULARITY` | `sentence` if you need per-sentence citations | otherwise leave off — it costs an extra pass |
 | Snippet route | off | turn on (`RUN_SNIPPET_RRF=1`) when passage-level evidence beats whole documents for your corpus |
 
 These are defaults for getting a sensible first run, not tuned settings — what wins depends on your
@@ -112,7 +91,6 @@ corpus and judge. Per-stage tuning ranges are in [docs/PARAMETERS.md](docs/PARAM
 | BM25 index | [index/build_bm25_index_from_jsonl_shards.py](index/build_bm25_index_from_jsonl_shards.py) |
 | Dense index | [index/build_dense_hnsw_index_from_jsonl_shards.py](index/build_dense_hnsw_index_from_jsonl_shards.py) |
 | LLM answers | [generation/generate_answers.py](generation/generate_answers.py) |
-| Sentence citations | [generation/attribute_sentences.py](generation/attribute_sentences.py) |
 
 Other stage scripts are invoked by the orchestrator; see [docs/USAGE.md](docs/USAGE.md) for direct CLI examples.
 
@@ -133,6 +111,33 @@ Other stage scripts are invoked by the orchestrator; see [docs/USAGE.md](docs/US
 | `listwise_script/` | Optional LLM listwise reranker, an alternative to the cross-encoder. Not wired into the orchestrator |
 | `ci/` | Mock LLM server and the generation-mode smoke script used by GitHub Actions |
 | `utils/` | Logging setup |
+
+## Pointing generation at an LLM
+
+Retrieval and reranking run locally. Generation calls out to a model, and needs to be told which:
+
+```bash
+GENERATION_BACKEND=ollama                        # default
+OLLAMA_URL=http://127.0.0.1:11434/api/generate   # your ollama serve
+GENERATION_MODEL=llama3.3:latest
+```
+
+```bash
+GENERATION_BACKEND=openai_compat                 # any OpenAI-compatible endpoint
+GEN_API_BASE=https://openrouter.ai/api/v1
+GENERATION_MODEL=meta-llama/llama-3.3-70b-instruct
+```
+
+API keys (`LLAMA_API_KEY` for the ollama path, `GEN_API_KEY` for `openai_compat`) come from the
+environment or a repo-root `.env` — never from a committed config.
+
+> **Set `OLLAMA_URL`.** Its built-in default points at the private endpoint this pipeline was first
+> developed against, which you almost certainly cannot reach. If generation fails to connect, this
+> is why.
+
+Run with `--no-generation` to stop after evidence construction and skip this entirely. Timeouts,
+context window, token caps, retry behaviour and the checkpoint/resume knobs are all in
+[docs/PARAMETERS.md](docs/PARAMETERS.md).
 
 ## Input and output schema (JSONL examples)
 
@@ -198,7 +203,7 @@ Carries **`query_*`** plus retrieved **`doc_ids`** in rank order (no document UR
 
 Written by `generation/generate_answers.py` from a **contexts** JSONL (e.g. output of `build_contexts_from_*.py`). Each output line is the input record **plus** model fields. On success: **`ideal_answer`** (string), **`evidence_ids`** (strings matching context `id` values — `<docid>-<n>`, e.g. `PMID-1` on PubMed, `shard_00122_5199-1` on ClimbMix), and for `yesno` / `factoid` / `list` also **`exact_answer`**. On failure, those may be null and an **`error`** string is set.
 
-With `CITATION_GRANULARITY=sentence`, an extra pass ([generation/attribute_sentences.py](generation/attribute_sentences.py)) appends **`answer_sentences`**: `[{"text": "<sentence>", "doc_ids": ["<real corpus docid>", ...]}]`, best-match-first per sentence. Everything else on the row is passed through untouched, so consumers that ignore the field see no change.
+An optional post-generation pass can attribute each answer *sentence* back to the documents behind it, adding an `answer_sentences` field and leaving the rest of the row untouched — see `CITATION_GRANULARITY` in [docs/PARAMETERS.md](docs/PARAMETERS.md).
 
 ```json
 {
@@ -220,17 +225,24 @@ With `CITATION_GRANULARITY=sentence`, an extra pass ([generation/attribute_sente
 
 ## Prerequisites
 
+Dense retrieval and cross-encoder reranking want a GPU; they run on CPU but slowly. BM25 and fusion
+are CPU-only. Index building is the memory-hungry step — budget for the corpus, not the queries.
+
 - A Python environment with the pipeline dependencies (PyTerrier, hnswlib, sentence-transformers, pandas, …), pinned in [requirements-docker-pytorch.txt](requirements-docker-pytorch.txt) and [requirements-docker.txt](requirements-docker.txt).
 - A Terrier BM25 index and a dense HNSW index — build both with the `index/` scripts (see [docs/USAGE.md](docs/USAGE.md)).
 - An LLM endpoint, only if you run generation (`--no-generation` skips it).
 
 The Docker image above carries all of this. **Local venv (optional):** install a matching `torch` for your OS/GPU from [pytorch.org](https://pytorch.org), then `pip install -r requirements-docker-pytorch.txt` and `pip install -r requirements-docker.txt`. You still need Java and the system packages installed in the [Dockerfile](Dockerfile).
 
+## License
+
+Apache-2.0. See [LICENSE](LICENSE).
+
 ## Related repos
 
-This pipeline is shared as a git subtree by several projects, which drive it over different corpora:
+This pipeline is shared by several projects, which drive it over different corpora. Task-specific
+submission formatting lives in those repos, not here.
 
-- [BioASQ](https://github.com/fulaibaowang/BioASQ/blob/main/README.md) — PubMed.
-- [dictycite](https://github.com/fulaibaowang/dictycite).
-
-Task-specific submission formatting lives in those repos, not here.
+- [BioASQ](https://github.com/fulaibaowang/BioASQ) — biomedical question answering over PubMed.
+- [trec-rag](https://github.com/fulaibaowang/trec-rag) — TREC RAG, over the ClimbMix web corpus. *Going public soon.*
+- [dictycite](https://github.com/fulaibaowang/dictycite) — literature curation for dictyBase.

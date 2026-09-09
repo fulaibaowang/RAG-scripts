@@ -3,3 +3,5 @@ demo/
 __pycache__/
 *.pyc
 .hf_cache/
+AGENTS.local.md
+CLAUDE.local.md
