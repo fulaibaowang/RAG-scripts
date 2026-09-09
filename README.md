@@ -5,13 +5,10 @@ A hybrid retrieval, reranking and generation pipeline: BM25 + RM3, dense HNSW re
 ## What the pipeline does
 
 - **Document route:** BM25 → Dense → retrieval fusion → cross-encoder → post-rerank RRF → document evidence → document generation. (One context per document.)
-- **Optional snippet-RRF route:** snippet window rerank → final doc/snippet fusion → snippet evidence → snippet generation. (One context per document-derived passage window.)
+- **Optional snippet-RRF route:** snippet window rerank → final doc/snippet fusion → snippet evidence → snippet generation. A snippet is a sliding window of **3 sentences** (`SNIPPET_WINDOW_SIZE`, stride 1, so windows overlap); windows are scored against the query and the best ones stand in for the whole document, which keeps the evidence dense when only a small part of a long document is relevant.
 - **Optional context distillation:** `GENERATION_MODE=claims` distils contexts into claim slots before the answer prompt; the default `direct` is byte-identical to the plain pipeline. See [docs/PARAMETERS.md](docs/PARAMETERS.md) for this and the other generation-side options.
 
 ![Pipeline overview](docs/img/pipeline.png)
-
-Dotted arrows are alternative routes; the solid path is what runs by default. Source for the
-figure: [docs/img/pipeline.svg](docs/img/pipeline.svg).
 
 Output layout (directories, fusion names, run format, logs): [docs/output.md](docs/output.md).
 
