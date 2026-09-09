@@ -1430,7 +1430,10 @@ _DOCS_JSONL_OK=0
         if [ "$_GEN_MODE" != "direct" ]; then
           case "${GENERATION_BACKEND:-ollama}" in
             ollama) ;;
-            *) echo "[Distill] ERROR: GENERATION_MODE=$_GEN_MODE supports only GENERATION_BACKEND=ollama (got '${GENERATION_BACKEND:-}')" >&2; exit 1 ;;
+            *) echo "[Distill] ERROR: GENERATION_MODE=$_GEN_MODE supports only GENERATION_BACKEND=ollama (got '${GENERATION_BACKEND:-}')." >&2
+               echo "[Distill]        Distillation speaks the ollama API directly; answer generation supports both backends." >&2
+               echo "[Distill]        To use a hosted model, set GENERATION_MODE=direct." >&2
+               exit 1 ;;
           esac
           _distilled="$WORKFLOW_OUTPUT_DIR/$_EVIDENCE_SUBDIR/${_split}_distilled_contexts.jsonl"
           _claims_cache="$WORKFLOW_OUTPUT_DIR/$_EVIDENCE_SUBDIR/${_split}_claims_cache.jsonl"

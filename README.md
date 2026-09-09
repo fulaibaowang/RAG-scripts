@@ -74,8 +74,8 @@ have no reason to choose otherwise, start here and change one thing at a time:
 |------|-----------|-----|
 | `STAGE1_SOURCE` | `rrf` (default) | BM25 + dense fused beats either alone; use `external` when a hosted first stage already gives you a run |
 | Post-rerank fusion | on (default) | fuses the cross-encoder order with the stage-1 order rather than trusting either outright |
-| `GENERATION_MODE` | `claims` | lets generation ingest more evidence than fits a raw prompt; `direct` is the no-op default, `facets` is not recommended |
-| Snippet route | off | turn on (`RUN_SNIPPET_RRF=1`) when passage-level evidence beats whole documents for your corpus |
+| `GENERATION_MODE` | `direct` (default) | switch to `claims` when you need generation to ingest more evidence than fits a raw prompt — it costs an extra LLM pass over every context. `facets` is not recommended |
+| Snippet route | off | turn on (`RUN_SNIPPET_RRF=1`) when passage-level evidence beats whole documents for your corpus. It is an alternative to the document route, not a companion to `claims` — snippets are already the relevant span, so distilling claims out of them buys little |
 
 These are defaults for getting a sensible first run, not tuned settings — what wins depends on your
 corpus and judge. Per-stage tuning ranges are in [docs/PARAMETERS.md](docs/PARAMETERS.md).
@@ -128,9 +128,15 @@ GENERATION_MODEL=meta-llama/llama-3.3-70b-instruct
 API keys (`LLAMA_API_KEY` for the ollama path, `GEN_API_KEY` for `openai_compat`) come from the
 environment or a repo-root `.env` — never from a committed config.
 
-> **Set `OLLAMA_URL`.** Its built-in default points at the private endpoint this pipeline was first
-> developed against, which you almost certainly cannot reach. If generation fails to connect, this
-> is why.
+`openai_compat` covers answer generation only. The optional distillation stage speaks the ollama
+API directly, so `GENERATION_MODE=claims` requires the ollama backend and is refused at config time
+with a hosted one — pair a hosted model with `GENERATION_MODE=direct`.
+
+> **`OLLAMA_URL` defaults to a local ollama on `127.0.0.1:11434`**, so `ollama serve` on the same
+> machine needs no configuration at all. Anything else — a GPU box, a cluster job, a hosted gateway —
+> means setting `OLLAMA_URL` in your workflow config (it is `source`d with `set -a`, so it reaches
+> the stage scripts); the repo-root `.env` is read for API keys only. If nothing is listening,
+> generation stops before the first question and says so, rather than writing a file of error rows.
 
 Run with `--no-generation` to stop after evidence construction and skip this entirely. Timeouts,
 context window, token caps, retry behaviour and the checkpoint/resume knobs are all in

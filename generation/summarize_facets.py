@@ -36,10 +36,10 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from distill_common import (  # noqa: E402
     EMB_MODEL, call_ollama, cluster_labels, deduped_claims, embed_texts, env_first,
-    load_qtext, member_hash, strip_preamble,
+    load_qtext, member_hash, preflight_ollama, strip_preamble,
 )
 
-DEFAULT_OLLAMA_URL = "https://chat.fri.uni-lj.si/ollama/api/generate"  # same default as generate_answers.py
+DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434/api/generate"  # same default as generate_answers.py
 
 SUMMARY_PROMPT = (
     "Combine the following claims into ONE concise statement that preserves every distinct fact. "
@@ -94,6 +94,10 @@ def main() -> None:
     ap.add_argument("--num-predict", type=int,
                     default=int(env_first("GENERATION_SUMMARY_NUM_PREDICT", default="256")))
     args = ap.parse_args()
+
+    _preflight_err = preflight_ollama(args.ollama_url)
+    if _preflight_err:
+        sys.exit(f"[summarize] {_preflight_err}")
 
     api_key = os.environ.get("LLAMA_API_KEY", "")
     think = _parse_think(os.environ.get("GENERATION_SUMMARY_THINK"))

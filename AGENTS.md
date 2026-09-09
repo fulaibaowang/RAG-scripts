@@ -50,6 +50,27 @@ context and distils them into slots before the answer prompt, so generation can 
 far more documents than would fit in a raw prompt. The default `direct` is a no-op that passes raw
 contexts through.
 
+**Distillation is ollama-only, and that is a constraint rather than an oversight.** Answer generation
+speaks both backends; `GENERATION_MODE=claims|facets` is refused at config time when
+`GENERATION_BACKEND=openai_compat`. Three things make a port to chat completions more than plumbing,
+and all three fail quietly rather than loudly:
+
+- **`num_ctx` has no hosted equivalent.** Hosted APIs fix the context window server-side, and the
+  documented truncation policy — raise `GENERATION_NUM_CTX`, never cut slots or contexts — depends
+  on being able to raise it. The orchestrator's pre-generation truncation warning rests on the same
+  knob and would become noise.
+- **`think` is three-state and step-dependent.** `True`, `False` and key-absent are three different
+  behaviours, and the correct one differs per stage — see the contract on
+  `distill_common.call_ollama`. `reasoning.effort` is not a faithful mapping, and a wrong choice
+  costs output quality without raising anything.
+- **The claim-cache key carries no model or backend** (`distill_common.sha_key`). That is sound only
+  while one output tree implies one model. A second backend makes cross-backend reuse reachable
+  inside a tree, so the key would have to grow — invalidating every banked cache in every consuming
+  repo.
+
+The code is the easy part. Landing it safely needs a back-to-back quality comparison between
+backends, and that evidence belongs with whoever runs it.
+
 ## One entrypoint
 
 ```bash

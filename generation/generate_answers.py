@@ -81,10 +81,10 @@ def _find_repo_root() -> Path:
 
 REPO_ROOT = _find_repo_root()
 
-# Endpoint is env-overridable so a self-hosted ollama (e.g. a local SLURM GPU job at
-# http://127.0.0.1:11434/api/generate) can be used in place of the institutional API.
-# Default is unchanged, so behaviour is byte-identical when OLLAMA_URL is unset (cross-repo safe).
-OLLAMA_URL = os.getenv("OLLAMA_URL", "https://chat.fri.uni-lj.si/ollama/api/generate")
+# Point OLLAMA_URL at whatever serves the model: a local ollama, a GPU job on a cluster,
+# or a hosted gateway. The default is the stock ollama address, so an unset OLLAMA_URL
+# fails against localhost rather than reaching out to some other deployment's host.
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434/api/generate")
 OLLAMA_MODEL = "llama3.3:latest"
 
 # Overridable so a run against a quota-limited hosted provider can wait it out rather than lose
@@ -116,6 +116,34 @@ class TransientChatAPIError(RuntimeError):
     raised a plain RuntimeError, ``_is_retryable_request_error`` said False, and the call failed
     with ZERO of its 3 retries used — measured 2026-07-30: 59 of 119 topics lost in one pass.
     """
+
+
+def preflight_endpoint(url: str, *, timeout: float = 5.0) -> Optional[str]:
+    """Return an error message if nothing is listening at ``url``, else None.
+
+    A ConnectionError here means "no server", not a transient blip, but the retry path
+    treats the two alike — so without this check a wrong or unset OLLAMA_URL costs
+    MAX_LLM_RETRIES attempts per question and lands a whole file of error rows with no
+    hint of the cause. Any HTTP reply at all (405, 404, 401) proves something is there,
+    so only a failure to connect is fatal; hosted gateways that reject a bare GET pass.
+    """
+    if os.getenv("GENERATION_PREFLIGHT", "1") == "0":
+        return None
+    try:
+        requests.get(url, timeout=timeout)
+    except requests.exceptions.ConnectionError:
+        return (
+            f"No LLM endpoint reachable at {url}\n"
+            "  - run a model locally:  ollama serve  (then: ollama pull <model>)\n"
+            "  - or another ollama:    set OLLAMA_URL in your workflow config\n"
+            "  - or a hosted model:    GENERATION_BACKEND=openai_compat, with GEN_API_BASE\n"
+            "                          (e.g. https://openrouter.ai/api/v1) and GEN_API_KEY\n"
+            "  - or skip generation:   ./run_retrieval_rerank_pipeline.sh --no-generation\n"
+            "  (set GENERATION_PREFLIGHT=0 to bypass this check)"
+        )
+    except requests.exceptions.RequestException:
+        return None
+    return None
 
 
 def _is_retryable_request_error(exc: BaseException) -> bool:
@@ -780,6 +808,10 @@ def main() -> int:
         api_key = get_ollama_api_key()
         effective_model = args.model
         logger.info("Generation backend: Ollama model=%s", effective_model)
+        _preflight_err = preflight_endpoint(OLLAMA_URL)
+        if _preflight_err:
+            logger.error("%s", _preflight_err)
+            return 1
 
     # Default prompts directory: resolve relative to this script so layout is portable.
     # This works for both:

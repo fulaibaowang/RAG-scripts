@@ -28,9 +28,9 @@ from pathlib import Path
 from typing import List, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from distill_common import ce_of, call_ollama, env_first, sha_key  # noqa: E402
+from distill_common import ce_of, call_ollama, env_first, preflight_ollama, sha_key  # noqa: E402
 
-DEFAULT_OLLAMA_URL = "https://chat.fri.uni-lj.si/ollama/api/generate"  # same default as generate_answers.py
+DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434/api/generate"  # same default as generate_answers.py
 
 EXTRACT_SYSTEM = (
     "You extract atomic factual claims from a passage to answer a question. "
@@ -139,6 +139,10 @@ def main() -> None:
                     default=int(env_first("GENERATION_EXTRACT_MAX_CHARS", default="4000")))
     ap.add_argument("--qids", type=Path, default=None, help="optional qid allowlist file")
     args = ap.parse_args()
+
+    _preflight_err = preflight_ollama(args.ollama_url)
+    if _preflight_err:
+        sys.exit(f"[extract] {_preflight_err}")
 
     api_key = os.environ.get("LLAMA_API_KEY", "")
     if not api_key:

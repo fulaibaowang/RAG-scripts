@@ -48,7 +48,7 @@ python index/build_dense_hnsw_index_from_jsonl_shards.py \
 - `--ef_construction`: HNSW construction parameter (default: 200)
 - `--ef_search`: HNSW query-time parameter (default: 100)
 - `--max_docs`: Limit index to N docs (for testing)
-- `--dedup_pmids`: De-duplicate documents by document
+- `--dedup_pmids`: De-duplicate documents by docno across shards (name is historical)
 
 
 ## Full pipeline (orchestrator)
@@ -247,6 +247,11 @@ python generation/generate_answers.py \
   --schemas-dir "/path/to/prompt/schemas" \
   --model "your-provider-model-id"
 ```
+
+This backend covers **answer generation only**. The distillation stages
+(`GENERATION_MODE=claims|facets`) speak the ollama API directly and are refused at config time
+with a hosted backend, so pair a hosted model with `GENERATION_MODE=direct`. What a port would
+require is written up in [AGENTS.md](../AGENTS.md).
 
 ## Output
 

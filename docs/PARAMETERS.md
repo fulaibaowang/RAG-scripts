@@ -359,6 +359,7 @@ Corresponds to `# ---------- Generation (LLM answers from contexts JSONL) ------
 | `--max-contexts` | — | **10** | Cap on evidence passages per question |
 | `--max-chars-per-context` | — | **1300** | Truncation length per context |
 | Model | — | **llama3.3:latest** | Ollama model (override via `GENERATION_MODEL` / provider) |
+| `GENERATION_PREFLIGHT` | 0/1 | **1** | Check once, before any work, that something is listening at `OLLAMA_URL`; exit with a fixit message if not. Only a failure to *connect* is fatal — any HTTP reply (405 to a bare GET, 401, 404) counts as reachable, so gateways that reject a bare GET still pass. Set `0` for an endpoint that refuses non-POST traffic outright |
 | `GENERATION_CHECKPOINT` | 0/1 | **1** | Per-completion checkpoint sidecar (`*_answers.jsonl.partial`): an interrupted run resumes, reusing clean completions (fingerprinted on input/model/params; failed rows are regenerated). Final answers file unchanged; sidecar removed on success |
 
 **Decision:** Temperature differences were marginal; default `temperature=0.0` for deterministic output.
@@ -386,7 +387,7 @@ The embedding backend is imported lazily, so runs with nothing to match never lo
 | Knob | Values | What it decides |
 |------|--------|-----------------|
 | `CITATION_GRANULARITY` | `answer` (default) \| `sentence` | Whether the stage runs at all. |
-| `CITATION_CLAIM_POOL` | **`declared`** \| `doc` | Which texts a sentence may be matched against: only the slots named in `evidence_ids`, or every claim of those same docs. The candidate **doc** set is identical either way, so cited docids stay a subset of the answer-level ones. `doc` matched substantially better on a judged web set. |
+| `CITATION_CLAIM_POOL` | **`declared`** \| `doc` | Which texts a sentence may be matched against: only the slots named in `evidence_ids`, or every claim of those same docs. The candidate **doc** set is identical either way, so cited docids stay a subset of the answer-level ones. `doc` is the better default on long web documents, where a sentence often restates a claim the answer did not name. |
 | `CITATION_MAX_CITES` | **`0`** | Citations per sentence (exact top-k; 0 → 1). Set this when the consuming wire format caps cites per sentence. |
 | `CITATION_MOCK` | **`0`** \| `1` | `1` = dependency-free mode for CI; never imports the embedding backend. |
 

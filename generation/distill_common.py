@@ -25,6 +25,7 @@ import hashlib
 import json
 import os
 import re
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -48,7 +49,13 @@ def norm(s: str) -> str:
 
 
 def sha_key(qid: str, text: str) -> str:
-    """Claim-cache key: one entry per (query, context text)."""
+    """Claim-cache key: one entry per (query, context text).
+
+    Model and backend are deliberately absent. That is sound only while one output tree
+    implies one model — which distillation's ollama-only constraint currently guarantees.
+    Anything that makes a tree reachable by two models (a second backend, a model swapped
+    mid-run) makes stale completions silently reusable, and must add them to this key.
+    """
     return hashlib.sha1((qid + "\0" + text).encode("utf-8")).hexdigest()
 
 
@@ -151,6 +158,35 @@ def embed_texts(texts: List[str], emb_cache: Optional[Path] = None,
     return emb
 
 
+def preflight_ollama(url: str, *, timeout: float = 5.0) -> Optional[str]:
+    """Return an error message if nothing is listening at ``url``, else None.
+
+    Distillation runs before generation, so a wrong or unset OLLAMA_URL should say so once
+    here rather than failing per context. Any HTTP reply (405 to a bare GET, 401, 404) proves
+    a server is there and passes; only a failure to connect is fatal. Pure stdlib, like
+    call_ollama, so every stage still runs in a bare venv.
+    """
+    if os.getenv("GENERATION_PREFLIGHT", "1") == "0":
+        return None
+    try:
+        urllib.request.urlopen(url, timeout=timeout)
+    except urllib.error.HTTPError:
+        return None
+    except urllib.error.URLError as e:
+        return (
+            f"No LLM endpoint reachable at {url} ({e.reason})\n"
+            "  - run a model locally:  ollama serve  (then: ollama pull <model>)\n"
+            "  - or another ollama:    set OLLAMA_URL (or GENERATION_EXTRACT_URL) in your config\n"
+            "  Distillation speaks the ollama API only: GENERATION_BACKEND=openai_compat is\n"
+            "  refused for GENERATION_MODE=claims|facets. To use a hosted model, generate with\n"
+            "  GENERATION_MODE=direct instead.\n"
+            "  (set GENERATION_PREFLIGHT=0 to bypass this check)"
+        )
+    except Exception:
+        return None
+    return None
+
+
 def call_ollama(url: str, model: str, prompt: str, *, options: Optional[dict] = None,
                 timeout: int = 120, think: Optional[bool] = None,
                 api_key: Optional[str] = None) -> str:
@@ -164,6 +200,11 @@ def call_ollama(url: str, model: str, prompt: str, *, options: Optional[dict] = 
     The Authorization bearer header is sent only when api_key is non-empty (hosted endpoints
     need it; self-hosted ollama ignores it).
     Pure stdlib (urllib) so every stage runs in a bare venv.
+
+    This is the ONLY LLM transport for distillation: GENERATION_MODE=claims|facets is refused
+    with GENERATION_BACKEND=openai_compat, because neither ``num_ctx`` nor the three-state
+    ``think`` flag above has a faithful chat-completions equivalent. Read the porting notes in
+    AGENTS.md before adding one — the failure mode is degraded output, not an error.
     """
     payload: Dict[str, Any] = {"model": model, "stream": False, "prompt": prompt}
     if options:
