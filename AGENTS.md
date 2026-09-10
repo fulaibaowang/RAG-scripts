@@ -1,8 +1,6 @@
 # AGENTS.md
 
-Orientation for coding agents working in this repository. Read by Cursor directly, and by Claude
-Code through the `@AGENTS.md` import in `CLAUDE.md`. Humans should start with [README.md](README.md);
-this file is the operating manual for *changing* the pipeline safely.
+How to *change* the pipeline safely. For running it, start with [README.md](README.md).
 
 ## What this is
 
