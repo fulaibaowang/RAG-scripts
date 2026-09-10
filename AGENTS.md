@@ -89,9 +89,10 @@ DEMO_DIR=demo OUT_ROOT=/tmp/genmodes bash ci/run_generation_modes.sh
 This runs every `GENERATION_MODE` against `ci/mock_ollama.py` — no GPU, no network egress — and
 asserts that answers come back error-free and that every distilled slot's `doc_id` is a real corpus
 docno. That last assertion is the citation-lineage guarantee; if your change breaks it, the change
-is wrong. `.github/workflows/ci.yml` runs the same script plus four end-to-end configurations
-(document route, chunked documents, single-retriever stage-1, post-rerank fusion disabled) on public
-demo data in Docker. Touching the orchestrator's stage wiring usually means adding a matrix entry.
+is wrong. `.github/workflows/ci.yml` runs the same script, the distillation cache-contract tests
+(`python3 generation/test_distill_common.py`), and four end-to-end configurations (document route,
+chunked documents, single-retriever stage-1, post-rerank fusion disabled) on public demo data in
+Docker. Touching the orchestrator's stage wiring usually means adding a matrix entry.
 
 ## Conventions to preserve
 
