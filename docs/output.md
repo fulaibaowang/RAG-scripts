@@ -30,6 +30,108 @@ We refer to three fusion steps:
   - With `GENERATION_MODE=claims`, distillation intermediates (`<split>_claims_cache.jsonl`, `<split>_distilled_contexts.jsonl`) sit next to the contexts file, and answers are written as `<split>_distilled_answers.jsonl`.
   - With `CITATION_GRANULARITY=sentence`, the attribution stage writes `<split>_[distilled_]answers_attributed.jsonl` alongside the answers it read.
 
+## JSONL schemas
+
+Every JSONL file is **one JSON object per line**, and each stage passes unknown fields through
+untouched. Question identity on the wire is always **`query_id`**, **`query_text`**, **`query_type`**,
+on read and on write (nested **`bioasq`** and duplicate **`id` / `body` / `type`** fields are dropped
+when loading). Legacy lines that only have `id` / `body` / `type` are still accepted on read and
+normalized to `query_*`. Converting to and from a task's own submission JSON is the consuming repo's
+job, not this pipeline's — for BioASQ see
+[`bioasq_json_to_queries_jsonl.py`](https://github.com/fulaibaowang/BioASQ/blob/main/scripts/public/format/bioasq_json_to_queries_jsonl.py).
+
+### Input query JSONL
+
+Each line is a single question. **`query_id`** is required (after normalization from legacy `id` / `qid` / `bioasq.id` if needed). **`query_text`** is the retrieval topic. **`query_type`** is **optional** and task-specific — BioASQ uses it for the task label (`summary`, `yesno`, `factoid`, `list`); corpora with no such notion simply omit it. Optional gold for eval is a **`documents`** array of corpus `docno`s.
+
+```json
+{
+  "query_id": "67d723d918b1e36f2e000039",
+  "query_text": "Are there biomarkers of depression?",
+  "query_type": "summary"
+}
+```
+
+Docids are whatever your corpus uses — the pipeline never parses them. The examples below are
+BioASQ/PubMed, matching the demo data and the Docker image. A TREC-RAG/ClimbMix line carries no
+`query_type` and uses shard-style docids, and runs through the same stages unchanged:
+
+```json
+{
+  "query_id": "rag2026-0",
+  "query_text": "I'm on a hospital nursing DEI council that has to recommend a three-year plan..."
+}
+```
+
+### Corpus JSONL
+
+Each line is a document the indexes and evidence stages look up by `docno`:
+
+```json
+{ "docno": "your-id", "title": "...", "text": "..." }
+```
+
+Index build and a new-corpus checklist: [USAGE.md](USAGE.md#indexing).
+
+### Post-rerank JSONL
+
+Carries **`query_*`** plus retrieved **`doc_ids`** in rank order (no document URLs or text here).
+
+```json
+{
+  "query_id": "680fe1e3353a4a2e6b00000f",
+  "query_text": "Is a single-nucleotide polymorphism (SNP) the same as a mutation?",
+  "query_type": "yesno",
+  "doc_ids": ["26173390", "28431642", "21453671", "30498395", "12741168"]
+}
+```
+
+On the snippet route the same record also carries the selected windows per document:
+
+```json
+{
+  "query_id": "680fe1e3353a4a2e6b00000f",
+  "query_text": "Is a single-nucleotide polymorphism (SNP) the same as a mutation?",
+  "query_type": "yesno",
+  "doc_ids": ["26173390", "28431642"],
+  "doc_snippet_windows": {
+    "26173390": [
+      { "window_idx": 2, "ce_score": 12.5 },
+      { "window_idx": 7, "ce_score": 9.1 }
+    ],
+    "28431642": [
+      { "window_idx": 0, "ce_score": 11.0 }
+    ]
+  }
+}
+```
+
+The exact shapes at each snippet-route step are in [USAGE.md](USAGE.md#snippet-route-jsonl-shapes).
+
+### Generation output JSONL (`*_answers.jsonl`)
+
+Written by `generation/generate_answers.py` from a **contexts** JSONL (`evidence/evidence_*/*_contexts.jsonl`). Each output line is the input record **plus** model fields. On success: **`ideal_answer`** (string), **`evidence_ids`** (strings matching context `id` values — `<docid>-<n>`, e.g. `PMID-1` on PubMed, `shard_00122_5199-1` on ClimbMix), and for `yesno` / `factoid` / `list` also **`exact_answer`**. On failure, those may be null and an **`error`** string is set.
+
+An optional post-generation pass can attribute each answer *sentence* back to the documents behind it, adding an `answer_sentences` field and leaving the rest of the row untouched — see `CITATION_GRANULARITY` in [PARAMETERS.md](PARAMETERS.md).
+
+```json
+{
+  "query_id": "680fe1e3353a4a2e6b00000f",
+  "query_text": "Is a single-nucleotide polymorphism (SNP) the same as a mutation?",
+  "query_type": "yesno",
+  "doc_ids": ["26173390", "28431642"],
+  "contexts": [
+    {
+      "id": "26173390-1",
+      "doc_id": "26173390",
+      "text": "Title: …\n\nAbstract: …"
+    }
+  ],
+  "ideal_answer": "No. SNPs are defined as common variants (often ≥1% frequency), whereas “mutation” often denotes rarer or pathogenic change; usage overlaps and context matters.",
+  "evidence_ids": ["26173390-1", "28431642-1"]
+}
+```
+
 ## Migrating an existing workflow directory
 
 If you have outputs from an older pipeline revision, rename/move under the same `$WORKFLOW_OUTPUT_DIR`:

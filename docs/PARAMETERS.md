@@ -264,6 +264,10 @@ Optional filter after post-rerank RRF fusion (t*): `RERANK_TSTAR_ENABLE`, `RERAN
 
 Corresponds to `# ---------- Snippet RRF route (--snippet-rrf) ----------` in [workflow_config_full.env](../conf/workflow_config_full.env).
 
+A snippet is a sliding window of `SNIPPET_WINDOW_SIZE` sentences (default 3, stride 1, so windows
+overlap). Windows are scored against the query and the best ones stand in for the whole document,
+which keeps the evidence dense when only a small part of a long document is relevant.
+
 The snippet-RRF route adds snippet window reranking and final doc/snippet fusion:
 
 - `rerank/post_rerank_fusion_snippet/` → `snippet/snippet_rerank/`
@@ -351,6 +355,16 @@ Generation then runs unchanged on `<split>_distilled_contexts.jsonl`, writing `<
 ## Answer generation (LLM)
 
 Corresponds to `# ---------- Generation (LLM answers from contexts JSONL) ----------` in [workflow_config_full.env](../conf/workflow_config_full.env).
+
+**Backend and endpoint.** `GENERATION_BACKEND=ollama` (default) posts to `OLLAMA_URL`, which
+defaults to a local ollama on `http://127.0.0.1:11434/api/generate` — `ollama serve` on the same
+machine needs no configuration. Anything else (a GPU box, a cluster job, a hosted gateway) means
+setting `OLLAMA_URL` in your workflow config; it is `source`d with `set -a`, so it reaches the stage
+scripts. `GENERATION_BACKEND=openai_compat` targets any OpenAI-compatible `GEN_API_BASE` instead.
+API keys (`LLAMA_API_KEY` for ollama, `GEN_API_KEY` for `openai_compat`) come from the environment
+or a repo-root `.env`, which is read for keys only — never put them in a committed config.
+`openai_compat` covers answer generation only: `GENERATION_MODE=claims` speaks the ollama API
+directly and is refused at config time with a hosted backend (see [AGENTS.md](../AGENTS.md) for why).
 
 | Parameter | Range tested | Default | Notes |
 |-----------|--------------|---------|-------|

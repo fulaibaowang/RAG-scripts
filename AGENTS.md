@@ -142,10 +142,30 @@ enable it in a config or suggest it as an improvement. Default/`direct` is the n
 | What does a knob do, what range is sane, how do caps chain? | [docs/PARAMETERS.md](docs/PARAMETERS.md) |
 | How do I run one stage standalone? | [docs/USAGE.md](docs/USAGE.md) |
 | What does a run write, and where? | [docs/output.md](docs/output.md) |
+| What do the JSONL files look like? | [docs/output.md](docs/output.md) § JSONL schemas |
 | What should I set if I don't know? | [README.md](README.md) § Recommended starting point |
-| What is each directory for? | [README.md](README.md) § Repo map |
+| What is each directory for? | § Repo map, below |
 
 When `--help` and the docs disagree, `--help` is right — then fix the docs.
+
+## Repo map
+
+| Directory | Contents |
+|-----------|----------|
+| `run_retrieval_rerank_pipeline.sh` | The orchestrator — the one entrypoint |
+| `index/` | Build the Terrier BM25 and dense HNSW indexes from JSONL shards |
+| `retrieval/` | Stage-1 BM25 and dense retrieval, retrieval RRF, multi-field query fusion |
+| `rerank/` | Cross-encoder rerank, post-rerank fusion, t\* score cutoff, eval plots |
+| `evidence/` | Turn ranked docids into contexts — document contexts, snippet windows, snippet rerank |
+| `generation/` | Claim extraction and distillation, answer generation, sentence citation attribution |
+| `conf/` | Example workflow configs; copy one and edit |
+| `prompts/` | Generation system/user prompt templates and output schemas |
+| `docs/` | Parameter reference, per-stage usage, output layout and JSONL schemas |
+| `retrieval_eval/` | Shared metric helpers (recall/nDCG) used by the stage scripts |
+| `analysis/` | Standalone post-hoc reports — recall by question, low-recall diagnosis, run comparison. Not part of the pipeline |
+| `listwise_script/` | Optional LLM listwise reranker, an alternative to the cross-encoder. Not wired into the orchestrator |
+| `ci/` | Mock LLM server and the generation-mode smoke script used by GitHub Actions |
+| `utils/` | Logging setup |
 
 ## Style
 
