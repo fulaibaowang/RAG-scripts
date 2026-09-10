@@ -14,60 +14,30 @@ document *length*, or a particular task's field names, that is a bug — keep it
 
 ## The pipeline
 
-Seven numbered stages, each writing into its own subdirectory of `$WORKFLOW_OUTPUT_DIR`. Stages 6–7
-are the optional snippet route; evidence and generation follow.
+Numbered stages write into subdirectories of `$WORKFLOW_OUTPUT_DIR`. Layout, fusion names, and
+scripts: [docs/output.md](docs/output.md). Stages 6–7 are the optional snippet route; evidence and
+generation follow.
 
-| # | Stage | Script | Reads | Writes |
-|---|-------|--------|-------|--------|
-| 1 | BM25 (+RM3) retrieval | `retrieval/retrieve_bm25.py` | query JSONL, Terrier index | `retrieval/bm25/` |
-| 2 | Dense retrieval | `retrieval/retrieve_dense.py` | query JSONL, HNSW index | `retrieval/dense/` |
-| 3 | Retrieval fusion (RRF) | `retrieval/fuse_retrieval.py` | runs from 1 + 2 | `retrieval/fusion/` |
-| 4 | Cross-encoder rerank | `rerank/rerank_crossencoder.py` | stage-1 run, `DOCS_JSONL` | `rerank/cross_encoder/` |
-| 5 | Post-rerank fusion (RRF) | `rerank/fuse_rerank.py` | runs from 3 + 4 | `rerank/post_rerank_fusion/` |
-| 6 | Snippet windows + CE rerank | `evidence/rerank_snippets.py` | reranked docs, `DOCS_JSONL` | `snippet/snippet_rerank/` |
-| 7 | Evidence fusion (RRF) | `rerank/fuse_rerank.py` | runs from 5 + 6 | `snippet/snippet_doc_fusion/` |
-| — | Evidence (contexts) | `evidence/build_doc_contexts.py`, `evidence/build_snippet_contexts.py` | final run, `DOCS_JSONL` | `evidence/evidence_baseline/`, `evidence/evidence_snippet/` |
-| — | Generation | `generation/generate_answers.py` | contexts JSONL, LLM endpoint | `generation/generation_baseline/`, `generation/generation_snippet/` |
-
-Two things about that table are worth internalising, because they explain most of the code:
-
-- **There are three separate RRF fusions** (stages 3, 5, 7) and they are *not* interchangeable.
-  Stage 3 fuses two first-stage retrievers. Stage 5 fuses the cross-encoder's order with the
-  first-stage order, so a document the reranker hates but retrieval loved is not simply discarded.
-  Stage 7 fuses document-level and snippet-level rankings. `docs/output.md` names all three; use
-  those names in code and comments, not "hybrid".
+- **Three separate RRF fusions** (retrieval, post-rerank, evidence) are *not* interchangeable.
+  Retrieval fusion joins two first-stage retrievers. Post-rerank fusion joins the cross-encoder's
+  order with the first-stage order, so a document the reranker hates but retrieval loved is not
+  simply discarded. Evidence fusion joins document-level and snippet-level rankings. Use those
+  names in code and comments, not "hybrid".
 - **`_baseline` in the evidence and generation paths is a legacy on-disk name for the document
   route.** It does not mean "a baseline system". Don't rename it — existing run trees depend on it.
-
-The first stage is swappable via `STAGE1_SOURCE`: `rrf` (default, stages 1–3), `bm25` or `dense`
-(one retriever, skipping the other and the fusion), or `external` (skip stages 1–3 entirely and
-stage a precomputed run from `STAGE1_RUN` — for hosted retrieval APIs).
-
-Generation has an optional preceding stage. `GENERATION_MODE=claims` extracts claims from each
-context and distils them into slots before the answer prompt, so generation can ingest evidence from
-far more documents than would fit in a raw prompt. The default `direct` is a no-op that passes raw
-contexts through.
-
-**Distillation is ollama-only, and that is a constraint rather than an oversight.** Answer generation
-speaks both backends; `GENERATION_MODE=claims|facets` is refused at config time when
-`GENERATION_BACKEND=openai_compat`. Three things make a port to chat completions more than plumbing,
-and all three fail quietly rather than loudly:
-
-- **`num_ctx` has no hosted equivalent.** Hosted APIs fix the context window server-side, and the
-  documented truncation policy — raise `GENERATION_NUM_CTX`, never cut slots or contexts — depends
-  on being able to raise it. The orchestrator's pre-generation truncation warning rests on the same
-  knob and would become noise.
-- **`think` is three-state and step-dependent.** `True`, `False` and key-absent are three different
-  behaviours, and the correct one differs per stage — see the contract on
-  `distill_common.call_ollama`. `reasoning.effort` is not a faithful mapping, and a wrong choice
-  costs output quality without raising anything.
-- **The claim-cache key carries no model or backend** (`distill_common.sha_key`). That is sound only
-  while one output tree implies one model. A second backend makes cross-backend reuse reachable
-  inside a tree, so the key would have to grow — invalidating every banked cache in every consuming
-  repo.
-
-The code is the easy part. Landing it safely needs a back-to-back quality comparison between
-backends, and that evidence belongs with whoever runs it.
+- **`STAGE1_SOURCE`:** `rrf` (default, stages 1–3), `bm25` or `dense` (one retriever), or `external`
+  (skip 1–3; stage a precomputed run from `STAGE1_RUN`).
+- **`GENERATION_MODE=direct`** (default) is a no-op. **`claims`** distils contexts into slots so
+  generation can ingest more evidence than fits a raw prompt. **`facets`** is CI-tested but not
+  recommended — don't enable it or suggest it.
+- **`claims` is ollama-only**, refused at config time when `GENERATION_BACKEND=openai_compat`. Do
+  not port it to chat completions. A port is more than plumbing, and these fail quietly:
+  `num_ctx` has no hosted equivalent (truncation policy is raise `GENERATION_NUM_CTX`, never cut
+  slots); `think` is three-state and step-dependent (`distill_common.call_ollama`); the claim-cache
+  key (`distill_common.sha_key`) carries no model or backend, so a second backend would reuse
+  caches across backends and invalidate every consuming repo's bank. Don't land a port without a
+  back-to-back quality comparison. Details:
+  [docs/PARAMETERS.md](docs/PARAMETERS.md#context-distillation-optional).
 
 ## One entrypoint
 
@@ -126,11 +96,8 @@ demo data in Docker. Touching the orchestrator's stage wiring usually means addi
   `metrics.csv`, `per_query/` and `*_meta.json`. See [docs/output.md](docs/output.md).
 - **New behaviour goes behind a flag that defaults off**, so an existing config keeps producing
   byte-identical output. `GENERATION_MODE=direct` is the model to copy.
-
-`GENERATION_MODE=facets` is accepted and exercised by CI, but is **not recommended**: it adds a
-clustering stage and a second LLM pass for no measured quality gain on long-form synthesis. Don't
-enable it in a config or suggest it as an improvement. Default/`direct` is the no-op path; switch to
-`claims` when the raw prompt cannot hold the evidence (ollama-only — see above).
+- **Never delete or rename** a config variable, an output path, or a JSONL field. Other consumers
+  of this pipeline still depend on them.
 
 ## Where the answers are
 
