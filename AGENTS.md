@@ -14,9 +14,19 @@ document *length*, or a particular task's field names, that is a bug — keep it
 
 ## The pipeline
 
-Numbered stages write into subdirectories of `$WORKFLOW_OUTPUT_DIR`. Layout, fusion names, and
-scripts: [docs/output.md](docs/output.md). Stages 6–7 are the optional snippet route; evidence and
-generation follow.
+Stages run in this order, each writing its own subdirectory of `$WORKFLOW_OUTPUT_DIR` (layout in
+[docs/output.md](docs/output.md)):
+
+1. BM25 (+RM3) retrieval — `retrieval/retrieve_bm25.py`
+2. Dense retrieval — `retrieval/retrieve_dense.py`
+3. Retrieval fusion — `retrieval/fuse_retrieval.py`
+4. Cross-encoder rerank — `rerank/rerank_crossencoder.py`
+5. Post-rerank fusion — `rerank/fuse_rerank.py`
+6. Snippet windows + CE rerank — `evidence/rerank_snippets.py` (snippet route only)
+7. Evidence fusion — `rerank/fuse_rerank.py` (snippet route only)
+
+Then evidence (`evidence/build_doc_contexts.py`, `evidence/build_snippet_contexts.py`) and
+generation (`generation/generate_answers.py`).
 
 - **Three separate RRF fusions** (retrieval, post-rerank, evidence) are *not* interchangeable.
   Retrieval fusion joins two first-stage retrievers. Post-rerank fusion joins the cross-encoder's
@@ -30,13 +40,13 @@ generation follow.
 - **`GENERATION_MODE=direct`** (default) is a no-op. **`claims`** distils contexts into slots so
   generation can ingest more evidence than fits a raw prompt. **`facets`** is CI-tested but not
   recommended — don't enable it or suggest it.
-- **`claims` is ollama-only**, refused at config time when `GENERATION_BACKEND=openai_compat`. Do
-  not port it to chat completions. A port is more than plumbing, and these fail quietly:
-  `num_ctx` has no hosted equivalent (truncation policy is raise `GENERATION_NUM_CTX`, never cut
-  slots); `think` is three-state and step-dependent (`distill_common.call_ollama`); the claim-cache
-  key (`distill_common.sha_key`) carries no model or backend, so a second backend would reuse
-  caches across backends and invalidate every consuming repo's bank. Don't land a port without a
-  back-to-back quality comparison. Details:
+- **`claims` is ollama-only**, refused at config time when `GENERATION_BACKEND=openai_compat`. A
+  port to chat completions is more than plumbing, and each of these fails quietly: `num_ctx` has
+  no hosted equivalent (the truncation policy is to raise `GENERATION_NUM_CTX`, never cut slots);
+  `think` is three-state and step-dependent (`distill_common.call_ollama`); and the claim-cache key
+  (`distill_common.sha_key`) carries no model or backend, so a second backend would silently reuse
+  claims across backends — and growing the key to fix that invalidates every banked cache in every
+  consuming repo. Don't land a port without a back-to-back quality comparison. Details:
   [docs/PARAMETERS.md](docs/PARAMETERS.md#context-distillation-optional).
 
 ## One entrypoint
