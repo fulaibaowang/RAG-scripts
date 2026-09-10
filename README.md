@@ -40,8 +40,10 @@ Outputs land in `demo/output/` (BM25 → dense → retrieval fusion → rerank).
 git clone https://github.com/fulaibaowang/RAG-scripts.git
 cd RAG-scripts
 cp conf/workflow_config_document.env my_run.env
+# build BM25 + dense indexes first: docs/USAGE.md#indexing
 # edit my_run.env: set WORKFLOW_OUTPUT_DIR, INPUT_JSONL, INPUT_BATCH_JSONLS,
 #                  BM25_INDEX_PATH, DENSE_INDEX_DIR, DOCS_JSONL
+# no gold documents[] on queries? HAVE_GROUND_TRUTH=0 (docs/PARAMETERS.md)
 docker run --rm \
   -v "$PWD:/work" \
   -v "/path/to/your/data:/data" \
@@ -75,6 +77,7 @@ have no reason to choose otherwise, start here and change one thing at a time:
 | `STAGE1_SOURCE` | `rrf` (default) | BM25 + dense fused beats either alone; use `external` when a hosted first stage already gives you a run |
 | Post-rerank fusion | on (default) | fuses the cross-encoder order with the stage-1 order rather than trusting either outright |
 | `GENERATION_MODE` | `direct` (default) | switch to `claims` when you need generation to ingest more evidence than fits a raw prompt — it costs an extra LLM pass over every context. `facets` is not recommended |
+| `HAVE_GROUND_TRUTH` | `0` if queries have no gold | default is `1`; missing `documents` yields all-zero metrics, not a skip — see [docs/PARAMETERS.md](docs/PARAMETERS.md) |
 | Snippet route | off | turn on (`RUN_SNIPPET_RRF=1`) when passage-level evidence beats whole documents for your corpus. It is an alternative to the document route, not a companion to `claims` — snippets are already the relevant span, so distilling claims out of them buys little |
 
 These are defaults for getting a sensible first run, not tuned settings — what wins depends on your
@@ -168,6 +171,16 @@ BioASQ/PubMed, matching the demo data and the Docker image. A TREC-RAG/ClimbMix 
   "query_text": "I'm on a hospital nursing DEI council that has to recommend a three-year plan..."
 }
 ```
+
+### Corpus JSONL
+
+Each line is a document the indexes and evidence stages look up by `docno`:
+
+```json
+{ "docno": "your-id", "title": "...", "text": "..." }
+```
+
+Optional gold for eval is a `documents` array on the **query** line (same ids as `docno`). Index build and a new-corpus checklist: [docs/USAGE.md](docs/USAGE.md#indexing). Eval without gold: [docs/PARAMETERS.md](docs/PARAMETERS.md#ground-truth-eval-metrics).
 
 ### Post-rerank JSONL output
 

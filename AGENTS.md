@@ -131,7 +131,8 @@ demo data in Docker. Touching the orchestrator's stage wiring usually means addi
 
 `GENERATION_MODE=facets` is accepted and exercised by CI, but is **not recommended**: it adds a
 clustering stage and a second LLM pass for no measured quality gain on long-form synthesis. Don't
-enable it in a config or suggest it as an improvement. Use `claims`.
+enable it in a config or suggest it as an improvement. Default/`direct` is the no-op path; switch to
+`claims` when the raw prompt cannot hold the evidence (ollama-only — see above).
 
 ## Where the answers are
 

@@ -139,7 +139,7 @@ while [ $# -gt 0 ]; do
       echo "                          bm25 / dense = run only that retriever, stage its run as stage-1, skip the other retriever and Fusion."
       echo "  RUN_GENERATION_DOCUMENT=0|1   Run generation for document route (default 1)."
       echo "  RUN_GENERATION_SNIPPET=0|1    Run generation for snippet route (default 1)."
-      echo "  GENERATION_SCHEMAS_DIR       Directory of schema *.txt for LLM prompts (default: scripts/public/shared_scripts/prompts/schemas under repo root)."
+      echo "  GENERATION_SCHEMAS_DIR       Directory of schema *.txt for LLM prompts (default: prompts/schemas next to this script, or under SHARED_SCRIPTS_DIR)."
       echo "  CITATION_GRANULARITY=answer|sentence   answer (default) = generation output unchanged; sentence = append the"
       echo "                          post-hoc attribution stage (generation/attribute_sentences.py) after generation."
       echo "                          Requires GENERATION_MODE=claims (refused with direct). Knobs: CITATION_CLAIM_POOL"
@@ -216,9 +216,9 @@ fi
 
 cd "$REPO_ROOT"
 
-# Generation schema snippets: default portable path under shared_scripts; override with
+# Generation schema snippets: default portable path under this script tree; override with
 # GENERATION_SCHEMAS_DIR in config or --generation-schemas-dir (CLI wins over config).
-_DEFAULT_GENERATION_SCHEMAS_DIR="$REPO_ROOT/scripts/public/shared_scripts/prompts/schemas"
+_DEFAULT_GENERATION_SCHEMAS_DIR="$SCRIPT_DIR/prompts/schemas"
 if [ -n "${_PIPELINE_GENERATION_SCHEMAS_DIR:-}" ]; then
   export GENERATION_SCHEMAS_DIR="$_PIPELINE_GENERATION_SCHEMAS_DIR"
 else

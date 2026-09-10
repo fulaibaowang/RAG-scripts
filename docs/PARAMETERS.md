@@ -23,9 +23,9 @@ Commented list of the workflow variables: [workflow_config_full.env](../conf/wor
 
 ## Ground truth (eval metrics)
 
-Corresponds to `# ---------- Ground truth (eval metrics) ----------` in [workflow_config_full.env](../conf/workflow_config_full.env).
+Gold relevance is the optional **`documents`** array on each query JSONL record (same ids as corpus `docno`), normalized by `build_topics_and_gold` in [retrieval_eval/common.py](../retrieval_eval/common.py). There is no separate qrels file.
 
-Set `HAVE_GROUND_TRUTH=0` to skip evaluation metrics for BM25, Dense, Retrieval Fusion, and Rerank when you have no qrels.
+`HAVE_GROUND_TRUTH` defaults to **`1`**. Empty or missing `documents` still “evaluates,” so recall/MAP come back all zeros and look like a retrieval bug. Set **`HAVE_GROUND_TRUTH=0`** when there is no gold — that disables eval metrics for BM25, Dense, Retrieval Fusion, and Rerank.
 
 ---
 

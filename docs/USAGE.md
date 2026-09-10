@@ -4,6 +4,15 @@
 
 ## Indexing
 
+Corpus JSONL is one document per line. Required field: **`docno`** (opaque string; chunk ids like `id#abstract` are fine). Text comes from **`title`** plus **`text`**. Query gold, if any, is a **`documents`** array on each query JSONL record listing those same `docno`s — not a separate qrels file.
+
+**New corpus checklist**
+
+1. Write query JSONL (`query_id`, `query_text`, optional `query_type` / `documents`) and corpus JSONL as above.
+2. Build BM25 and dense indexes with the commands below. Dense `--model_name` must match what you retrieve with; the snippet default is MedEmbed (biomedical demo).
+3. `cp conf/workflow_config_document.env my_run.env`, set paths, and `HAVE_GROUND_TRUTH=0` if queries have no `documents` gold ([PARAMETERS.md](PARAMETERS.md#ground-truth-eval-metrics)).
+4. `./run_retrieval_rerank_pipeline.sh --config my_run.env` (`--no-generation` until an LLM endpoint is up).
+
 ### BM25 index
 
 Build a Terrier-based BM25 index from JSONL shards e.g pubmed corpus or [MS MARCO V2.1 document corpus](https://trec-rag.github.io/annoucements/2024-corpus-finalization/#where-can-i-find-the-corpus):
