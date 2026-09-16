@@ -143,7 +143,7 @@ When `--help` and the docs disagree, `--help` is right — then fix the docs.
 | `conf/` | Example workflow configs; copy one and edit |
 | `prompts/` | Generation system/user prompt templates and output schemas |
 | `docs/` | Parameter reference, per-stage usage, output layout and JSONL schemas |
-| `retrieval_eval/` | Shared metric helpers (recall/nDCG) used by the stage scripts |
+| `retrieval_eval/` | Shared metric helpers (recall@K, MAP/GMAP/MRR/Success@10) used by the stage scripts |
 | `analysis/` | Standalone post-hoc reports — recall by question, low-recall diagnosis, run comparison. Not part of the pipeline |
 | `listwise_script/` | Optional LLM listwise reranker, an alternative to the cross-encoder. Not wired into the orchestrator |
 | `ci/` | Mock LLM server and the generation-mode smoke script used by GitHub Actions |
