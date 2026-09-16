@@ -33,6 +33,12 @@ generation (`generation/generate_answers.py`).
   order with the first-stage order, so a document the reranker hates but retrieval loved is not
   simply discarded. Evidence fusion joins document-level and snippet-level rankings. Use those
   names in code and comments, not "hybrid".
+- **Query rewrites can be RRF-fused too.** One phrasing of a question often misses relevant
+  documents, so the query JSONL can carry rewrites (HyDE, question decomposition, paraphrases) as
+  extra fields beside `query_text`. A comma-separated `*_QUERY_FIELD` runs that stage once per field
+  and fuses the runs back into its usual `runs/`. This is per-stage, separate from the three fusions
+  above, and the pipeline only consumes rewrites — generating them is upstream. Details:
+  [docs/PARAMETERS.md](docs/PARAMETERS.md#query-text-fields-optional).
 - **`_baseline` in the evidence and generation paths is a legacy on-disk name for the document
   route.** It does not mean "a baseline system". Don't rename it — existing run trees depend on it.
 - **`STAGE1_SOURCE`:** `rrf` (default, stages 1–3), `bm25` or `dense` (one retriever), or `external`

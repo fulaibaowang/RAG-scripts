@@ -147,7 +147,7 @@ Corresponds to `# ---------- Index paths ----------` in [workflow_config_full.en
 
 Corresponds to `# ---------- Query text fields (optional) ----------` in [workflow_config_full.env](../conf/workflow_config_full.env).
 
-Comma-separated `BM25_QUERY_FIELD`, `DENSE_QUERY_FIELD`, `RERANK_QUERY_FIELD` run per-field subdirectories and optional weighted RRF fusion back into canonical `bm25/runs`, `dense/runs`, `rerank/runs`. See comments in the env file for `*_QUERY_FUSION_WEIGHTS`, `*_QUERY_FUSION_K_RRF`, and `*_QUERY_BODY_WEIGHT`.
+Comma-separated `BM25_QUERY_FIELD`, `DENSE_QUERY_FIELD`, `RERANK_QUERY_FIELD` run per-field subdirectories and optional weighted RRF fusion back into canonical `bm25/runs`, `dense/runs`, `rerank/runs`. See comments in the env file for `*_QUERY_FUSION_WEIGHTS`, `*_QUERY_FUSION_K_RRF`, and `*_QUERY_TEXT_WEIGHT`.
 
 ---
 
