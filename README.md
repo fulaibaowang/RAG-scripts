@@ -69,20 +69,13 @@ These defaults give you a sensible first run. They are not tuned settings.
 
 ## Every ranking stage is scored
 
-When your queries carry gold `documents`, each ranking stage (BM25, dense, retrieval fusion,
-cross-encoder rerank, post-rerank fusion, snippet rerank) writes next to its run a `metrics.csv`
-with recall@K, MAP@10, GMAP@10, MRR@10 and Success@10, plus the same scores per question under
-`per_query/`. The pipeline also plots recall curves and compares reranked against fused runs. So
-when a relevant document never reaches the prompt, you can see which stage dropped it, and whether
-a new component helps. Generated answers are not scored; that is up to the task.
+With gold `documents` on your queries, every ranking stage writes recall@K and MAP scores, per
+question too, and plots recall and MAP@K curves, so you can see which stage lost a relevant
+document. Without gold, set `HAVE_GROUND_TRUTH=0`.
 
 ![Recall@K for the first-stage retrievers and MAP@K through reranking](docs/img/stage_metrics.png)
 
-*Built from the pipeline's run files for BioASQ 13b, batches 1–4 averaged; the scripts are in
-[BioASQ](https://github.com/fulaibaowang/BioASQ).*
-
-Set `HAVE_GROUND_TRUTH=0` for queries without gold, or the metrics come back as all zeros. Output
-layout: [docs/output.md](docs/output.md).
+*BioASQ 13b, batches 1–4 averaged.*
 
 ## Pointing generation at an LLM
 
