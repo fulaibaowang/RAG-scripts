@@ -275,7 +275,8 @@ _process_route() {
         [ -n "${GENERATION_RESCUE_TIMEOUT:-}" ] && RESCUE_ARGS+=(--timeout "$GENERATION_RESCUE_TIMEOUT")
         [ -n "${GENERATION_RESCUE_RETRY_SLEEP:-}" ] && RESCUE_ARGS+=(--retry-sleep "$GENERATION_RESCUE_RETRY_SLEEP")
         [ -n "$_max_ctx" ] && RESCUE_ARGS+=(--max-contexts "$_max_ctx")
-        [ -n "${GENERATION_MAX_CHARS_PER_CONTEXT:-}" ] && RESCUE_ARGS+=(--max-chars-per-context "$GENERATION_MAX_CHARS_PER_CONTEXT")
+        # Same caps as the main run above, so a rescued answer sees the same evidence.
+        [ -n "$_max_chars" ] && RESCUE_ARGS+=(--max-chars-per-context "$_max_chars")
         python "$SCRIPT_DIR/generation/rescue_failed_generation.py" "${RESCUE_ARGS[@]}"
       fi
     fi

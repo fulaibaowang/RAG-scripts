@@ -105,6 +105,11 @@ Docker. Touching the orchestrator's stage wiring usually means adding a matrix e
 - **Query identity on the wire is `query_id` / `query_text` / `query_type`**, on read and on write.
   Older `id` / `body` / `type` are normalized on read only — never reintroduce them downstream.
   `query_type` is **optional**; don't write code that requires it.
+- **Evidence is never removed quietly.** `--max-contexts` / `--max-chars-per-context` drop and cut
+  contexts, so generation warns whenever they change the input (`0` = no cap), and rescue takes the
+  main run's caps as required flags instead of choosing smaller ones. A retry on less evidence is a
+  different experiment that looks like a recovered row — fix a failure by raising
+  `GENERATION_NUM_CTX` or the output budget, not by feeding less.
 - **JSONL everywhere**: one JSON object per line, and every stage passes unknown fields through
   untouched. A consumer that ignores a field you added must see no change at all.
 - **Context ids are `<docid>-<n>`**, with `doc_id` carrying the real corpus docid. Citation lineage

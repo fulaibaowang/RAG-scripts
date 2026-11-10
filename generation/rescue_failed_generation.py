@@ -3,16 +3,21 @@
 Rescue failed questions from a generation output JSONL.
 
 Loads an answers .jsonl file, finds records with an "error" field (optionally
-only 504 timeouts), re-runs generation with a longer client timeout, optional --max-contexts
-(default 10), and a lower max-chars-per-context (default 1100) to reduce JSON parse errors.
+only 504 timeouts), and re-runs generation for them with a longer client timeout, one at a time.
+
+A rescued answer is generated from the SAME evidence as the main run: --max-contexts and
+--max-chars-per-context are required and must be the main run's own values. Rescue has no
+defaults of its own, because a retry on less evidence is a different experiment that looks
+like a recovered row. If the caps do change the input, generate_answers.py says so in the log.
+
 Note: 504 Gateway Time-out is set by the server/proxy, not by --timeout;
 retrying with concurrency 1 or during off-peak may help.
 By default overwrites the input file; use --output to write to a new file instead.
 
-Usage:
-  python rescue_failed_generation.py --input output/.../generation/13B3_golden_answers.jsonl
-  python rescue_failed_generation.py --input 13B3_golden_answers.jsonl --output rescued.jsonl
-  python rescue_failed_generation.py --input 13B3_golden_answers.jsonl --only-504 --timeout 300
+Usage (CAPS = the main run's values, e.g. --max-contexts 10 --max-chars-per-context 1300):
+  python rescue_failed_generation.py --input output/.../generation/13B3_golden_answers.jsonl CAPS
+  python rescue_failed_generation.py --input 13B3_golden_answers.jsonl --output rescued.jsonl CAPS
+  python rescue_failed_generation.py --input 13B3_golden_answers.jsonl --only-504 --timeout 300 CAPS
   # With openai_compat: export GENERATION_MODEL (or pass --model); GEN_API_KEY may come from repo .env
   # (generate_answers loads only that key from .env). Backend/base/model otherwise come from the shell.
   # Schema snippets: export GENERATION_SCHEMAS_DIR (e.g. from pipeline config) or pass --schemas-dir;
@@ -74,14 +79,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--max-contexts",
         type=int,
-        default=10,
-        help="Cap on contexts in evidence block for rescue run (default: 10, same as generate_answers.py).",
+        required=True,
+        help="The main run's --max-contexts (required; 0 = no cap). Rescue never picks its own.",
     )
     parser.add_argument(
         "--max-chars-per-context",
         type=int,
-        default=1100,
-        help="Shorter context truncation for rescue run to reduce JSON parse errors (default: 1100).",
+        required=True,
+        help="The main run's --max-chars-per-context (required; 0 = no cap). Rescue never picks its own.",
     )
     parser.add_argument(
         "--retry-sleep",

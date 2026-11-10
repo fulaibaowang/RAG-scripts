@@ -348,7 +348,7 @@ Generation then runs unchanged on `<split>_distilled_contexts.jsonl`, writing `<
 - **Document route:** claim ordering uses the cross-encoder scores carried on snippet windows (`selected_windows[].ce_score`); document-route contexts have none, so source order falls back to retrieval rank.
 - **Models:** the ollama `think` flag is **step-dependent** for thinking models (gemma): extraction and answer generation leave the key **absent** — an explicit `false` measurably degrades both. Override per stage via `GENERATION_EXTRACT_THINK` / `GENERATION_THINK` only if you have evidence.
 - **Caches are stable contracts** (see [test_distill_common.py](../generation/test_distill_common.py)); claim extraction is the expensive step and is never recomputed for a (query, context text) pair.
-- Rescue in distilled mode passes the same `--max-contexts` / `--max-chars-per-context` as the main run (input-preserving).
+- Rescue passes the same `--max-contexts` / `--max-chars-per-context` as the main run, in every mode (input-preserving). `rescue_failed_generation.py` requires both flags and has no defaults of its own.
 
 ---
 

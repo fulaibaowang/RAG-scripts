@@ -663,8 +663,8 @@ def format_user_prompt(
 def build_full_prompt_for_record(
     record: Dict[str, Any],
     prompts_dir: Path,
-    max_contexts: int = 8,
-    max_chars_per_context: int = 1200,
+    max_contexts: int,
+    max_chars_per_context: int,
     schemas_dir: Optional[Path] = None,
 ) -> str:
     """Build the exact prompt that would be sent for this record. Used by rescue script.

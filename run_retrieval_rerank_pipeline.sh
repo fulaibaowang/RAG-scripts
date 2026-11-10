@@ -1526,7 +1526,7 @@ DISTILL_PREFLIGHT
             [ -n "$_max_ctx" ] && RESCUE_ARGS+=(--max-contexts "$_max_ctx")
             # Input-preserving rescue: identical truncation caps to the main run, so a
             # rescued answer is never generated from silently reduced evidence. (The rescue
-            # script's own standalone default is a shorter 1100 chars — never rely on it here.)
+            # script has no cap defaults of its own; both flags are required.)
             [ -n "$_max_chars" ] && RESCUE_ARGS+=(--max-chars-per-context "$_max_chars")
             python "$SCRIPT_DIR/generation/rescue_failed_generation.py" "${RESCUE_ARGS[@]}"
           fi
