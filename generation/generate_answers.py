@@ -220,13 +220,15 @@ def parse_args() -> argparse.Namespace:
         "--max-contexts",
         type=int,
         default=10,
-        help="Cap on number of contexts in evidence block (default: 10).",
+        help="Cap on number of contexts in evidence block (default: 10; 0 = no cap). "
+             "A warning is logged when the cap drops contexts.",
     )
     parser.add_argument(
         "--max-chars-per-context",
         type=int,
         default=1300,
-        help="Truncation length per context (default: 1300).",
+        help="Truncation length per context (default: 1300; 0 = no cap). "
+             "A warning is logged when the cap cuts a context.",
     )
     parser.add_argument(
         "--sleep",
@@ -520,16 +522,58 @@ def call_llm(
     )
 
 
+def evidence_cap_effect(
+    contexts: List[Dict[str, Any]],
+    max_contexts: int,
+    max_chars_per_context: int,
+) -> tuple[int, int]:
+    """What the evidence caps remove from one question's input: (contexts dropped, contexts cut).
+
+    Mirrors format_evidence_block exactly, so (0, 0) means the prompt carries every context whole.
+    A cap of 0 (or less) means no cap.
+    """
+    kept = contexts[:max_contexts] if max_contexts > 0 else contexts
+    dropped = len(contexts) - len(kept)
+    cut = 0
+    if max_chars_per_context > 0:
+        cut = sum(len(str(c.get("text", "")).strip()) > max_chars_per_context for c in kept)
+    return dropped, cut
+
+
+def evidence_caps_warning(
+    contexts_per_question: List[List[Dict[str, Any]]],
+    max_contexts: int,
+    max_chars_per_context: int,
+) -> Optional[str]:
+    """One message for the whole input when the caps change it, else None."""
+    questions = dropped = cut = 0
+    for contexts in contexts_per_question:
+        d, c = evidence_cap_effect(contexts, max_contexts, max_chars_per_context)
+        if d or c:
+            questions += 1
+            dropped += d
+            cut += c
+    if not questions:
+        return None
+    return (
+        f"Evidence caps change the input of {questions}/{len(contexts_per_question)} question(s): "
+        f"{dropped} context(s) dropped by --max-contexts {max_contexts}, "
+        f"{cut} context(s) cut at --max-chars-per-context {max_chars_per_context}. "
+        "The model does not see the removed evidence; raise the caps, or pass 0 for no cap."
+    )
+
+
 def format_evidence_block(
     contexts: List[Dict[str, Any]],
     max_contexts: int,
     max_chars_per_context: int,
 ) -> str:
+    """Render contexts into the prompt's evidence block. A cap of 0 (or less) means no cap."""
     lines: List[str] = []
-    for ctx in contexts[:max_contexts]:
+    for ctx in (contexts[:max_contexts] if max_contexts > 0 else contexts):
         cid = str(ctx.get("id", "")) or "(no id)"
         text = str(ctx.get("text", "")).strip()
-        if len(text) > max_chars_per_context:
+        if max_chars_per_context > 0 and len(text) > max_chars_per_context:
             text = text[:max_chars_per_context] + "..."
         block = f"[{cid}],\n{text}" if text else f"[{cid}],"
         lines.append(block)
@@ -880,15 +924,25 @@ def main() -> int:
     args.output_dir.mkdir(parents=True, exist_ok=True)
     json_path = args.output_dir / f"{stem}_answers.jsonl"
 
+    def contexts_of(obj: Dict[str, Any]) -> List[Dict[str, Any]]:
+        if args.evidence_source == "contexts":
+            return obj.get("contexts") or []
+        snippets = obj.get("snippets") or []
+        return snippets_to_contexts(snippets) if snippets else []
+
+    # The caps silently remove evidence from the prompt, so say so: once before any LLM call,
+    # and again at the end where a long log is read. Output is unchanged either way.
+    caps_warning = evidence_caps_warning(
+        [contexts_of(o) for o in all_objs], args.max_contexts, args.max_chars_per_context
+    )
+    if caps_warning:
+        logger.warning(caps_warning)
+
     def process_one(idx: int, obj: Dict[str, Any]) -> tuple[int, Dict[str, Any]]:
         q_id = question_qid(obj)
         qtype = question_type(obj).lower()
         question = question_body(obj) or ""
-        if args.evidence_source == "contexts":
-            contexts = obj.get("contexts") or []
-        else:
-            snippets = obj.get("snippets") or []
-            contexts = snippets_to_contexts(snippets) if snippets else []
+        contexts = contexts_of(obj)
         out = dict(obj)
         doc_ids = obj.get("doc_ids") or obj.get("docnos")
         if isinstance(doc_ids, list) and doc_ids:
@@ -1111,6 +1165,8 @@ def main() -> int:
             pass
 
     logger.info("Wrote %d records to %s", len(records_out), json_path)
+    if caps_warning:
+        logger.warning(caps_warning)
     return 0
 
 

@@ -138,6 +138,9 @@ jobs:
       - name: Unit tests (distillation cache contracts)
         run: python3 generation/test_distill_common.py
 
+      - name: Unit tests (evidence caps)
+        run: python3 generation/test_evidence_caps.py
+
       - name: Cache HuggingFace models
         uses: actions/cache@v4
         with:

@@ -370,11 +370,16 @@ directly and is refused at config time with a hosted backend (see [AGENTS.md](..
 |-----------|--------------|---------|-------|
 | `--temperature` | 0.0, 0.3, 0.8 | **0.0** | LLM sampling temperature |
 | `--top-p` | — | **1.0** | Nucleus sampling |
-| `--max-contexts` | — | **10** | Cap on evidence passages per question |
-| `--max-chars-per-context` | — | **1300** | Truncation length per context |
+| `--max-contexts` | — | **10** | Cap on evidence passages per question; contexts past it are dropped. `0` = no cap |
+| `--max-chars-per-context` | — | **1300** | Truncation length per context. `0` = no cap |
 | Model | — | **llama3.3:latest** | Ollama model (override via `GENERATION_MODEL` / provider) |
 | `GENERATION_PREFLIGHT` | 0/1 | **1** | Check once, before any work, that something is listening at `OLLAMA_URL`; exit with a fixit message if not. Only a failure to *connect* is fatal — any HTTP reply (405 to a bare GET, 401, 404) counts as reachable, so gateways that reject a bare GET still pass. Set `0` for an endpoint that refuses non-POST traffic outright |
 | `GENERATION_CHECKPOINT` | 0/1 | **1** | Per-completion checkpoint sidecar (`*_answers.jsonl.partial`): an interrupted run resumes, reusing clean completions (fingerprinted on input/model/params; failed rows are regenerated). Final answers file unchanged; sidecar removed on success |
+
+Both caps remove evidence from the prompt without changing the answers file (it keeps the full
+`contexts`). When either cap changes the input, generation logs one warning before the first LLM
+call and repeats it at the end, with the number of questions affected, contexts dropped and
+contexts cut. Treat that warning as a decision to make, not noise: raise the cap or pass `0`.
 
 **Decision:** Temperature differences were marginal; default `temperature=0.0` for deterministic output.
 
