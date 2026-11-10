@@ -1,3 +1,5 @@
+# DEPRECATED: image for the listwise flow (listwise_script/), which is no longer maintained.
+# Kept only so existing run trees can be reproduced.
 ARG VLLM_BASE_IMAGE=vllm/vllm-openai:v0.17.1
 FROM ${VLLM_BASE_IMAGE}
 

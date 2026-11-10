@@ -301,11 +301,9 @@ See [notebooks/snippet_extraction_ce_bgem3.ipynb](https://github.com/fulaibaowan
 
 ---
 
-## Listwise reranking (optional)
+## Listwise reranking (deprecated)
 
-Corresponds to `# ---------- Listwise Reranking (RankZephyr, separate container) ----------` in [workflow_config_full.env](../conf/workflow_config_full.env).
-
-Listwise stages run in a dedicated flow (`Dockerfile.listwise`, scripts under `listwise_script/`). Variables such as `RUN_LISTWISE`, `LISTWISE_*`, and listwise fusion weights are documented in that env block.
+The LLM listwise reranker (`listwise_script/`, `Dockerfile.listwise`, the `RUN_LISTWISE` / `LISTWISE_*` variables) is **deprecated**: it is no longer maintained or recommended, and it was never wired into the orchestrator. Use the cross-encoder rerank. The scripts still run, with a deprecation notice, so existing run trees can be reproduced.
 
 ---
 

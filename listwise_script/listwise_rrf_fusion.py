@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 """
+DEPRECATED: the listwise flow is no longer maintained or recommended; use the cross-encoder
+rerank in the main pipeline. Kept only so existing run trees can be reproduced.
+
 RRF fusion between listwise reranking output and snippet_doc_fusion output.
 
 Takes two sets of runs:

@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 """
+DEPRECATED: the listwise flow is no longer maintained or recommended; use the cross-encoder
+rerank in the main pipeline. Kept only so existing run trees can be reproduced.
+
 Listwise reranking with RankZephyr 7B via RankLLM.
 
 Reads snippet_doc_fusion runs + snippet_rerank windows produced by the main pipeline

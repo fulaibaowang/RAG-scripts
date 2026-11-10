@@ -150,7 +150,7 @@ When `--help` and the docs disagree, `--help` is right — then fix the docs.
 | `docs/` | Parameter reference, per-stage usage, output layout and JSONL schemas |
 | `retrieval_eval/` | Shared metric helpers (recall@K, MAP/GMAP/MRR/Success@10) used by the stage scripts |
 | `analysis/` | Standalone post-hoc reports — recall by question, low-recall diagnosis, run comparison. Not part of the pipeline |
-| `listwise_script/` | Optional LLM listwise reranker, an alternative to the cross-encoder. Not wired into the orchestrator |
+| `listwise_script/` | **Deprecated** LLM listwise reranker. Not wired into the orchestrator; kept only to reproduce existing runs — don't use it, extend it, or suggest it |
 | `ci/` | Mock LLM server and the generation-mode smoke script used by GitHub Actions |
 | `utils/` | Logging setup |
 

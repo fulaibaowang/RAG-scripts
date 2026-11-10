@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 #
+# DEPRECATED. The listwise flow is no longer maintained or recommended; use the cross-encoder
+# rerank in run_retrieval_rerank_pipeline.sh. Kept only so existing run trees can be reproduced.
+#
 # Evidence + Generation for listwise-reranked runs.
 #
 # Runs in the MAIN container (not the listwise/vLLM container) because it
@@ -16,6 +19,8 @@
 # EVIDENCE_TOP_K (post_rerank top-k; default 10), GENERATION_*
 #
 set -e
+
+echo "[deprecated] listwise_script/ is no longer maintained; use run_retrieval_rerank_pipeline.sh (cross-encoder rerank). Kept for reproducing existing runs." >&2
 
 # ---------------------------------------------------------------------------
 # Resolve SCRIPT_DIR = shared_scripts root (evidence/, generation/, etc.).

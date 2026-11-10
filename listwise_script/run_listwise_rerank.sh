@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 #
+# DEPRECATED. The listwise flow is no longer maintained or recommended; use the cross-encoder
+# rerank in run_retrieval_rerank_pipeline.sh. Kept only so existing run trees can be reproduced.
+#
 # Listwise reranking (RankZephyr) – runs in its own container after the main pipeline.
 #
 # Reads snippet/snippet_doc_fusion/runs and snippet/snippet_rerank/windows produced by
@@ -14,6 +17,8 @@
 # Optional: INPUT_JSONL / INPUT_BATCH_JSONLS (or legacy TRAIN_JSON / TEST_BATCH_JSONS; .jsonl only), LISTWISE_* (see conf/workflow_config_full.env)
 #
 set -e
+
+echo "[deprecated] listwise_script/ is no longer maintained; use run_retrieval_rerank_pipeline.sh (cross-encoder rerank). Kept for reproducing existing runs." >&2
 
 # ---------------------------------------------------------------------------
 # Resolve LISTWISE_SCRIPT_DIR = this directory (listwise Python modules live here).
